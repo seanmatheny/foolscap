@@ -7,11 +7,13 @@ import FoolscapUI
 /// SwiftUI wrapper: a scrolling MarkdownTextView bound to one document.
 public struct MarkdownEditor: NSViewRepresentable {
     let document: NoteDocument
+    let revealLine: Int?
     let onEdit: () -> Void
     @Environment(\.notebookTheme) private var theme
 
-    public init(document: NoteDocument, onEdit: @escaping () -> Void) {
+    public init(document: NoteDocument, revealLine: Int? = nil, onEdit: @escaping () -> Void) {
         self.document = document
+        self.revealLine = revealLine
         self.onEdit = onEdit
     }
 
@@ -43,6 +45,18 @@ public struct MarkdownEditor: NSViewRepresentable {
             textView.applyPalette()
             textView.restyleAll()
         }
+        if let line = revealLine, context.coordinator.revealedLine != line {
+            context.coordinator.revealedLine = line
+            let map = textView.styler.blockMap
+            if line < map.lines.count {
+                let range = map.lines[line].range
+                DispatchQueue.main.async {
+                    textView.setSelectedRange(range)
+                    textView.scrollRangeToVisible(range)
+                    textView.window?.makeFirstResponder(textView)
+                }
+            }
+        }
         // Keep the text view at least as tall as the visible page so ruling fills it.
         let visible = scroll.contentView.bounds.height
         if textView.minSize.height != visible {
@@ -55,6 +69,7 @@ public struct MarkdownEditor: NSViewRepresentable {
     public final class Coordinator: NSObject, NSTextViewDelegate {
         var textView: MarkdownTextView?
         var scrollView: NSScrollView?
+        var revealedLine: Int?
         let onEdit: () -> Void
         init(onEdit: @escaping () -> Void) { self.onEdit = onEdit }
 

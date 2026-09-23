@@ -51,7 +51,7 @@ public struct EditorPalette {
         tagBackground = theme.accent.nsColor.withAlphaComponent(0.14)
         selection = theme.accent.nsColor.withAlphaComponent(0.22)
         highlighter = theme.highlighter.mapValues { $0.nsColor }
-        pitch = (theme.type.body.size * theme.type.lineHeightMultiple * 1.35).rounded()
+        pitch = theme.linePitch
         isDark = theme.isDark
     }
 

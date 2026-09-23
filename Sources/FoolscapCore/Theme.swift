@@ -114,6 +114,9 @@ public struct NotebookTheme: Codable, Identifiable, Hashable, Sendable {
     public func tabColor(at index: Int) -> RGBA {
         tabColors.isEmpty ? accent : tabColors[index % tabColors.count]
     }
+
+    /// Vertical pitch of the ruling and of every body line, in points.
+    public var linePitch: Double { (type.body.size * type.lineHeightMultiple * 1.35).rounded() }
 }
 
 // MARK: - Built-in themes

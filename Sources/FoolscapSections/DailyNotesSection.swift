@@ -74,7 +74,7 @@ struct DailyNotesPage: View {
     var body: some View {
         let document = section.library.document(forDay: section.selectedDay)
         ZStack(alignment: .topTrailing) {
-            MarkdownEditor(document: document) { section.library.scheduleSave() }
+            MarkdownEditor(document: document, revealLine: section.pendingLine) { section.library.scheduleSave() }
                 .id(section.selectedDay)
                 .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
                                         removal: .opacity))

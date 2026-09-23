@@ -33,8 +33,14 @@ final class AppModel {
             startupError = "Could not open notebook folder \(root.path): \(error.localizedDescription)"
         }
         if let library {
-            sections = [DailyNotesSection(library: library),
-                        PlaceholderSection(id: "tasks", label: "Tasks", symbol: "checklist")]
+            let daily = DailyNotesSection(library: library)
+            let tasks = TasksSection(library: library) { [weak self] route in
+                guard let self else { return }
+                self.selectedSectionID = "daily"
+                daily.navigate(to: route)
+            }
+            sections = [daily, tasks]
+            tasks.aggregator.setProviders(sections.compactMap(\.taskProvider))
         }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
         // `Foolscap --day 2026-09-22` opens on a given day (handy for scripted screenshots).
