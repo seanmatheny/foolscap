@@ -101,7 +101,6 @@ struct TasksPage: View {
                         TextField("Task, with #category", text: $newTaskText)
                             .paperField().frame(width: 320)
                             .onSubmit { submit() }
-                        Text("Kept in Tasks.md in your notebook folder.").font(.caption).foregroundStyle(theme.dimInk.color)
                     }
                 }
             }
