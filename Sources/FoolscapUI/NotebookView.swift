@@ -44,8 +44,9 @@ public struct NotebookView<Page: View>: View {
                     }
                     .padding(EdgeInsets(top: NotebookMetrics.topMargin, leading: NotebookMetrics.spineMargin,
                                         bottom: NotebookMetrics.bottomMargin, trailing: NotebookMetrics.sideMargin))
+                // The band wraps the cover beyond the tabs, so it never crosses the page.
                 ElasticBandView()
-                    .padding(.trailing, NotebookMetrics.sideMargin + 16)
+                    .padding(.trailing, 6)
                 // Leather band above the page: reveals the traffic lights and drags the window.
                 TrafficLightHoverZone()
                     .frame(height: NotebookMetrics.topMargin)
@@ -53,7 +54,7 @@ public struct NotebookView<Page: View>: View {
                     .gesture(WindowDragGesture())
             }
         }
-        .background(NotebookWindowChrome(shapeVersion: selection))
+        .background(NotebookWindowChrome(shapeVersion: selection, coverColor: theme.cover.baseColor.nsColor))
         .ignoresSafeArea()
     }
 }

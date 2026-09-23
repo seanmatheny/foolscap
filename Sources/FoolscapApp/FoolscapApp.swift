@@ -32,6 +32,15 @@ struct FoolscapApp: App {
     @State private var model = AppModel()
 
     var body: some Scene {
+        mainWindow.windowStyle(.hiddenTitleBar)
+        Settings {
+            PreferencesRoot()
+                .environment(model)
+                .environment(\.notebookTheme, model.theme)
+        }
+    }
+
+    var mainWindow: some Scene {
         WindowGroup("Foolscap") {
             RootView()
                 .environment(model)
@@ -39,7 +48,6 @@ struct FoolscapApp: App {
                 .environment(\.notebookTheme, model.theme)
                 .frame(minWidth: 820, minHeight: 560)
         }
-        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1100, height: 760)
         .commands {
@@ -84,11 +92,6 @@ struct FoolscapApp: App {
             }
         }
 
-        Settings {
-            PreferencesRoot()
-                .environment(model)
-                .environment(\.notebookTheme, model.theme)
-        }
     }
 }
 

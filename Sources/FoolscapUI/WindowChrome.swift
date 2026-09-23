@@ -7,18 +7,37 @@ import AppKit
 public struct NotebookWindowChrome: NSViewRepresentable {
     /// Any value; a change triggers a shadow recompute (e.g. tab selection).
     let shapeVersion: AnyHashable
+    /// Painted behind the cover while full screen (the window is opaque there).
+    let coverColor: NSColor
 
-    public init(shapeVersion: AnyHashable) { self.shapeVersion = shapeVersion }
+    public init(shapeVersion: AnyHashable, coverColor: NSColor) {
+        self.shapeVersion = shapeVersion
+        self.coverColor = coverColor
+    }
 
     public func makeNSView(context: Context) -> ChromeView { ChromeView() }
 
     public func updateNSView(_ view: ChromeView, context: Context) {
+        view.coverColor = coverColor
         view.configureIfNeeded()
         DispatchQueue.main.async { view.window?.invalidateShadow() }
     }
 
+    /// Answers the full-screen presentation question for SwiftUI's own window
+    /// delegate and forwards everything else to it untouched.
+    final class DelegateProxy: NSObject, NSWindowDelegate {
+        weak var original: NSWindowDelegate?
+        override func responds(to sel: Selector!) -> Bool { super.responds(to: sel) || (original?.responds(to: sel) ?? false) }
+        override func forwardingTarget(for sel: Selector!) -> Any? { original }
+        func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposed: NSApplication.PresentationOptions) -> NSApplication.PresentationOptions {
+            proposed.union([.autoHideMenuBar, .autoHideDock])
+        }
+    }
+
     public final class ChromeView: NSView {
         private var configured = false
+        var coverColor: NSColor = .black
+        private var proxy: DelegateProxy?
 
         public override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -31,13 +50,39 @@ public struct NotebookWindowChrome: NSViewRepresentable {
             window.styleMask.insert(.fullSizeContentView)
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
+            window.toolbar = nil
             window.isOpaque = false
             window.backgroundColor = .clear
             window.hasShadow = true
             window.isMovableByWindowBackground = true
-            window.toolbar = nil
             TrafficLights.set(window: window, visible: false, animated: false)
             DispatchQueue.main.async { window.invalidateShadow() }
+            // Native full screen: menu bar and Dock slide away like any other app.
+            installProxy(on: window)
+            NotificationCenter.default.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let window = self.window else { return }
+                    self.installProxy(on: window)
+                    window.isOpaque = true
+                    window.backgroundColor = self.coverColor
+                }
+            }
+            NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let window = self?.window else { return }
+                    window.isOpaque = false
+                    window.backgroundColor = .clear
+                    window.invalidateShadow()
+                }
+            }
+        }
+
+        private func installProxy(on window: NSWindow) {
+            if let proxy, window.delegate === proxy { return }
+            let p = DelegateProxy()
+            p.original = window.delegate
+            window.delegate = p
+            proxy = p
         }
     }
 }

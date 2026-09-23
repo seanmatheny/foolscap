@@ -29,6 +29,9 @@ public struct MarkdownEditor: NSViewRepresentable {
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.scrollerStyle = .overlay
+        // The find bar (⌘F) lives under the page, away from the day navigator, in the theme's appearance.
+        scroll.findBarPosition = .belowContent
+        scroll.appearance = NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
         scroll.documentView = textView
         scroll.contentView.postsBoundsChangedNotifications = true
         context.coordinator.textView = textView
@@ -44,6 +47,7 @@ public struct MarkdownEditor: NSViewRepresentable {
             textView.palette = palette
             textView.applyPalette()
             textView.restyleAll()
+            scroll.appearance = NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
         }
         if let line = revealLine, context.coordinator.revealedLine != line {
             context.coordinator.revealedLine = line

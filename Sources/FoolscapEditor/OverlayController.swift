@@ -90,8 +90,8 @@ final class OverlayController {
         return changed
     }
 
-    /// Space below the line for an overlay, rounded up to whole ruled lines so
-    /// the text after it stays on the ruling.
+    /// Total height of an overlay paragraph (its collapsed line plus the picture),
+    /// rounded up to whole ruled lines so the text after it stays on the ruling.
     private func reserved(for height: CGFloat) -> CGFloat {
         let pitch = textView.palette.pitch
         return (ceil((height + 10) / pitch)) * pitch
@@ -101,9 +101,9 @@ final class OverlayController {
         switch line.kind {
         case .imageLine(let alt, let path):
             guard let image = loadImage(path) else { return nil }
-            let iv = ResizableImageView(image: image)
-            iv.toolTip = path
+            let iv = ResizableImageView(image: image, path: path)
             iv.onResize = { [weak self] width in self?.commitWidth(width, path: path) }
+            iv.onReveal = { [weak self] in self?.revealLine(forImage: path) }
             return Overlay(key: key, view: iv, lineIndex: line.index, naturalSize: image.size, isImage: true,
                            requestedWidth: BlockMap.imageAlt(alt).width.map { CGFloat($0) })
         case .urlLine(let urlString):
@@ -179,6 +179,15 @@ final class OverlayController {
         textView.didChangeText()
     }
 
+    /// Put the caret on the image's markdown line so the path can be read or edited.
+    private func revealLine(forImage path: String) {
+        guard let overlay = overlays["img:" + path], overlay.lineIndex < textView.styler.blockMap.lines.count else { return }
+        let line = textView.styler.blockMap.lines[overlay.lineIndex]
+        textView.window?.makeFirstResponder(textView)
+        textView.setSelectedRange(NSRange(location: line.range.location + line.range.length, length: 0))
+        textView.scrollRangeToVisible(line.range)
+    }
+
     func invalidateImage(_ path: String) { imageCache[path] = nil; overlays["img:" + path]?.view.removeFromSuperview(); overlays["img:" + path] = nil }
 }
 
@@ -237,17 +246,20 @@ final class LinkCardView: NSView {
     override func mouseExited(with event: NSEvent) { copyButton.isHidden = true }
 }
 
-/// An image with a drag handle in its bottom-right corner. Dragging scales the
-/// image (aspect kept); releasing reports the new width.
+/// An image with hover badges: a resize grip (bottom-right, drag to scale)
+/// and a path badge (top-right, tooltip shows the file; click reveals the markdown).
 final class ResizableImageView: NSView {
     let imageView = NSImageView()
+    let path: String
     var onResize: ((CGFloat) -> Void)?
+    var onReveal: (() -> Void)?
     private var dragStart: (point: NSPoint, width: CGFloat)?
-    private var showHandle = false
     private var trackingArea: NSTrackingArea?
-    static let handleSize: CGFloat = 18
+    private let resizeBadge = BadgeView(symbol: "arrow.up.left.and.arrow.down.right")
+    private let pathBadge = BadgeView(symbol: "doc.text")
 
-    init(image: NSImage) {
+    init(image: NSImage, path: String) {
+        self.path = path
         super.init(frame: NSRect(origin: .zero, size: image.size))
         wantsLayer = true
         layer?.cornerRadius = 6
@@ -259,44 +271,44 @@ final class ResizableImageView: NSView {
         imageView.autoresizingMask = [.width, .height]
         imageView.frame = bounds
         addSubview(imageView)
+        for badge in [resizeBadge, pathBadge] { badge.isHidden = true; addSubview(badge) }
+        resizeBadge.toolTip = "Drag to resize"
+        pathBadge.toolTip = path
+        pathBadge.onClick = { [weak self] in self?.onReveal?() }
+        layoutBadges()
+        updateTrackingAreas()
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    private var handleRect: NSRect {
-        NSRect(x: bounds.maxX - 32, y: bounds.minY, width: 32, height: 32)
+    private func layoutBadges() {
+        resizeBadge.frame = NSRect(x: bounds.maxX - 28, y: bounds.minY + 6, width: 22, height: 22)
+        pathBadge.frame = NSRect(x: bounds.maxX - 28, y: bounds.maxY - 28, width: 22, height: 22)
     }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        layoutBadges()
+        updateTrackingAreas()
+    }
+
+    private var handleRect: NSRect { NSRect(x: bounds.maxX - 32, y: bounds.minY, width: 32, height: 32) }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area)
         trackingArea = area
     }
 
-    override func mouseEntered(with event: NSEvent) { showHandle = true; needsDisplay = true }
-    override func mouseExited(with event: NSEvent) { showHandle = false; needsDisplay = true }
-    override func mouseMoved(with event: NSEvent) {
-        let p = convert(event.locationInWindow, from: nil)
-        (handleRect.contains(p) ? NSCursor.crosshair : NSCursor.arrow).set()
+    override func resetCursorRects() {
+        addCursorRect(handleRect, cursor: NSCursor.frameResize(position: .bottomRight, directions: .all))
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard showHandle || dragStart != nil else { return }
-        // A small badge with a resize arrow, so the grip is discoverable.
-        let badge = NSRect(x: bounds.maxX - 26, y: bounds.minY + 6, width: 20, height: 20)
-        NSColor.black.withAlphaComponent(0.5).setFill()
-        NSBezierPath(roundedRect: badge, xRadius: 5, yRadius: 5).fill()
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-        if let symbol = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: "Resize")?
-            .withSymbolConfiguration(config) {
-            let tinted = symbol.copy() as! NSImage
-            tinted.lockFocus(); NSColor.white.set(); NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop); tinted.unlockFocus()
-            let size = tinted.size
-            tinted.draw(in: NSRect(x: badge.midX - size.width / 2, y: badge.midY - size.height / 2, width: size.width, height: size.height))
-        }
+    override func mouseEntered(with event: NSEvent) { resizeBadge.isHidden = false; pathBadge.isHidden = false }
+    override func mouseExited(with event: NSEvent) {
+        if dragStart == nil { resizeBadge.isHidden = true; pathBadge.isHidden = true }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -311,12 +323,35 @@ final class ResizableImageView: NSView {
         let width = max(80, start.width + (now.x - start.point.x))
         let aspect = image.size.height / max(1, image.size.width)
         setFrameSize(NSSize(width: width, height: (width * aspect).rounded()))
-        needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
         guard dragStart != nil else { super.mouseUp(with: event); return }
         dragStart = nil
         onResize?(frame.width)
+    }
+
+    /// A translucent rounded square with a white SF Symbol.
+    final class BadgeView: NSView {
+        var onClick: (() -> Void)?
+        private let symbolView = NSImageView()
+        init(symbol: String) {
+            super.init(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.black.withAlphaComponent(0.5).cgColor
+            layer?.cornerRadius = 5
+            let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+            symbolView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+            symbolView.contentTintColor = .white
+            symbolView.frame = bounds
+            symbolView.autoresizingMask = [.width, .height]
+            addSubview(symbolView)
+        }
+        @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+        override func mouseDown(with event: NSEvent) {
+            if let onClick { onClick() } else { super.mouseDown(with: event) }
+        }
+        override func mouseDragged(with event: NSEvent) { if onClick == nil { superview?.mouseDragged(with: event) } }
+        override func mouseUp(with event: NSEvent) { if onClick == nil { superview?.mouseUp(with: event) } }
     }
 }

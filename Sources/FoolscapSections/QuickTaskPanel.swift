@@ -34,13 +34,25 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
         }
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(field)
+        field.selectText(nil)
     }
 
     public func dismiss() { panel?.orderOut(nil) }
 
+    /// Borderless panels refuse key status by default; this one must take
+    /// keyboard input without activating the app.
+    final class KeyablePanel: NSPanel {
+        var onCancel: (() -> Void)?
+        override var canBecomeKey: Bool { true }
+        override var canBecomeMain: Bool { false }
+        override func cancelOperation(_ sender: Any?) { onCancel?() }
+        override func resignKey() { super.resignKey(); onCancel?() }
+    }
+
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 88),
-                            styleMask: [.nonactivatingPanel, .borderless, .fullSizeContentView], backing: .buffered, defer: false)
+        let panel = KeyablePanel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 88),
+                                 styleMask: [.nonactivatingPanel, .borderless, .fullSizeContentView], backing: .buffered, defer: false)
+        panel.onCancel = { [weak self] in self?.dismiss() }
         panel.level = .floating
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false

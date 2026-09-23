@@ -72,6 +72,12 @@ final class AppModel {
         }
         if args.contains("--export") { showExport = true }
         registerHotKeys()
+        if args.contains("--fullscreen") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { NSApp.windows.first { $0.isVisible }?.toggleFullScreen(nil) }
+        }
+        if args.contains("--find") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { FindCommands.perform(.showFindInterface) }
+        }
         if args.contains("--quick-task") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.quickTask() }
         }

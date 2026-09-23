@@ -141,7 +141,14 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         let ps = NSMutableParagraphStyle()
         ps.minimumLineHeight = p.pitch
         ps.maximumLineHeight = p.pitch
-        ps.paragraphSpacing = overlayHeights[line.index] ?? 0
+        // Overlay lines (image, URL) collapse to a hairline unless the caret is on them;
+        // the reserved block height stays a whole number of ruled lines either way.
+        let isOverlayLine: Bool = { if case .imageLine = line.kind { return true }; if case .urlLine = line.kind { return true }; return false }()
+        let collapsed = isOverlayLine && !activeLines.contains(line.index)
+        if collapsed { ps.minimumLineHeight = 1; ps.maximumLineHeight = 1 }
+        if let total = overlayHeights[line.index] {
+            ps.paragraphSpacing = max(0, total - (collapsed ? 1 : p.pitch))
+        }
         var base: [NSAttributedString.Key: Any] = [.font: p.body, .foregroundColor: p.ink, .paragraphStyle: ps,
                                                     .backgroundColor: NSColor.clear, .strikethroughStyle: 0, .underlineStyle: 0]
         base[.link] = nil
