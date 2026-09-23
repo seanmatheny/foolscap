@@ -76,7 +76,7 @@ public struct NotebookWindowChrome: NSViewRepresentable {
                         let uncovered = screen.frame.maxY - window.frame.maxY
                         WindowState.shared.fullScreenTopInset = max(0, screen.safeAreaInsets.top - uncovered)
                     }
-                    FullScreenMenuBar.shared.begin(screen: window.screen)
+                    FullScreenMenuBar.shared.begin(window: window)
                 }
             }
             NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
@@ -163,15 +163,18 @@ struct WindowFinder: NSViewRepresentable {
 final class FullScreenMenuBar {
     static let shared = FullScreenMenuBar()
     private var timer: Timer?
+    private weak var window: NSWindow?
     private var screen: NSScreen?
     private var revealed = false
     private var menuTracking = false
     private var observers: [NSObjectProtocol] = []
 
-    func begin(screen: NSScreen?) {
-        self.screen = screen
+    func begin(window: NSWindow) {
+        self.window = window
+        self.screen = window.screen
         revealed = false
         NSMenu.setMenuBarVisible(false)
+        TrafficLights.set(window: window, visible: false, animated: false)
         observers = [
             NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.menuTracking = true }
@@ -200,9 +203,12 @@ final class FullScreenMenuBar {
         if !revealed, y >= top - 1 {
             revealed = true
             NSMenu.setMenuBarVisible(true)
-        } else if revealed, !menuTracking, y < top - 44 {
+            // The title bar slides down with the menu bar: show the buttons in it.
+            TrafficLights.set(window: window, visible: true)
+        } else if revealed, !menuTracking, y < top - 80 {
             revealed = false
             NSMenu.setMenuBarVisible(false)
+            TrafficLights.set(window: window, visible: false)
         }
     }
 }
