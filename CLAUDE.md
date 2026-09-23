@@ -32,3 +32,11 @@
   (0.01pt clear font). The text view forwards selection changes to the styler.
 - Index tabs are the page's `.background` offset to the right, so they draw behind
   the page edge and inside the cover; the window never needs a transparent margin.
+- Overlays are positioned from the paragraph's last line bottom (`lineBottom(for:)`),
+  not from the layout fragment's maxY: the last paragraph in a document gets no
+  trailing paragraph spacing, so an image on the final line would float upward.
+  `insertMarkdown(ownLine:)` therefore always leaves a line after a block.
+- `NSTextView.maxSize` must be set to greatestFiniteMagnitude or the view never
+  grows past the clip view and scrolling silently stops.
+- Rotated SwiftUI labels keep their unrotated layout size: collapse them with
+  `.frame(width: 1, height: 1)` after `.rotationEffect` (see PaperTab).

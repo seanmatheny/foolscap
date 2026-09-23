@@ -111,3 +111,24 @@ import Foundation
         #expect(doc.text == "  - [/] New title #a #b\n- [ ] Other\n")
     }
 }
+
+@Suite @MainActor struct TaskNotesTests {
+    @Test func parsesAndRewritesNotes() throws {
+        let text = "- [ ] Call Dave #work\n  Ask about https://example.com/quote\n  and the timeline\n- [ ] Other\n"
+        let parsed = NoteParser.parse(text, path: "x.md", day: nil)
+        #expect(parsed.tasks.count == 2)
+        #expect(parsed.tasks[0].notes == "Ask about https://example.com/quote\nand the timeline")
+        #expect(parsed.tasks[0].firstLink?.absoluteString == "https://example.com/quote")
+        #expect(parsed.tasks[1].notes == nil)
+
+        let doc = NoteDocument(path: "x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)
+        doc.setText(text)
+        let key = TaskItem.contentKey(for: "Call Dave #work")
+        try doc.replaceTaskNotes(line: 0, expectedKey: key, with: "Just one line")
+        #expect(doc.text == "- [ ] Call Dave #work\n  Just one line\n- [ ] Other\n")
+        try doc.replaceTaskNotes(line: 0, expectedKey: key, with: nil)
+        #expect(doc.text == "- [ ] Call Dave #work\n- [ ] Other\n")
+        try doc.replaceTaskNotes(line: 1, expectedKey: TaskItem.contentKey(for: "Other"), with: "a\nb")
+        #expect(doc.text == "- [ ] Call Dave #work\n- [ ] Other\n  a\n  b\n")
+    }
+}

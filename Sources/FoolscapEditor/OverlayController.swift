@@ -146,15 +146,15 @@ final class OverlayController {
         var stale = false
         for overlay in overlays.values {
             guard overlay.lineIndex < map.lines.count,
-                  let frame = textView.fragmentRect(for: map.lines[overlay.lineIndex].range) else {
+                  let bottom = textView.lineBottom(for: map.lines[overlay.lineIndex].range) else {
                 overlay.view.isHidden = true; continue
             }
             overlay.view.isHidden = false
             let size = overlay.displaySize(availableWidth: width)
             if textView.styler.overlayHeights[overlay.lineIndex] != size.height + 8 { stale = true }
             let x = textView.textContainerInset.width
-            let y = frame.maxY - size.height - 4
-            overlay.view.frame = NSRect(x: x, y: y, width: size.width, height: size.height)
+            // Directly under the text line, inside the paragraph spacing reserved for it.
+            overlay.view.frame = NSRect(x: x, y: bottom + 4, width: size.width, height: size.height)
         }
         return stale
     }

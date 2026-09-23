@@ -167,10 +167,12 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             language = lang; inBlockComment = false
             base[.font] = p.mono; base[.foregroundColor] = p.dimInk
             storage.setAttributes(base, range: para)
+            if !reveal { set(p.hiddenAttributes, NSRange(location: 0, length: text.length)) }
             return
         case .fenceClose:
             base[.font] = p.mono; base[.foregroundColor] = p.dimInk
             storage.setAttributes(base, range: para)
+            if !reveal { set(p.hiddenAttributes, NSRange(location: 0, length: text.length)) }
             return
         case .fenceInside:
             base[.font] = p.mono
@@ -180,10 +182,13 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             }
             return
         case .quote:
-            base[.font] = p.italic; base[.foregroundColor] = p.ink.withAlphaComponent(0.75)
+            base[.font] = p.italic; base[.foregroundColor] = p.ink.withAlphaComponent(0.8)
+            ps.firstLineHeadIndent = 16; ps.headIndent = 16
             storage.setAttributes(base, range: para)
             let marker = text.range(of: "^>\\s?", options: .regularExpression)
-            if marker.location != NSNotFound { set([.foregroundColor: p.dimInk, .font: p.body], marker) }
+            if marker.location != NSNotFound {
+                set(reveal ? [.foregroundColor: p.dimInk, .font: p.body] : p.hiddenAttributes, marker)
+            }
             inlineRange = NSRange(location: marker.length, length: text.length - marker.length)
         case .task(let status):
             storage.setAttributes(base, range: para)
@@ -212,11 +217,11 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         case .imageLine:
             base[.foregroundColor] = p.dimInk
             storage.setAttributes(base, range: para)
-            // Keep the alt text as a caption; hide `![` and `](path)`.
+            // Keep the alt text as a caption; always hide `![`, `|width` and `](path)`.
             if let m = try? NSRegularExpression(pattern: #"^(\s*!\[)([^\]|]*)(\|[^\]]*)?(\]\(.*\)\s*)$"#).firstMatch(in: line.text, range: NSRange(location: 0, length: text.length)) {
-                set(syntaxAttrs, m.range(at: 1))
-                if m.range(at: 3).location != NSNotFound { set(syntaxAttrs, m.range(at: 3)) }
-                set(syntaxAttrs, m.range(at: 4))
+                set(p.hiddenAttributes, m.range(at: 1))
+                if m.range(at: 3).location != NSNotFound { set(p.hiddenAttributes, m.range(at: 3)) }
+                set(p.hiddenAttributes, m.range(at: 4))
             }
             return
         case .urlLine(let url):

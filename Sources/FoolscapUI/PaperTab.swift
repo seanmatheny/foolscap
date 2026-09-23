@@ -49,10 +49,13 @@ public struct PaperTab: View {
             .fixedSize()
             .foregroundStyle(Color.black.opacity(0.72))
             .rotationEffect(.degrees(90))
+            // Rotation does not change the layout footprint: collapse it so the
+            // label's unrotated width cannot widen (and shift) the tab.
+            .frame(width: 1, height: 1)
             .offset(x: Self.root / 2)
         }
         .frame(width: Self.width + Self.root, height: length)
-        .offset(x: isSelected ? 3 : (hovering ? 1.5 : -3))
+        .offset(x: isSelected ? 0 : (hovering ? -1.5 : -4))
         .opacity(isSelected ? 1 : 0.86)
         .shadow(color: .black.opacity(isSelected ? 0.35 : 0.2), radius: isSelected ? 3 : 1.5, x: 1.5, y: 1)
         .contentShape(SideTabShape())

@@ -59,3 +59,16 @@ public enum TaskLineParser {
         return out
     }
 }
+
+public extension TaskLineParser {
+    /// A line that continues the task above it: indented, not blank, not itself a task.
+    static func isContinuation(_ line: String) -> Bool {
+        guard let first = line.first, first == " " || first == "\t" else { return false }
+        guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        return parse(line) == nil
+    }
+
+    static func continuationText(_ line: String) -> String {
+        line.trimmingCharacters(in: .whitespaces)
+    }
+}

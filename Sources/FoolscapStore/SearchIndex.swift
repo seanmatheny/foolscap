@@ -75,6 +75,9 @@ public final class SearchIndex: Sendable {
                 t.column("value", .text)
             }
         }
+        migrator.registerMigration("v2-task-notes") { db in
+            try db.alter(table: "tasks") { t in t.add(column: "notes", .text) }
+        }
         try migrator.migrate(db)
     }
 
@@ -117,10 +120,10 @@ public final class SearchIndex: Sendable {
                            arguments: [path, parsed.title, body])
             for t in parsed.tasks {
                 try db.execute(sql: """
-                    INSERT INTO tasks (id, path, line, status, title, content_key, indent, day, provider)
-                    VALUES (?,?,?,?,?,?,?,?,?)
+                    INSERT INTO tasks (id, path, line, status, title, content_key, indent, day, provider, notes)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
                     """, arguments: [t.id, t.source.path, t.source.line, t.status.rawValue, t.title, t.contentKey,
-                                     t.indent, t.source.day, t.providerID])
+                                     t.indent, t.source.day, t.providerID, t.notes])
                 for tag in t.tags {
                     try db.execute(sql: "INSERT INTO task_tags (task_id, tag) VALUES (?,?)", arguments: [t.id, tag])
                 }
@@ -155,7 +158,7 @@ public final class SearchIndex: Sendable {
             return rows.map { r in
                 TaskItem(providerID: r["provider"], title: r["title"], status: TaskStatus(rawValue: r["status"]) ?? .notStarted,
                          tags: tags[r["id"]] ?? [], indent: r["indent"],
-                         source: TaskSource(path: r["path"], line: r["line"], day: r["day"]))
+                         source: TaskSource(path: r["path"], line: r["line"], day: r["day"]), notes: r["notes"])
             }
         }
     }

@@ -15,10 +15,11 @@ Attachments/2026-09-23/*.png      pasted screenshots and images
 ```
 
 Tasks are ordinary markdown checkboxes, with the Obsidian convention for
-"in progress":
+"in progress". Indented lines under a task are its notes (links welcome):
 
 ```
 - [ ] Not started #category
+  Notes for the task, see https://example.com
 - [/] In progress
 - [x] Completed
 ```
@@ -31,9 +32,10 @@ Tasks are ordinary markdown checkboxes, with the Obsidian convention for
   (stored as `![alt|width](path)`). Bare URLs get link-preview cards.
   ⌘[ / ⌘] flip days, ⌘T is today.
 - Tasks: every `- [ ]` line from every note, grouped by status. Drag a task
-  between sections or click its checkbox; double-click (or the pencil) to edit
-  its text, the tag button or the context menu to add `#tags`. Every change is
-  written back into the note. `+` adds a task to today's note.
+  between sections or click its checkbox; double-click (or the pencil) opens an
+  editor for its one-line text and its notes; the tag button or the context menu
+  adds `#tags`. Every change is written back into the note. `+` adds a task to
+  today's note.
 - Search: ⌘⇧F searches all notes and tasks (SQLite FTS5); ⌘F finds in the page.
 - Export: File ▸ Export Notes… (⌘⇧E) writes a day, a range or everything as
   Markdown (with attachments), TextBundle (one package per note, images inside),

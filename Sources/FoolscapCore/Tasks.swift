@@ -63,9 +63,11 @@ public struct TaskItem: Identifiable, Codable, Hashable, Sendable {
     /// Stable identity across line moves: a hash of the normalised title.
     public var contentKey: String
     public var isReadOnly: Bool
+    /// Free text kept on indented lines under the task in the note (may hold links).
+    public var notes: String?
 
     public init(providerID: String, title: String, status: TaskStatus, tags: [String], indent: Int,
-                source: TaskSource, isReadOnly: Bool = false) {
+                source: TaskSource, isReadOnly: Bool = false, notes: String? = nil) {
         self.id = "\(providerID):\(source.path)#L\(source.line)"
         self.providerID = providerID
         self.title = title
@@ -75,6 +77,15 @@ public struct TaskItem: Identifiable, Codable, Hashable, Sendable {
         self.source = source
         self.contentKey = TaskItem.contentKey(for: title)
         self.isReadOnly = isReadOnly
+        self.notes = notes
+    }
+
+    /// The first http(s) link in the notes, if any.
+    public var firstLink: URL? {
+        guard let notes else { return nil }
+        let regex = try! NSRegularExpression(pattern: #"https?://[^\s<>)\]]+"#)
+        guard let m = regex.firstMatch(in: notes, range: NSRange(location: 0, length: (notes as NSString).length)) else { return nil }
+        return URL(string: (notes as NSString).substring(with: m.range))
     }
 
     /// The first tag is the category.
@@ -109,8 +120,11 @@ public protocol TaskProvider: AnyObject, Sendable {
     func setStatus(_ status: TaskStatus, of task: TaskItem) async throws
     /// Replace the task's text (including its #tags). Read-only providers throw.
     func setTitle(_ title: String, of task: TaskItem) async throws
+    /// Replace the task's notes (nil or empty removes them).
+    func setNotes(_ notes: String?, of task: TaskItem) async throws
 }
 
 public extension TaskProvider {
     func setTitle(_ title: String, of task: TaskItem) async throws { throw TaskWriteError.readOnly }
+    func setNotes(_ notes: String?, of task: TaskItem) async throws { throw TaskWriteError.readOnly }
 }

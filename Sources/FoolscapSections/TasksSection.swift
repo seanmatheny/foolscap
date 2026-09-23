@@ -71,6 +71,7 @@ struct TasksPage: View {
                                             onToggle: { section.aggregator.move($0, to: $0.status.next) },
                                             onOpen: { section.openNote(SectionRoute(path: $0.source.path, line: $0.source.line)) },
                                             onRename: { section.aggregator.rename($0, to: $1) },
+                                            onUpdate: { section.aggregator.update($0, title: $1, notes: $2) },
                                             onAddTag: { section.aggregator.addTag($1, to: $0) })
                         }
                         Spacer(minLength: pitch * 2)
@@ -158,6 +159,7 @@ struct TaskSectionView: View {
     let onToggle: (TaskItem) -> Void
     let onOpen: (TaskItem) -> Void
     let onRename: (TaskItem, String) -> Void
+    let onUpdate: (TaskItem, String, String?) -> Void
     let onAddTag: (TaskItem, String) -> Void
     @State private var targeted = false
 
@@ -180,7 +182,7 @@ struct TaskSectionView: View {
             ForEach(tasks) { task in
                 TaskRow(task: task, pitch: pitch, allTags: allTags,
                         onToggle: { onToggle(task) }, onOpen: { onOpen(task) },
-                        onRename: { onRename(task, $0) }, onAddTag: { onAddTag(task, $0) })
+                        onUpdate: { onUpdate(task, $0, $1) }, onAddTag: { onAddTag(task, $0) })
                     .draggable(task) {
                         Text(task.displayTitle).font(.system(size: 14, design: .serif))
                             .padding(6).background(theme.page.paperColor.color).cornerRadius(4)
@@ -209,14 +211,11 @@ struct TaskRow: View {
     let allTags: [String]
     let onToggle: () -> Void
     let onOpen: () -> Void
-    let onRename: (String) -> Void
+    let onUpdate: (String, String?) -> Void
     let onAddTag: (String) -> Void
     @State private var hovering = false
     @State private var editing = false
-    @State private var draft = ""
     @State private var askTag = false
-    @State private var newTag = ""
-    @FocusState private var fieldFocused: Bool
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -228,37 +227,41 @@ struct TaskRow: View {
             }
             .buttonStyle(.plain)
             .disabled(task.isReadOnly)
-            if editing {
-                TextField("Task text, with #tags", text: $draft)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14.5, design: .serif))
-                    .focused($fieldFocused)
-                    .onSubmit { commit() }
-                    .onExitCommand { editing = false }
-                    .onChange(of: fieldFocused) { _, f in if !f && editing { commit() } }
-            } else {
-                Text(task.displayTitle)
-                    .font(.system(size: 14.5, design: .serif))
-                    .strikethrough(task.status == .completed, color: theme.dimInk.color)
-                    .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
-                    .lineLimit(1)
-                    .highlighted(theme.highlighter[task.status])
-                    .onTapGesture(count: 2) { beginEditing() }
-                ForEach(task.tags, id: \.self) { tag in
-                    Text("#" + tag)
-                        .font(.system(size: 11, design: .serif))
-                        .foregroundStyle(theme.accent.color)
-                        .padding(.horizontal, 6).padding(.vertical, 1)
-                        .background(Capsule().fill(theme.accent.color.opacity(0.12)))
-                }
-                if hovering && !task.isReadOnly {
-                    Button { beginEditing() } label: { Image(systemName: "pencil").font(.system(size: 11)) }
-                        .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help("Edit (double-click)")
-                    Button { askTag = true } label: { Image(systemName: "tag").font(.system(size: 11)) }
-                        .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help("Add a tag")
-                        .popover(isPresented: $askTag) { tagPopover }
-                }
+            Text(task.displayTitle)
+                .font(.system(size: 14.5, design: .serif))
+                .strikethrough(task.status == .completed, color: theme.dimInk.color)
+                .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
+                .lineLimit(1)
+                .highlighted(theme.highlighter[task.status])
+                .onTapGesture(count: 2) { if !task.isReadOnly { editing = true } }
+            ForEach(task.tags, id: \.self) { tag in
+                Text("#" + tag)
+                    .font(.system(size: 11, design: .serif))
+                    .foregroundStyle(theme.accent.color)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(Capsule().fill(theme.accent.color.opacity(0.12)))
             }
+            if let notes = task.notes {
+                Button { editing = true } label: { Image(systemName: "text.alignleft").font(.system(size: 11)) }
+                    .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help(notes)
+            }
+            if let link = task.firstLink {
+                Button { NSWorkspace.shared.open(link) } label: { Image(systemName: "link").font(.system(size: 11)) }
+                    .buttonStyle(.plain).foregroundStyle(theme.accent.color).help(link.absoluteString)
+            }
+            // Kept mounted (just invisible) so a popover anchored here survives the pointer leaving the row.
+            HStack(spacing: 8) {
+                Button { editing = true } label: { Image(systemName: "pencil").font(.system(size: 11)) }
+                    .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help("Edit (double-click)")
+                    .popover(isPresented: $editing, arrowEdge: .bottom) {
+                        TaskEditPopover(task: task, allTags: allTags, onSave: { title, notes in onUpdate(title, notes); editing = false })
+                    }
+                Button { askTag = true } label: { Image(systemName: "tag").font(.system(size: 11)) }
+                    .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help("Add a tag")
+                    .popover(isPresented: $askTag, arrowEdge: .bottom) { TagPopover(allTags: allTags, existing: task.tags) { onAddTag($0); askTag = false } }
+            }
+            .opacity(hovering && !task.isReadOnly ? 1 : 0)
+            .disabled(task.isReadOnly)
             Spacer()
             if task.isReadOnly {
                 Image(systemName: "lock").font(.system(size: 10)).foregroundStyle(theme.dimInk.color)
@@ -278,7 +281,7 @@ struct TaskRow: View {
         .onHover { hovering = $0 }
         .contextMenu {
             if !task.isReadOnly {
-                Button("Edit Task…") { beginEditing() }
+                Button("Edit Task…") { editing = true }
                 Menu("Add Tag") {
                     ForEach(allTags.filter { !task.tags.contains($0) }, id: \.self) { tag in
                         Button("#" + tag) { onAddTag(tag) }
@@ -293,37 +296,87 @@ struct TaskRow: View {
         }
     }
 
-    private var tagPopover: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("tag", text: $newTag)
-                .textFieldStyle(.roundedBorder).frame(width: 200)
-                .onSubmit { onAddTag(newTag); newTag = ""; askTag = false }
-            if !allTags.isEmpty {
-                HStack { ForEach(allTags.prefix(6), id: \.self) { tag in
-                    Button("#" + tag) { onAddTag(tag); askTag = false }.buttonStyle(.link).font(.caption)
-                } }
-            }
-        }
-        .padding(12)
-    }
-
-    private func beginEditing() {
-        guard !task.isReadOnly else { return }
-        draft = task.title
-        editing = true
-        DispatchQueue.main.async { fieldFocused = true }
-    }
-
-    private func commit() {
-        editing = false
-        onRename(draft)
-    }
-
     private var symbol: String {
         switch task.status {
         case .notStarted: return "circle"
         case .inProgress: return "circle.lefthalf.filled"
         case .completed: return "checkmark.circle.fill"
         }
+    }
+}
+
+/// Edit a task's single-line text and its notes (kept as indented lines under it).
+struct TaskEditPopover: View {
+    let task: TaskItem
+    let allTags: [String]
+    let onSave: (String, String?) -> Void
+    @State private var title: String
+    @State private var notes: String
+    @FocusState private var titleFocused: Bool
+
+    init(task: TaskItem, allTags: [String], onSave: @escaping (String, String?) -> Void) {
+        self.task = task; self.allTags = allTags; self.onSave = onSave
+        _title = State(initialValue: task.title)
+        _notes = State(initialValue: task.notes ?? "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Edit Task").font(.headline)
+            TextField("Task text, with #tags", text: $title)
+                .textFieldStyle(.roundedBorder)
+                .focused($titleFocused)
+                .onSubmit { onSave(title, notes) }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Notes and links").font(.caption).foregroundStyle(.secondary)
+                TextEditor(text: $notes)
+                    .font(.system(size: 12.5))
+                    .frame(height: 72)
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.3)))
+            }
+            if !allTags.isEmpty {
+                HStack(spacing: 6) {
+                    Text("Tags:").font(.caption).foregroundStyle(.secondary)
+                    ForEach(allTags.prefix(6), id: \.self) { tag in
+                        Button("#" + tag) { if !title.contains("#" + tag) { title += " #" + tag } }
+                            .buttonStyle(.link).font(.caption)
+                    }
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Save") { onSave(title, notes) }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(14)
+        .frame(width: 380)
+        .onAppear { titleFocused = true }
+    }
+}
+
+struct TagPopover: View {
+    let allTags: [String]
+    let existing: [String]
+    let onPick: (String) -> Void
+    @State private var newTag = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("New tag", text: $newTag)
+                .textFieldStyle(.roundedBorder).frame(width: 200)
+                .focused($focused)
+                .onSubmit { onPick(newTag) }
+            let choices = allTags.filter { !existing.contains($0) }
+            if !choices.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(choices.prefix(8), id: \.self) { tag in
+                        Button("#" + tag) { onPick(tag) }.buttonStyle(.link).font(.callout)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .onAppear { focused = true }
     }
 }

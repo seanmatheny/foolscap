@@ -66,6 +66,22 @@ public final class TaskAggregator {
         }
     }
 
+    /// Save edits from the task editor: notes first (they hang off the old title's line), then the title.
+    public func update(_ task: TaskItem, title: String, notes: String?) {
+        let cleanNotes = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newNotes = (cleanNotes?.isEmpty ?? true) ? nil : cleanNotes
+        guard !task.isReadOnly, let provider = providers.first(where: { $0.id == task.providerID }) else { return }
+        if let i = tasks.firstIndex(where: { $0.id == task.id }) { tasks[i].notes = newNotes }
+        Task {
+            do {
+                if newNotes != task.notes { try await provider.setNotes(newNotes, of: task) }
+                let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed != task.title, !trimmed.isEmpty { try await provider.setTitle(trimmed, of: task) }
+            } catch { self.error = "Could not edit task: \(error)" }
+            await reload()
+        }
+    }
+
     public func addTag(_ tag: String, to task: TaskItem) {
         let clean = tag.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased()
         guard !clean.isEmpty, !task.tags.contains(clean) else { return }

@@ -196,6 +196,22 @@ public final class NoteDocument: Identifiable {
         textStorage.replaceCharacters(in: target.range, with: prefix + " " + cleaned)
     }
 
+    /// Replace the indented note lines under a task (nil/empty removes them).
+    public func replaceTaskNotes(line: Int, expectedKey: String, with notes: String?) throws {
+        let target = try locateTask(line: line, expectedKey: expectedKey)
+        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        var end = target.index
+        while end + 1 < map.lines.count, TaskLineParser.isContinuation(map.lines[end + 1].text) { end += 1 }
+        let indent = String(repeating: " ", count: max(2, (TaskLineParser.parse(target.text)?.indent ?? 0) + 2))
+        let cleaned = (notes ?? "").split(separator: "\n", omittingEmptySubsequences: true)
+            .map { indent + $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let replacementLines = [target.text] + cleaned
+        let start = target.range.location
+        let stop = map.lines[end].range.location + map.lines[end].range.length
+        textStorage.replaceCharacters(in: NSRange(location: start, length: stop - start), with: replacementLines.joined(separator: "\n"))
+    }
+
     private func locateTask(line: Int, expectedKey: String) throws -> ScannedLine {
         let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
         func matches(_ l: ScannedLine) -> Bool {

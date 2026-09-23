@@ -128,7 +128,8 @@ public final class MarkdownTextView: NSTextView {
             let afterIndex = range.location + range.length
             let after = afterIndex < ns.length ? ns.substring(with: NSRange(location: afterIndex, length: 1)) : "\n"
             if before != "\n" { insert = "\n" + insert }
-            if after != "\n" { insert += "\n" }
+            // Always leave a line after a block so its overlay has a paragraph to reserve space in.
+            if after != "\n" || afterIndex >= ns.length { insert += "\n" }
             range = NSRange(location: afterIndex, length: 0)
         }
         guard shouldChangeText(in: range, replacementString: insert) else { return }
@@ -185,6 +186,7 @@ public final class MarkdownTextView: NSTextView {
         isIncrementalSearchingEnabled = true
         isVerticallyResizable = true
         isHorizontallyResizable = false
+        maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         autoresizingMask = [.width]
         applyPalette()
     }
@@ -245,7 +247,41 @@ public final class MarkdownTextView: NSTextView {
     public override func draw(_ dirtyRect: NSRect) {
         drawRuling(in: dirtyRect)
         drawCodeBlocks(in: dirtyRect)
+        drawQuoteBars(in: dirtyRect)
         super.draw(dirtyRect)
+    }
+
+    private func drawQuoteBars(in rect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let lines = styler.blockMap.lines
+        var i = 0
+        while i < lines.count {
+            guard lines[i].kind == .quote else { i += 1; continue }
+            var j = i
+            while j + 1 < lines.count, lines[j + 1].kind == .quote { j += 1 }
+            let range = NSRange(location: lines[i].range.location,
+                                length: lines[j].range.location + lines[j].range.length - lines[i].range.location)
+            if let r = fragmentRect(for: range), r.intersects(rect) {
+                let bar = NSRect(x: textContainerInset.width + 2, y: r.minY + 3, width: 3, height: r.height - 6)
+                ctx.setFillColor(palette.accent.withAlphaComponent(0.55).cgColor)
+                ctx.addPath(NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).cgPath); ctx.fillPath()
+            }
+            i = j + 1
+        }
+    }
+
+    /// Bottom of the last text line of the paragraph at `range` (excludes paragraph spacing).
+    func lineBottom(for range: NSRange) -> CGFloat? {
+        guard let tlm = textLayoutManager, let cm = tlm.textContentManager,
+              let start = cm.location(tlm.documentRange.location, offsetBy: range.location) else { return nil }
+        var bottom: CGFloat?
+        tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
+            if let last = fragment.textLineFragments.last {
+                bottom = fragment.layoutFragmentFrame.minY + last.typographicBounds.maxY + textContainerInset.height
+            }
+            return false
+        }
+        return bottom
     }
 
     /// Frames (in view coordinates) of the layout fragments covering a character range.
@@ -273,7 +309,7 @@ public final class MarkdownTextView: NSTextView {
         let lines = styler.blockMap.lines
         var i = 0
         while i < lines.count {
-            guard case .fenceOpen = lines[i].kind else { i += 1; continue }
+            guard case .fenceOpen(let language) = lines[i].kind else { i += 1; continue }
             var j = i
             while j + 1 < lines.count, lines[j].kind != .fenceClose { j += 1 }
             let range = NSRange(location: lines[i].range.location,
@@ -286,6 +322,13 @@ public final class MarkdownTextView: NSTextView {
                 ctx.addPath(path.cgPath); ctx.fillPath()
                 ctx.setStrokeColor(palette.dimInk.withAlphaComponent(0.18).cgColor); ctx.setLineWidth(0.5)
                 ctx.addPath(path.cgPath); ctx.strokePath()
+                if !language.isEmpty {
+                    let label = NSAttributedString(string: language, attributes: [
+                        .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+                        .foregroundColor: palette.dimInk.withAlphaComponent(0.6)])
+                    let size = label.size()
+                    label.draw(at: NSPoint(x: block.maxX - size.width - 8, y: block.minY + 5))
+                }
             }
             i = j + 1
         }

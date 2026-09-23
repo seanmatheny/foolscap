@@ -17,7 +17,20 @@ public enum NoteParser {
         var foundTitle = false
         var tasks: [TaskItem] = []
         var links: [String] = [], images: [String] = []
+        var inFence = false
         for line in map.lines {
+            switch line.kind {
+            case .fenceOpen: inFence = true
+            case .fenceClose: inFence = false
+            default: break
+            }
+            // Indented text right under a task is its notes.
+            if !inFence, let last = tasks.indices.last, tasks[last].source.line + (tasks[last].notes.map { $0.split(separator: "\n").count } ?? 0) + 1 == line.index,
+               TaskLineParser.isContinuation(line.text) {
+                let text = TaskLineParser.continuationText(line.text)
+                tasks[last].notes = tasks[last].notes.map { $0 + "\n" + text } ?? text
+                continue
+            }
             switch line.kind {
             case .heading where !foundTitle:
                 title = line.text.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
