@@ -29,7 +29,7 @@ let package = Package(
         // TextKit 2 hybrid markdown editor.
         .target(
             name: "FoolscapEditor",
-            dependencies: ["FoolscapCore", "FoolscapStore"]
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI"]
         ),
         // Skeuomorphic notebook chrome and themes.
         .target(

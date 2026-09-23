@@ -31,6 +31,14 @@ struct FoolscapApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1100, height: 760)
         .commands {
+            CommandMenu("Go") {
+                Button("Today") { model.showDailyNotes(); model.dailyNotes?.goToday() }.keyboardShortcut("t")
+                Button("Previous Day") { model.showDailyNotes(); model.dailyNotes?.go(days: -1) }.keyboardShortcut("[")
+                Button("Next Day") { model.showDailyNotes(); model.dailyNotes?.go(days: 1) }.keyboardShortcut("]")
+                Divider()
+                Button("Daily Notes") { model.selectedSectionID = "daily" }.keyboardShortcut("1")
+                Button("Tasks") { model.selectedSectionID = "tasks" }.keyboardShortcut("2")
+            }
             CommandMenu("Debug") {
                 Button("Rebuild Index") { model.rebuildIndex() }
                 Button("Save Now") { model.flush() }.keyboardShortcut("s")

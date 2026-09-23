@@ -52,7 +52,7 @@ import Foundation
 
 @Suite @MainActor struct DocumentTests {
     @Test func taskMarkWriteBackVerifiesContent() throws {
-        let doc = Document(path: "Daily/x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)
+        let doc = NoteDocument(path: "Daily/x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)
         doc.setText("- [ ] Buy milk\n- [ ] Buy eggs\n")
         let key = TaskItem.contentKey(for: "Buy eggs")
         try doc.replaceTaskMark(line: 1, expectedKey: key, with: .inProgress)
@@ -70,7 +70,7 @@ import Foundation
     }
 
     @Test func appendTaskCreatesAndExtendsSection() {
-        let doc = Document(path: "Daily/x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)
+        let doc = NoteDocument(path: "Daily/x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)
         doc.setText("# Day\n\nnotes\n")
         doc.appendTask("First #a")
         #expect(doc.text == "# Day\n\nnotes\n\n## Tasks\n- [ ] First #a\n")
@@ -81,15 +81,21 @@ import Foundation
     @Test func saveAndReload() throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-doc-\(UUID().uuidString).md")
         defer { try? FileManager.default.removeItem(at: tmp) }
-        let doc = Document(path: "x.md", url: tmp, day: nil)
+        let doc = NoteDocument(path: "x.md", url: tmp, day: nil)
         doc.load(template: "# T\n")
+        doc.textStorage.replaceCharacters(in: NSRange(location: 4, length: 0), with: "x")
+        doc.textStorage.replaceCharacters(in: NSRange(location: 4, length: 1), with: "")
         #expect(doc.isDirty)
+        #expect(try doc.save() == false)          // edited back to the template: nothing to write
+        #expect(!FileManager.default.fileExists(atPath: tmp.path))
+        doc.textStorage.replaceCharacters(in: NSRange(location: 4, length: 0), with: "hello")
         #expect(try doc.save())
-        #expect(try String(contentsOf: tmp, encoding: .utf8) == "# T\n")
+        #expect(try String(contentsOf: tmp, encoding: .utf8) == "# T\nhello")
         #expect(try doc.save() == false)
         try "# T\nexternal\n".write(to: tmp, atomically: true, encoding: .utf8)
         #expect(doc.reloadIfChanged())
         #expect(doc.text == "# T\nexternal\n")
+        #expect(!doc.isDirty)
         doc.textStorage.append(NSAttributedString(string: "local"))
         try "# T\nother\n".write(to: tmp, atomically: true, encoding: .utf8)
         #expect(doc.reloadIfChanged() == false)

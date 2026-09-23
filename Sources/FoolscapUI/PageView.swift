@@ -55,14 +55,13 @@ public struct RulingView: View {
     }
 }
 
-/// One paper page: paper colour, texture, ruling, and the section's content on top.
+/// One paper page: paper colour, texture and the section's content on top.
+/// Sections draw their own ruling (see `RulingView`) so it can scroll with content.
 public struct PageView<Content: View>: View {
     @Environment(\.notebookTheme) private var theme
     let content: Content
-    public var showRuling: Bool
 
-    public init(showRuling: Bool = true, @ViewBuilder content: () -> Content) {
-        self.showRuling = showRuling
+    public init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
@@ -70,7 +69,6 @@ public struct PageView<Content: View>: View {
         ZStack {
             theme.page.paperColor.color
             TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity)
-            if showRuling { RulingView() }
             // Inner shadow along the spine side
             LinearGradient(colors: [.black.opacity(0.18), .clear], startPoint: .leading, endPoint: .trailing)
                 .frame(width: 28)

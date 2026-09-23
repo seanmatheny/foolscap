@@ -6,7 +6,7 @@ import FoolscapCore
 /// can never disagree.
 @MainActor
 @Observable
-public final class Document: Identifiable {
+public final class NoteDocument: Identifiable {
     public let path: String
     public let url: URL
     public let day: DayKey?
@@ -21,6 +21,8 @@ public final class Document: Identifiable {
     public var blockMap: BlockMap = BlockMap(lines: [])
     /// Bumped on every edit so views can observe cheaply.
     public private(set) var editCount = 0
+    /// The text a new file starts with; saving is skipped while the text still equals it.
+    private var templateText = ""
 
     nonisolated public var id: String { path }
     public var text: String { textStorage.string }
@@ -53,13 +55,11 @@ public final class Document: Identifiable {
             return
         }
         isDownloading = false
-        do {
-            let data = (try? FileIO.read(url)) ?? Data(template.utf8)
-            let text = String(decoding: data, as: UTF8.self)
-            setText(text)
-            lastSavedHash = FileManager.default.fileExists(atPath: url.path) ? FileIO.hash(data) : nil
-            isDirty = !FileManager.default.fileExists(atPath: url.path) && !template.isEmpty
-        }
+        templateText = template
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        let data = (exists ? try? FileIO.read(url) : nil) ?? Data(template.utf8)
+        setText(String(decoding: data, as: UTF8.self))
+        lastSavedHash = exists ? FileIO.hash(data) : nil
     }
 
     /// Replace the whole text without marking the document dirty.
@@ -111,6 +111,7 @@ public final class Document: Identifiable {
         let data = Data(textStorage.string.utf8)
         let hash = FileIO.hash(data)
         if hash == lastSavedHash { isDirty = false; return false }
+        if lastSavedHash == nil && textStorage.string == templateText { return false }
         try FileIO.write(data, to: url)
         lastSavedHash = hash
         isDirty = false

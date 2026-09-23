@@ -2,6 +2,7 @@ import SwiftUI
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
+import FoolscapSections
 
 /// Wires the store, the section registry and user preferences together.
 @MainActor
@@ -31,8 +32,10 @@ final class AppModel {
         } catch {
             startupError = "Could not open notebook folder \(root.path): \(error.localizedDescription)"
         }
-        sections = [PlaceholderSection(id: "daily", label: "Daily Notes", symbol: "calendar"),
-                    PlaceholderSection(id: "tasks", label: "Tasks", symbol: "checklist")]
+        if let library {
+            sections = [DailyNotesSection(library: library),
+                        PlaceholderSection(id: "tasks", label: "Tasks", symbol: "checklist")]
+        }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
     }
 
@@ -51,6 +54,10 @@ final class AppModel {
             startupError = "Could not open \(url.path): \(error.localizedDescription)"
         }
     }
+
+    var dailyNotes: DailyNotesSection? { section(id: "daily") as? DailyNotesSection }
+
+    func showDailyNotes() { selectedSectionID = "daily" }
 
     func rebuildIndex() {
         Task { await library?.rebuildIndex() }

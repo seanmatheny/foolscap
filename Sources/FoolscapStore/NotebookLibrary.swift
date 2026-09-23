@@ -8,7 +8,7 @@ import FoolscapCore
 public final class NotebookLibrary {
     public private(set) var folder: NotesFolder
     public private(set) var index: SearchIndex
-    public private(set) var documents: [String: Document] = [:]
+    public private(set) var documents: [String: NoteDocument] = [:]
     /// Days that have a note on disk (or a placeholder), newest last.
     public private(set) var days: [DayKey] = []
     /// Bumped whenever the index changed (rescan, save).
@@ -65,20 +65,20 @@ public final class NotebookLibrary {
 
     // MARK: Documents
 
-    public func document(forDay day: DayKey) -> Document {
+    public func document(forDay day: DayKey) -> NoteDocument {
         let url = folder.url(for: day)
         let path = folder.relativePath(of: url)
         if let d = documents[path] { return d }
-        let d = Document(path: path, url: url, day: day)
+        let d = NoteDocument(path: path, url: url, day: day)
         d.load(template: "# \(day.longTitle)\n\n")
         documents[path] = d
         return d
     }
 
-    public func document(atRelativePath path: String) -> Document {
+    public func document(atRelativePath path: String) -> NoteDocument {
         if let d = documents[path] { return d }
         let url = folder.url(forRelativePath: path)
-        let d = Document(path: path, url: url, day: folder.day(forRelativePath: path))
+        let d = NoteDocument(path: path, url: url, day: folder.day(forRelativePath: path))
         d.load()
         documents[path] = d
         return d
@@ -105,7 +105,7 @@ public final class NotebookLibrary {
 
     public func flushAll() {
         saveTask?.cancel()
-        var changed: [Document] = []
+        var changed: [NoteDocument] = []
         for doc in documents.values where doc.isDirty {
             do {
                 if try doc.save() { changed.append(doc) }
@@ -117,7 +117,7 @@ public final class NotebookLibrary {
         if !changed.isEmpty { refreshDays(); notifyChanged() }
     }
 
-    private func indexDocument(_ doc: Document) {
+    private func indexDocument(_ doc: NoteDocument) {
         guard let stat = FileIO.stat(doc.url) else { return }
         do {
             try index.index(path: doc.path, day: doc.day, text: doc.text, stat: stat, hash: doc.lastSavedHash ?? "")
