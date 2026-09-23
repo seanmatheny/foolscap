@@ -28,6 +28,7 @@ struct FoolscapApp: App {
                 .frame(minWidth: 820, minHeight: 560)
         }
         .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentMinSize)
         .defaultSize(width: 1100, height: 760)
         .commands {
             CommandMenu("Debug") {

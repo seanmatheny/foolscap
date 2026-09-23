@@ -34,11 +34,13 @@ public struct PaperTab: View {
             Text(appearance.label)
                 .font(.system(size: 12, weight: .semibold, design: .serif))
                 .lineLimit(1)
+                .fixedSize()
         }
         .foregroundStyle(Color.black.opacity(0.72))
         .padding(.leading, 12)
         .padding(.trailing, 14)
-        .frame(height: 34)
+        .frame(height: 36)
+        .padding(.leading, NotebookMetrics.tabOverlap)
         .background(
             ZStack {
                 PaperTabShape().fill(color.color)
@@ -47,9 +49,9 @@ public struct PaperTab: View {
                 PaperTabShape().stroke(Color.black.opacity(0.18), lineWidth: 0.5)
             }
         )
-        .rotationEffect(.degrees(isSelected ? 0 : (index.isMultiple(of: 2) ? 0.8 : -0.8)), anchor: .leading)
-        .offset(x: isSelected ? 0 : -6)
-        .shadow(color: .black.opacity(isSelected ? 0.35 : 0.18), radius: isSelected ? 5 : 2, x: 2, y: 2)
+        .rotationEffect(.degrees(isSelected ? 0 : (index.isMultiple(of: 2) ? 0.6 : -0.6)), anchor: .leading)
+        .offset(x: isSelected ? 0 : -10)
+        .shadow(color: .black.opacity(isSelected ? 0.4 : 0.25), radius: isSelected ? 4 : 2, x: 1, y: 2)
         .zIndex(isSelected ? 10 : 0)
         .contentShape(Rectangle())
         .animation(.spring(duration: 0.25), value: isSelected)
