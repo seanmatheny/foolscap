@@ -82,6 +82,8 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
         paper.needsDisplay = true
         field.font = theme.type.body.nsFont.withSize(19)
         field.textColor = theme.ink.nsColor
+        field.placeholderAttributedString = NSAttributedString(string: "New task…", attributes: [
+            .font: theme.type.body.nsFont.withSize(19), .foregroundColor: theme.dimInk.nsColor.withAlphaComponent(0.5)])
         hint.font = NSFont(name: theme.type.body.family ?? "Charter", size: 11) ?? .systemFont(ofSize: 11)
         hint.textColor = theme.dimInk.nsColor
     }
