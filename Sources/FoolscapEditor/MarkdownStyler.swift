@@ -15,6 +15,8 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     /// Extra space below a paragraph, for overlay cards (Phase 4).
     var overlayHeights: [Int: CGFloat] = [:]
     var isRestyling = false
+    /// Called after every styling pass, outside the storage edit.
+    var onStyled: (() -> Void)?
 
     init(palette: EditorPalette) {
         self.palette = palette
@@ -91,6 +93,18 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         }
         storage.endEditing()
         isRestyling = false
+        onStyled?()
+    }
+
+    /// Re-style specific lines (used when overlay heights change).
+    func restyle(lines indices: [Int]) {
+        guard let storage else { return }
+        let map = blockMap
+        for i in indices where i < map.lines.count {
+            let l = map.lines[i]
+            style(range: NSRange(location: l.range.location, length: max(l.range.length, 1)), map: map)
+        }
+        _ = storage
     }
 
     private func styleLine(_ line: ScannedLine, in storage: NSTextStorage, language: inout String, inBlockComment: inout Bool) {

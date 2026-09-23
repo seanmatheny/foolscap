@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import FoolscapCore
 import FoolscapStore
 
@@ -16,6 +17,8 @@ public final class MarkdownTextView: NSTextView {
     var palette: EditorPalette
     let styler: MarkdownStyler
     let document: NoteDocument
+    private(set) lazy var overlays = OverlayController(textView: self)
+    private var syncingOverlays = false
     /// Distance from a line fragment's top to the baseline, measured from layout.
     private var measuredBaseline: CGFloat?
 
@@ -33,7 +36,120 @@ public final class MarkdownTextView: NSTextView {
         layoutManager.textContainer = container
         super.init(frame: .zero, textContainer: container)
         configure()
+        styler.onStyled = { [weak self] in self?.overlaysChanged() }
         styler.attach(to: document.textStorage)
+        registerForDraggedTypes([.fileURL, .png, .tiff])
+    }
+
+    // MARK: Overlays
+
+    private func overlaysChanged() {
+        guard !syncingOverlays else { return }
+        syncingOverlays = true
+        defer { syncingOverlays = false }
+        let before = styler.overlayHeights
+        if overlays.sync(map: styler.blockMap) {
+            let after = styler.overlayHeights
+            let changed = Set(before.keys).union(after.keys).filter { before[$0] != after[$0] }
+            if !changed.isEmpty { styler.restyle(lines: Array(changed)) }
+        }
+        needsLayout = true
+        // Ruling and code backdrops are ours, not TextKit's: redraw everything.
+        needsDisplay = true
+    }
+
+    public override func layout() {
+        super.layout()
+        if overlays.reposition() {
+            // Width changed: reserve new heights on the next turn of the run loop.
+            DispatchQueue.main.async { [weak self] in self?.overlaysChanged() }
+        }
+        needsDisplay = true
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
+    // MARK: Paste and drop
+
+    public override func paste(_ sender: Any?) {
+        let pb = NSPasteboard.general
+        if pasteImage(from: pb) { return }
+        if let s = pb.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let url = URL(string: s), let scheme = url.scheme, ["http", "https"].contains(scheme), !s.contains(" ") {
+            if selectedRange().length > 0, let selected = (string as NSString?)?.substring(with: selectedRange()) {
+                insertMarkdown("[\(selected)](\(s))", ownLine: false)
+            } else {
+                insertMarkdown(s, ownLine: true)
+            }
+            return
+        }
+        pasteAsPlainText(sender)
+    }
+
+    private func pasteImage(from pb: NSPasteboard) -> Bool {
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           !urls.isEmpty, urls.allSatisfy(AttachmentImporter.isImageFile) {
+            for url in urls { if let md = AttachmentImporter.importFile(url, document: document) { insertMarkdown(md, ownLine: true) } }
+            return true
+        }
+        if let image = NSImage(pasteboard: pb), pb.types?.contains(where: { $0 == .png || $0 == .tiff }) == true {
+            if let md = AttachmentImporter.importImage(image, document: document) { insertMarkdown(md, ownLine: true) }
+            return true
+        }
+        return false
+    }
+
+    /// Insert text at the selection; `ownLine` puts it on a line of its own.
+    func insertMarkdown(_ text: String, ownLine: Bool) {
+        guard let storage = textStorage else { return }
+        let ns = storage.string as NSString
+        var range = selectedRange()
+        var insert = text
+        if ownLine {
+            let before = range.location > 0 ? ns.substring(with: NSRange(location: range.location - 1, length: 1)) : "\n"
+            let afterIndex = range.location + range.length
+            let after = afterIndex < ns.length ? ns.substring(with: NSRange(location: afterIndex, length: 1)) : "\n"
+            if before != "\n" { insert = "\n" + insert }
+            if after != "\n" { insert += "\n" }
+            range = NSRange(location: afterIndex, length: 0)
+        }
+        guard shouldChangeText(in: range, replacementString: insert) else { return }
+        storage.replaceCharacters(in: range, with: insert)
+        didChangeText()
+        setSelectedRange(NSRange(location: range.location + (insert as NSString).length, length: 0))
+    }
+
+    public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if droppableImageURLs(sender) != nil { return .copy }
+        return super.draggingEntered(sender)
+    }
+
+    public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if droppableImageURLs(sender) != nil { return .copy }
+        return super.draggingUpdated(sender)
+    }
+
+    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if let urls = droppableImageURLs(sender) {
+            let point = convert(sender.draggingLocation, from: nil)
+            setSelectedRange(NSRange(location: characterIndexForInsertion(at: point), length: 0))
+            for url in urls { if let md = AttachmentImporter.importFile(url, document: document) { insertMarkdown(md, ownLine: true) } }
+            return true
+        }
+        if let image = NSImage(pasteboard: sender.draggingPasteboard) {
+            if let md = AttachmentImporter.importImage(image, document: document) { insertMarkdown(md, ownLine: true) }
+            return true
+        }
+        return super.performDragOperation(sender)
+    }
+
+    private func droppableImageURLs(_ sender: NSDraggingInfo) -> [URL]? {
+        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              !urls.isEmpty, urls.allSatisfy(AttachmentImporter.isImageFile) else { return nil }
+        return urls
     }
 
     @available(*, unavailable)
