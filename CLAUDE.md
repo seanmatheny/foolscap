@@ -56,3 +56,7 @@
 - Screenshots do reflect the menu bar's visible state (an explicit hide blanks the
   strip), but `NSMenu.menuBarVisible()` and the Window Server's 'Menubar' window
   do not: both report the same thing whether or not the titles are drawn.
+- Themes have no ruling and no elastic band by design (Sean found them distracting);
+  `Ruling` stays in the model for a future opt-in. Midnight is the OLED-black theme.
+- The app icon is a flat jester silhouette from `Tools/make-icon.swift` (`make icon`);
+  pieces are filled one by one because compound paths cancel where they overlap.

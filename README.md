@@ -52,7 +52,9 @@ Tasks are ordinary markdown checkboxes, with the Obsidian convention for
 - Export: File ▸ Export Notes… (⌘⇧E) writes a day, a range or everything as
   Markdown (with attachments), TextBundle (one package per note, images inside),
   HTML or PDF.
-- Themes: Classic Black, Oxblood, Kraft, Midnight (Foolscap ▸ Settings…).
+- Themes: Classic Black, Oxblood, Kraft and Midnight (Foolscap ▸ Settings…).
+  Midnight is the dark one: pale leather around true-black paper with white ink.
+  Pages carry paper texture only, no ruling.
 - iCloud Drive: the notebook folder can live in iCloud Drive; placeholder files
   are downloaded on demand and conflicting copies get a Keep mine / Take theirs /
   Keep both banner.
