@@ -90,6 +90,7 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
         paper.paperColor = theme.page.paperColor.nsColor
         paper.texture = FoolscapUIResources.texture(theme.page.textureTile)
         paper.textureOpacity = theme.page.textureOpacity
+        paper.textureBlend = theme.page.textureBlend == .screen ? .screen : theme.page.textureBlend == .multiply ? .multiply : .softLight
         paper.accent = theme.accent.nsColor
         paper.needsDisplay = true
         field.font = theme.type.body.nsFont.withSize(19)
@@ -122,6 +123,7 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
         var paperColor: NSColor = .white
         var texture: NSImage?
         var textureOpacity: CGFloat = 0.5
+        var textureBlend: NSCompositingOperation = .softLight
         var accent: NSColor = .red
         override func draw(_ dirtyRect: NSRect) {
             let path = NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12)
@@ -136,7 +138,7 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
                     var x: CGFloat = 0
                     while x < bounds.width {
                         texture.draw(in: NSRect(x: x, y: y, width: tile.width, height: tile.height), from: .zero,
-                                     operation: .softLight, fraction: textureOpacity)
+                                     operation: textureBlend, fraction: textureOpacity)
                         x += tile.width
                     }
                     y += tile.height

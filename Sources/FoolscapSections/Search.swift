@@ -170,7 +170,7 @@ public struct SearchPalette: View {
         .background(
             ZStack {
                 theme.page.paperColor.color
-                TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity)
+                TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity, blend: theme.page.textureBlend)
             }
         )
         .clipShape(RoundedRectangle(cornerRadius: 10))

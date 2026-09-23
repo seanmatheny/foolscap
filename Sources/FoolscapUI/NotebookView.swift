@@ -45,9 +45,6 @@ public struct NotebookView<Page: View>: View {
                     }
                     .padding(EdgeInsets(top: NotebookMetrics.topMargin, leading: NotebookMetrics.spineMargin,
                                         bottom: NotebookMetrics.bottomMargin, trailing: NotebookMetrics.sideMargin))
-                // The band wraps the cover beyond the tabs, so it never crosses the page.
-                ElasticBandView()
-                    .padding(.trailing, 6)
                 // Leather band above the page: reveals the traffic lights and drags the window.
                 TrafficLightHoverZone()
                     .frame(height: NotebookMetrics.topMargin)
@@ -126,18 +123,6 @@ struct InsetCover: InsettableShape {
     var square = false
     func path(in rect: CGRect) -> Path { CoverShape(square: square).path(in: rect.insetBy(dx: amount, dy: amount)) }
     func inset(by extra: CGFloat) -> InsetCover { InsetCover(amount: amount + extra, square: square) }
-}
-
-struct ElasticBandView: View {
-    @Environment(\.notebookTheme) private var theme
-    var body: some View {
-        Rectangle()
-            .fill(theme.cover.bandColor.color)
-            .overlay(LinearGradient(colors: [.white.opacity(0.18), .clear, .black.opacity(0.3)], startPoint: .leading, endPoint: .trailing))
-            .frame(width: 11)
-            .shadow(color: .black.opacity(0.5), radius: 3, x: 1, y: 0)
-            .allowsHitTesting(false)
-    }
 }
 
 struct IndexTabsView: View {

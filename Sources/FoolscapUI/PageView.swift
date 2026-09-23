@@ -68,7 +68,7 @@ public struct PageView<Content: View>: View {
     public var body: some View {
         ZStack {
             theme.page.paperColor.color
-            TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity)
+            TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity, blend: theme.page.textureBlend)
             // Inner shadow along the spine side
             LinearGradient(colors: [.black.opacity(0.18), .clear], startPoint: .leading, endPoint: .trailing)
                 .frame(width: 28)

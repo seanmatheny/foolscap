@@ -107,15 +107,13 @@ struct ThemeSwatch: View {
                         VStack(spacing: 5) {
                             ForEach(0..<6, id: \.self) { i in
                                 RoundedRectangle(cornerRadius: 1)
-                                    .fill(i == 0 ? theme.ink.color.opacity(0.7) : theme.page.ruleColor.color)
-                                    .frame(width: i == 0 ? 34 : 54, height: i == 0 ? 3 : 1)
+                                    .fill(theme.ink.color.opacity(i == 0 ? 0.75 : 0.3))
+                                    .frame(width: i == 0 ? 34 : 54, height: i == 0 ? 3 : 1.5)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }.padding(8)
                     )
                     .padding(EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 8))
-                Rectangle().fill(theme.cover.bandColor.color).frame(width: 4)
-                    .frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 12)
             }
             .frame(width: 112, height: 84)
             .clipShape(RoundedRectangle(cornerRadius: 6))

@@ -197,6 +197,8 @@ public final class MarkdownTextView: NSTextView {
         font = palette.body
         insertionPointColor = palette.ink
         selectedTextAttributes = [.backgroundColor: palette.selection]
+        linkTextAttributes = [.foregroundColor: palette.accent, .underlineStyle: NSUnderlineStyle.single.rawValue,
+                              .underlineColor: palette.accent.withAlphaComponent(0.5), .cursor: NSCursor.pointingHand]
         typingAttributes = palette.baseAttributes
         textContainerInset = NSSize(width: EditorMetrics.leftInset, height: palette.pitch * EditorMetrics.topLines)
         needsDisplay = true

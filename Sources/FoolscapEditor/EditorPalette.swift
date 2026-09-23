@@ -50,7 +50,7 @@ public struct EditorPalette {
         codeBlockBackground = theme.page.paperColor.nsColor.blended(withFraction: theme.isDark ? 0.08 : 0.055,
                                                                      of: theme.isDark ? .white : .black) ?? paper
         tagBackground = theme.accent.nsColor.withAlphaComponent(0.14)
-        selection = theme.accent.nsColor.withAlphaComponent(0.22)
+        selection = theme.accent.nsColor.withAlphaComponent(theme.isDark ? 0.35 : 0.22)
         highlighter = theme.highlighter.mapValues { $0.nsColor }
         pitch = theme.linePitch
         isDark = theme.isDark

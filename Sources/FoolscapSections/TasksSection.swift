@@ -51,8 +51,7 @@ struct TasksPage: View {
         GeometryReader { geo in
             ScrollView {
                 ZStack(alignment: .topLeading) {
-                    RulingView(pitch: pitch, topInset: pitch * 2 - 4, marginX: 58)
-                        .frame(minHeight: geo.size.height)
+                    Color.clear.frame(minHeight: geo.size.height)
                     VStack(alignment: .leading, spacing: 0) {
                         header
                         CategoryStrip(tags: section.aggregator.tags, selected: $section.selectedTag)

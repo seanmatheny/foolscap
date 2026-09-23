@@ -53,12 +53,11 @@ public struct CoverMaterial: Codable, Hashable, Sendable {
     public var grainOpacity: Double
     public var blend: TextureBlend
     public var stitchColor: RGBA
-    public var bandColor: RGBA
 
     public init(baseColor: RGBA, textureTile: String, grainOpacity: Double, blend: TextureBlend = .screen,
-                stitchColor: RGBA, bandColor: RGBA) {
+                stitchColor: RGBA) {
         self.baseColor = baseColor; self.textureTile = textureTile; self.grainOpacity = grainOpacity
-        self.blend = blend; self.stitchColor = stitchColor; self.bandColor = bandColor
+        self.blend = blend; self.stitchColor = stitchColor
     }
 }
 
@@ -66,15 +65,20 @@ public struct PageStyle: Codable, Hashable, Sendable {
     public var paperColor: RGBA
     public var textureTile: String
     public var textureOpacity: Double
+    /// How the paper grain combines with the paper colour (`screen` shows on black).
+    public var textureBlend: TextureBlend
+    /// Ruling is off in every built-in theme; kept so a theme could opt in.
     public var ruling: Ruling
     public var ruleColor: RGBA
     public var marginRule: Bool
     public var marginRuleColor: RGBA
 
-    public init(paperColor: RGBA, textureTile: String, textureOpacity: Double, ruling: Ruling,
-                ruleColor: RGBA, marginRule: Bool, marginRuleColor: RGBA) {
+    public init(paperColor: RGBA, textureTile: String, textureOpacity: Double, textureBlend: TextureBlend = .softLight,
+                ruling: Ruling = .blank, ruleColor: RGBA = .hex(0x000000, alpha: 0), marginRule: Bool = false,
+                marginRuleColor: RGBA = .hex(0x000000, alpha: 0)) {
         self.paperColor = paperColor; self.textureTile = textureTile; self.textureOpacity = textureOpacity
-        self.ruling = ruling; self.ruleColor = ruleColor; self.marginRule = marginRule; self.marginRuleColor = marginRuleColor
+        self.textureBlend = textureBlend; self.ruling = ruling; self.ruleColor = ruleColor
+        self.marginRule = marginRule; self.marginRuleColor = marginRuleColor
     }
 }
 
@@ -138,13 +142,12 @@ extension NotebookTheme {
         .completed:  .hex(0x8ED081, alpha: 0.55),
     ]
 
-    /// Black Moleskine, ivory ruled paper.
+    /// Black Moleskine, ivory paper.
     public static let classicBlack = NotebookTheme(
         id: "classic-black", name: "Classic Black",
         cover: CoverMaterial(baseColor: .hex(0x1E1B19), textureTile: "leather", grainOpacity: 0.22,
-                             stitchColor: .hex(0x3A3532), bandColor: .hex(0x121010)),
-        page: PageStyle(paperColor: .hex(0xF6F0DF), textureTile: "paper", textureOpacity: 0.6, ruling: .lined,
-                        ruleColor: .hex(0xB9C6D8, alpha: 0.7), marginRule: true, marginRuleColor: .hex(0xE0A2A2, alpha: 0.8)),
+                             stitchColor: .hex(0x3A3532)),
+        page: PageStyle(paperColor: .hex(0xF6F0DF), textureTile: "paper", textureOpacity: 0.6),
         type: Typography(body: FontSpec(family: "Charter", size: 15, design: .serif),
                          heading: FontSpec(family: "Charter", size: 22, design: .serif, bold: true),
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
@@ -153,13 +156,12 @@ extension NotebookTheme {
         tabColors: [.hex(0xC9A66B), .hex(0x8FA88B), .hex(0xA98BA1), .hex(0x7E9DB8)],
         highlighter: highlighterDefaults)
 
-    /// Oxblood leather, cream dotted paper.
+    /// Oxblood leather, cream paper.
     public static let oxblood = NotebookTheme(
         id: "oxblood", name: "Oxblood",
         cover: CoverMaterial(baseColor: .hex(0x5A1F22), textureTile: "leather", grainOpacity: 0.2,
-                             stitchColor: .hex(0xC9A66B), bandColor: .hex(0x2B1214)),
-        page: PageStyle(paperColor: .hex(0xFBF5E6), textureTile: "paper", textureOpacity: 0.55, ruling: .dotted,
-                        ruleColor: .hex(0x9A8E7A, alpha: 0.55), marginRule: false, marginRuleColor: .hex(0xE0A2A2)),
+                             stitchColor: .hex(0xC9A66B)),
+        page: PageStyle(paperColor: .hex(0xFBF5E6), textureTile: "paper", textureOpacity: 0.55),
         type: Typography(body: FontSpec(family: "Georgia", size: 15, design: .serif),
                          heading: FontSpec(family: "Georgia", size: 22, design: .serif, bold: true),
                          mono: FontSpec(family: "SF Mono", size: 13, design: .mono),
@@ -168,13 +170,12 @@ extension NotebookTheme {
         tabColors: [.hex(0xB08A4A), .hex(0x6F8F6B), .hex(0x8B6F86), .hex(0x5F7F9E)],
         highlighter: highlighterDefaults)
 
-    /// Kraft card cover, graph paper (Field Notes).
+    /// Kraft card cover, soft white paper.
     public static let kraft = NotebookTheme(
         id: "kraft", name: "Kraft",
         cover: CoverMaterial(baseColor: .hex(0xB98F5E), textureTile: "kraft", grainOpacity: 0.7, blend: .multiply,
-                             stitchColor: .hex(0x6B4F2A), bandColor: .hex(0x3B2F22)),
-        page: PageStyle(paperColor: .hex(0xF4EFE3), textureTile: "paper", textureOpacity: 0.7, ruling: .grid,
-                        ruleColor: .hex(0xA9C1B6, alpha: 0.6), marginRule: false, marginRuleColor: .hex(0xE0A2A2)),
+                             stitchColor: .hex(0x6B4F2A)),
+        page: PageStyle(paperColor: .hex(0xF4EFE3), textureTile: "paper", textureOpacity: 0.7),
         type: Typography(body: FontSpec(family: "Avenir Next", size: 14.5, design: .sans),
                          heading: FontSpec(family: "Avenir Next", size: 21, design: .sans, bold: true),
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
@@ -183,23 +184,22 @@ extension NotebookTheme {
         tabColors: [.hex(0xD9A441), .hex(0x6E9E7A), .hex(0xC96B4E), .hex(0x5B87A8)],
         highlighter: highlighterDefaults)
 
-    /// Dark paper for late nights.
+    /// Dark mode: pale leather around true-black (OLED) paper with white ink.
     public static let midnight = NotebookTheme(
         id: "midnight", name: "Midnight",
-        cover: CoverMaterial(baseColor: .hex(0x14171C), textureTile: "leather", grainOpacity: 0.18,
-                             stitchColor: .hex(0x3C4452), bandColor: .hex(0x0B0D10)),
-        page: PageStyle(paperColor: .hex(0x23262B), textureTile: "paper", textureOpacity: 0.35, ruling: .lined,
-                        ruleColor: .hex(0xFFFFFF, alpha: 0.08), marginRule: true, marginRuleColor: .hex(0xC97C7C, alpha: 0.5)),
+        cover: CoverMaterial(baseColor: .hex(0x8A8178), textureTile: "leather", grainOpacity: 0.16,
+                             stitchColor: .hex(0x4A443F)),
+        page: PageStyle(paperColor: .hex(0x000000), textureTile: "paper", textureOpacity: 0.07, textureBlend: .screen),
         type: Typography(body: FontSpec(family: "Charter", size: 15, design: .serif),
                          heading: FontSpec(family: "Charter", size: 22, design: .serif, bold: true),
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
-        ink: .hex(0xE6E1D6), dimInk: .hex(0xE6E1D6, alpha: 0.4), accent: .hex(0xD9A441),
-        tabColors: [.hex(0x8A6F3A), .hex(0x4F7A5A), .hex(0x7A5A73), .hex(0x4B6E8A)],
+        ink: .hex(0xF4F1EA), dimInk: .hex(0xF4F1EA, alpha: 0.45), accent: .hex(0xE0B95A),
+        tabColors: [.hex(0xC9B58F), .hex(0x9FB89E), .hex(0xB59FB0), .hex(0x94AEC4)],
         highlighter: [
             .notStarted: .hex(0x000000, alpha: 0),
-            .inProgress: .hex(0xC9A227, alpha: 0.45),
-            .completed:  .hex(0x4F9A5F, alpha: 0.45),
+            .inProgress: .hex(0xE0B95A, alpha: 0.28),
+            .completed:  .hex(0x6FBF7A, alpha: 0.28),
         ],
         isDark: true)
 
