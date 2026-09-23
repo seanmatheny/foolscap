@@ -76,7 +76,7 @@ final class OverlayController {
                 textView.addSubview(overlay.view)
                 changed = true
             }
-            heights[line.index] = overlay.displaySize(availableWidth: availableWidth()).height + 8
+            heights[line.index] = reserved(for: overlay.displaySize(availableWidth: availableWidth()).height)
         }
         for (key, overlay) in overlays where !seen.contains(key) {
             overlay.view.removeFromSuperview()
@@ -90,6 +90,13 @@ final class OverlayController {
         return changed
     }
 
+    /// Space below the line for an overlay, rounded up to whole ruled lines so
+    /// the text after it stays on the ruling.
+    private func reserved(for height: CGFloat) -> CGFloat {
+        let pitch = textView.palette.pitch
+        return (ceil((height + 10) / pitch)) * pitch
+    }
+
     private func makeOverlay(key: String, line: ScannedLine) -> Overlay? {
         switch line.kind {
         case .imageLine(let alt, let path):
@@ -101,11 +108,10 @@ final class OverlayController {
                            requestedWidth: BlockMap.imageAlt(alt).width.map { CGFloat($0) })
         case .urlLine(let urlString):
             guard let url = URL(string: urlString) else { return nil }
-            let card = LPLinkView(url: url)
-            card.frame = NSRect(x: 0, y: 0, width: Self.linkCardMaxWidth, height: Self.linkCardHeight)
+            let card = LinkCardView(url: url)
             LinkPreviewCache.shared.metadata(for: url) { [weak card] metadata in
                 guard let card, let metadata else { return }
-                card.metadata = metadata
+                card.linkView.metadata = metadata
             }
             return Overlay(key: key, view: card, lineIndex: line.index,
                            naturalSize: NSSize(width: Self.linkCardMaxWidth, height: Self.linkCardHeight), isImage: false)
@@ -151,7 +157,7 @@ final class OverlayController {
             }
             overlay.view.isHidden = false
             let size = overlay.displaySize(availableWidth: width)
-            if textView.styler.overlayHeights[overlay.lineIndex] != size.height + 8 { stale = true }
+            if textView.styler.overlayHeights[overlay.lineIndex] != reserved(for: size.height) { stale = true }
             let x = textView.textContainerInset.width
             // Directly under the text line, inside the paragraph spacing reserved for it.
             overlay.view.frame = NSRect(x: x, y: bottom + 4, width: size.width, height: size.height)
@@ -176,6 +182,60 @@ final class OverlayController {
     func invalidateImage(_ path: String) { imageCache[path] = nil; overlays["img:" + path]?.view.removeFromSuperview(); overlays["img:" + path] = nil }
 }
 
+
+/// A LinkPresentation card with a discreet copy button that appears on hover.
+final class LinkCardView: NSView {
+    let linkView: LPLinkView
+    private let copyButton = NSButton()
+    private let url: URL
+    private var trackingArea: NSTrackingArea?
+
+    init(url: URL) {
+        self.url = url
+        linkView = LPLinkView(url: url)
+        super.init(frame: NSRect(x: 0, y: 0, width: OverlayController.linkCardMaxWidth, height: OverlayController.linkCardHeight))
+        linkView.frame = bounds
+        linkView.autoresizingMask = [.width, .height]
+        addSubview(linkView)
+        copyButton.bezelStyle = .accessoryBarAction
+        copyButton.isBordered = false
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy link")
+        copyButton.contentTintColor = .white
+        copyButton.wantsLayer = true
+        copyButton.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.45).cgColor
+        copyButton.layer?.cornerRadius = 6
+        copyButton.frame = NSRect(x: bounds.maxX - 30, y: bounds.maxY - 30, width: 24, height: 24)
+        copyButton.autoresizingMask = [.minXMargin, .minYMargin]
+        copyButton.target = self
+        copyButton.action = #selector(copyLink)
+        copyButton.toolTip = url.absoluteString
+        copyButton.isHidden = true
+        addSubview(copyButton)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func copyLink() {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(url.absoluteString, forType: .string)
+        copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy link")
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { copyButton.isHidden = false }
+    override func mouseExited(with event: NSEvent) { copyButton.isHidden = true }
+}
 
 /// An image with a drag handle in its bottom-right corner. Dragging scales the
 /// image (aspect kept); releasing reports the new width.
@@ -204,7 +264,7 @@ final class ResizableImageView: NSView {
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
     private var handleRect: NSRect {
-        NSRect(x: bounds.maxX - Self.handleSize, y: bounds.minY, width: Self.handleSize, height: Self.handleSize)
+        NSRect(x: bounds.maxX - 32, y: bounds.minY, width: 32, height: 32)
     }
 
     override func updateTrackingAreas() {
@@ -225,12 +285,18 @@ final class ResizableImageView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard showHandle || dragStart != nil else { return }
-        let r = handleRect.insetBy(dx: 4, dy: 4)
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: r.maxX, y: r.minY + r.height)); path.line(to: NSPoint(x: r.maxX - r.width, y: r.minY))
-        path.move(to: NSPoint(x: r.maxX, y: r.minY + r.height * 0.5)); path.line(to: NSPoint(x: r.maxX - r.width * 0.5, y: r.minY))
-        NSColor.white.withAlphaComponent(0.9).setStroke(); path.lineWidth = 2.5; path.stroke()
-        NSColor.black.withAlphaComponent(0.6).setStroke(); path.lineWidth = 1; path.stroke()
+        // A small badge with a resize arrow, so the grip is discoverable.
+        let badge = NSRect(x: bounds.maxX - 26, y: bounds.minY + 6, width: 20, height: 20)
+        NSColor.black.withAlphaComponent(0.5).setFill()
+        NSBezierPath(roundedRect: badge, xRadius: 5, yRadius: 5).fill()
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        if let symbol = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: "Resize")?
+            .withSymbolConfiguration(config) {
+            let tinted = symbol.copy() as! NSImage
+            tinted.lockFocus(); NSColor.white.set(); NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop); tinted.unlockFocus()
+            let size = tinted.size
+            tinted.draw(in: NSRect(x: badge.midX - size.width / 2, y: badge.midY - size.height / 2, width: size.width, height: size.height))
+        }
     }
 
     override func mouseDown(with event: NSEvent) {

@@ -101,13 +101,14 @@ struct TasksPage: View {
             .buttonStyle(.plain)
             .keyboardShortcut("n", modifiers: [.command])
             .popover(isPresented: $showNewTask, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("Task, with #category", text: $newTaskText)
-                        .textFieldStyle(.roundedBorder).frame(width: 320)
-                        .onSubmit { submit() }
-                    Text("Added to today's note under “## Tasks”.").font(.caption).foregroundStyle(.secondary)
+                PaperPopover {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("Task, with #category", text: $newTaskText)
+                            .paperField().frame(width: 320)
+                            .onSubmit { submit() }
+                        Text("Added to today's note under “## Tasks”.").font(.caption).foregroundStyle(theme.dimInk.color)
+                    }
                 }
-                .padding(12)
             }
             if let err = section.aggregator.error { Text(err).font(.caption).foregroundStyle(.red) }
         }
@@ -162,31 +163,72 @@ struct TaskSectionView: View {
     let onUpdate: (TaskItem, String, String?) -> Void
     let onAddTag: (TaskItem, String) -> Void
     @State private var targeted = false
+    @AppStorage private var folded: Bool
+    @State private var showAll = false
+    static let recentLimit = 8
+
+    init(status: TaskStatus, tasks: [TaskItem], allTags: [String], pitch: CGFloat,
+         onMove: @escaping (TaskItem) -> Void, onToggle: @escaping (TaskItem) -> Void, onOpen: @escaping (TaskItem) -> Void,
+         onRename: @escaping (TaskItem, String) -> Void, onUpdate: @escaping (TaskItem, String, String?) -> Void,
+         onAddTag: @escaping (TaskItem, String) -> Void) {
+        self.status = status; self.tasks = tasks; self.allTags = allTags; self.pitch = pitch
+        self.onMove = onMove; self.onToggle = onToggle; self.onOpen = onOpen
+        self.onRename = onRename; self.onUpdate = onUpdate; self.onAddTag = onAddTag
+        _folded = AppStorage(wrappedValue: false, "fold." + status.rawValue)
+    }
+
+    /// Completed tasks pile up: show the most recent few unless asked for all.
+    private var visibleTasks: [TaskItem] {
+        guard status == .completed, !showAll, tasks.count > Self.recentLimit else { return tasks }
+        return Array(tasks.prefix(Self.recentLimit))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(theme.dimInk.color)
+                    .rotationEffect(.degrees(folded ? 0 : 90))
+                    .frame(width: 12)
                 Text(status.title)
                     .font(.system(size: 17, weight: .bold, design: .serif))
                     .highlighted(theme.highlighter[status])
                 Text("\(tasks.count)").font(.system(size: 12, design: .serif)).foregroundStyle(theme.dimInk.color)
             }
             .frame(height: pitch)
-            if tasks.isEmpty {
-                Text(targeted ? "Drop here" : "Nothing here")
-                    .font(.system(size: 13, design: .serif)).italic()
-                    .foregroundStyle(theme.dimInk.color)
+            .contentShape(Rectangle())
+            .onTapGesture { withAnimation(.easeInOut(duration: 0.18)) { folded.toggle() } }
+            if !folded {
+                if tasks.isEmpty {
+                    Text(targeted ? "Drop here" : "Nothing here")
+                        .font(.system(size: 13, design: .serif)).italic()
+                        .foregroundStyle(theme.dimInk.color)
+                        .frame(height: pitch)
+                        .padding(.leading, 28)
+                }
+                ForEach(visibleTasks) { task in
+                    TaskRow(task: task, pitch: pitch, allTags: allTags,
+                            onToggle: { onToggle(task) }, onOpen: { onOpen(task) },
+                            onUpdate: { onUpdate(task, $0, $1) }, onAddTag: { onAddTag(task, $0) })
+                        .draggable(task) {
+                            Text(task.displayTitle).font(.system(size: 14, design: .serif))
+                                .padding(6).background(theme.page.paperColor.color).cornerRadius(4)
+                        }
+                }
+                if status == .completed, tasks.count > Self.recentLimit {
+                    Button(showAll ? "Show only the last \(Self.recentLimit)" : "Show all \(tasks.count) completed") {
+                        withAnimation { showAll.toggle() }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, design: .serif))
+                    .foregroundStyle(theme.accent.color)
                     .frame(height: pitch)
                     .padding(.leading, 28)
-            }
-            ForEach(tasks) { task in
-                TaskRow(task: task, pitch: pitch, allTags: allTags,
-                        onToggle: { onToggle(task) }, onOpen: { onOpen(task) },
-                        onUpdate: { onUpdate(task, $0, $1) }, onAddTag: { onAddTag(task, $0) })
-                    .draggable(task) {
-                        Text(task.displayTitle).font(.system(size: 14, design: .serif))
-                            .padding(6).background(theme.page.paperColor.color).cornerRadius(4)
-                    }
+                }
+            } else if targeted {
+                Text("Drop here").font(.system(size: 13, design: .serif)).italic()
+                    .foregroundStyle(theme.dimInk.color).frame(height: pitch).padding(.leading, 28)
             }
             Spacer().frame(height: pitch)
         }
@@ -320,36 +362,49 @@ struct TaskEditPopover: View {
         _notes = State(initialValue: task.notes ?? "")
     }
 
+    @Environment(\.notebookTheme) private var theme
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Edit Task").font(.headline)
-            TextField("Task text, with #tags", text: $title)
-                .textFieldStyle(.roundedBorder)
-                .focused($titleFocused)
-                .onSubmit { onSave(title, notes) }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Notes and links").font(.caption).foregroundStyle(.secondary)
-                TextEditor(text: $notes)
-                    .font(.system(size: 12.5))
-                    .frame(height: 72)
-                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.3)))
-            }
-            if !allTags.isEmpty {
-                HStack(spacing: 6) {
-                    Text("Tags:").font(.caption).foregroundStyle(.secondary)
-                    ForEach(allTags.prefix(6), id: \.self) { tag in
-                        Button("#" + tag) { if !title.contains("#" + tag) { title += " #" + tag } }
-                            .buttonStyle(.link).font(.caption)
+        PaperPopover {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Edit Task").font(.system(size: 15, weight: .bold, design: .serif))
+                TextField("Task text, with #tags", text: $title)
+                    .font(.system(size: 14, design: .serif))
+                    .paperField()
+                    .focused($titleFocused)
+                    .onSubmit { onSave(title, notes) }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Notes and links").font(.caption).foregroundStyle(theme.dimInk.color)
+                    TextEditor(text: $notes)
+                        .font(.system(size: 13, design: .serif))
+                        .scrollContentBackground(.hidden)
+                        .padding(4)
+                        .frame(height: 76)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(theme.ink.color.opacity(0.06)))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.ink.color.opacity(0.15), lineWidth: 0.5))
+                }
+                if !allTags.isEmpty {
+                    HStack(spacing: 6) {
+                        Text("Tags:").font(.caption).foregroundStyle(theme.dimInk.color)
+                        ForEach(allTags.prefix(6), id: \.self) { tag in
+                            Button("#" + tag) { if !title.contains("#" + tag) { title += " #" + tag } }
+                                .buttonStyle(.plain).font(.system(size: 11, design: .serif))
+                                .foregroundStyle(theme.accent.color)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Capsule().fill(theme.accent.color.opacity(0.12)))
+                        }
                     }
                 }
+                HStack {
+                    Text("Saved into the daily note.").font(.caption).foregroundStyle(theme.dimInk.color)
+                    Spacer()
+                    Button("Save") { onSave(title, notes) }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                }
             }
-            HStack {
-                Spacer()
-                Button("Save") { onSave(title, notes) }.keyboardShortcut(.defaultAction)
-            }
+            .frame(width: 380)
         }
-        .padding(14)
-        .frame(width: 380)
         .onAppear { titleFocused = true }
     }
 }
@@ -361,22 +416,28 @@ struct TagPopover: View {
     @State private var newTag = ""
     @FocusState private var focused: Bool
 
+    @Environment(\.notebookTheme) private var theme
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("New tag", text: $newTag)
-                .textFieldStyle(.roundedBorder).frame(width: 200)
-                .focused($focused)
-                .onSubmit { onPick(newTag) }
-            let choices = allTags.filter { !existing.contains($0) }
-            if !choices.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(choices.prefix(8), id: \.self) { tag in
-                        Button("#" + tag) { onPick(tag) }.buttonStyle(.link).font(.callout)
+        PaperPopover {
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("New tag", text: $newTag)
+                    .font(.system(size: 13, design: .serif))
+                    .paperField().frame(width: 200)
+                    .focused($focused)
+                    .onSubmit { onPick(newTag) }
+                let choices = allTags.filter { !existing.contains($0) }
+                if !choices.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(choices.prefix(8), id: \.self) { tag in
+                            Button("#" + tag) { onPick(tag) }
+                                .buttonStyle(.plain).font(.system(size: 12.5, design: .serif))
+                                .foregroundStyle(theme.accent.color)
+                        }
                     }
                 }
             }
         }
-        .padding(12)
         .onAppear { focused = true }
     }
 }

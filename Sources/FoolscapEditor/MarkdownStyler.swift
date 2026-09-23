@@ -215,18 +215,21 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
                 inlineRange = NSRange(location: bullet.length, length: text.length - bullet.length)
             }
         case .imageLine:
+            // The picture is the content: the markdown shows only while the caret is on the line.
             base[.foregroundColor] = p.dimInk
+            base[.font] = p.mono.withSize(11)
             storage.setAttributes(base, range: para)
-            // Keep the alt text as a caption; always hide `![`, `|width` and `](path)`.
-            if let m = try? NSRegularExpression(pattern: #"^(\s*!\[)([^\]|]*)(\|[^\]]*)?(\]\(.*\)\s*)$"#).firstMatch(in: line.text, range: NSRange(location: 0, length: text.length)) {
-                set(p.hiddenAttributes, m.range(at: 1))
-                if m.range(at: 3).location != NSNotFound { set(p.hiddenAttributes, m.range(at: 3)) }
-                set(p.hiddenAttributes, m.range(at: 4))
-            }
+            if !reveal { set(p.hiddenAttributes, NSRange(location: 0, length: text.length)) }
             return
         case .urlLine(let url):
+            // Same for bare URLs: the card stands in for the address.
+            base[.font] = p.mono.withSize(11)
             storage.setAttributes(base, range: para)
-            set([.foregroundColor: p.accent, .link: url], NSRange(location: 0, length: text.length))
+            if reveal {
+                set([.foregroundColor: p.accent, .link: url], NSRange(location: 0, length: text.length))
+            } else {
+                set(p.hiddenAttributes, NSRange(location: 0, length: text.length))
+            }
             return
         case .rule:
             base[.foregroundColor] = p.dimInk
