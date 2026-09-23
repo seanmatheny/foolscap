@@ -46,3 +46,13 @@
 - `SearchQuery` splits words from `#tags`; a trailing `#partial` filters by prefix
   and drives the suggestion chips. Note tags live in `note_tags`; the v3 migration
   blanks note hashes so the next scan re-indexes them.
+- Full screen on this Mac (notched display, macOS 27): the window sits below the
+  camera-housing strip and the system keeps drawing the menu titles in that strip
+  for Foolscap, for Electron apps and for a bare AppKit test window, but not for
+  Notes/Safari; presentation options, toolbars and Info.plist keys did not change
+  it. `FullScreenMenuBar` therefore hides the bar with `NSMenu.setMenuBarVisible`
+  while full screen and reveals it when the pointer touches the top edge.
+  `Tools/winlist.swift` lists on-screen windows for this kind of diagnosis.
+- Screenshots do reflect the menu bar's visible state (an explicit hide blanks the
+  strip), but `NSMenu.menuBarVisible()` and the Window Server's 'Menubar' window
+  do not: both report the same thing whether or not the titles are drawn.

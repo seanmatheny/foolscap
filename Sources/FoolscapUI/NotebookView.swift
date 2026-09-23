@@ -32,6 +32,7 @@ public struct NotebookView<Page: View>: View {
     }
 
     public var body: some View {
+        let windowState = WindowState.shared
         CoverBlock {
             ZStack(alignment: .topTrailing) {
                 PageView { page(selection) }
@@ -53,6 +54,9 @@ public struct NotebookView<Page: View>: View {
                     .frame(maxWidth: .infinity)
                     .gesture(WindowDragGesture())
             }
+            // In full screen on a notched display the cover runs under the camera housing;
+            // the page stays below it.
+            .padding(.top, windowState.fullScreenTopInset)
         }
         .background(NotebookWindowChrome(shapeVersion: selection, coverColor: theme.cover.baseColor.nsColor))
         .ignoresSafeArea()
@@ -60,8 +64,11 @@ public struct NotebookView<Page: View>: View {
 }
 
 /// The cover outline: nearly square on the spine, rounded on the opening edge.
+/// Square all round while full screen, where the window fills the display.
 struct CoverShape: Shape {
+    var square = false
     func path(in r: CGRect) -> Path {
+        if square { return Path(r) }
         let s = NotebookMetrics.spineRadius, e = NotebookMetrics.edgeRadius
         var p = Path()
         p.move(to: CGPoint(x: r.minX + s, y: r.minY))
@@ -84,12 +91,13 @@ struct CoverBlock<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
+        let square = WindowState.shared.isFullScreen
         ZStack {
-            CoverShape().fill(theme.cover.baseColor.color)
+            CoverShape(square: square).fill(theme.cover.baseColor.color)
             TextureOverlay(tile: theme.cover.textureTile, opacity: theme.cover.grainOpacity, blend: theme.cover.blend)
             // Light from the top-left, and a worn sheen along the edges.
-            CoverShape().fill(LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.22)],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+            CoverShape(square: square).fill(LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.22)],
+                                                           startPoint: .topLeading, endPoint: .bottomTrailing))
             // Spine: the crease where the cover folds.
             LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0),
                                    .init(color: .black.opacity(0.12), location: 0.5),
@@ -98,25 +106,26 @@ struct CoverBlock<Content: View>: View {
                 .frame(width: 26)
                 .frame(maxWidth: .infinity, alignment: .leading)
             // Stitching just inside the edge.
-            CoverShape()
+            CoverShape(square: square)
                 .inset(by: 7)
                 .stroke(theme.cover.stitchColor.color.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
             // Edge highlight so the cover reads as thick.
-            CoverShape().stroke(Color.white.opacity(0.10), lineWidth: 1)
+            CoverShape(square: square).stroke(Color.white.opacity(0.10), lineWidth: 1)
             content
         }
-        .clipShape(CoverShape())
+        .clipShape(CoverShape(square: square))
     }
 }
 
 extension CoverShape: InsettableShape {
-    func inset(by amount: CGFloat) -> some InsettableShape { InsetCover(amount: amount) }
+    func inset(by amount: CGFloat) -> some InsettableShape { InsetCover(amount: amount, square: square) }
 }
 
 struct InsetCover: InsettableShape {
     var amount: CGFloat
-    func path(in rect: CGRect) -> Path { CoverShape().path(in: rect.insetBy(dx: amount, dy: amount)) }
-    func inset(by extra: CGFloat) -> InsetCover { InsetCover(amount: amount + extra) }
+    var square = false
+    func path(in rect: CGRect) -> Path { CoverShape(square: square).path(in: rect.insetBy(dx: amount, dy: amount)) }
+    func inset(by extra: CGFloat) -> InsetCover { InsetCover(amount: amount + extra, square: square) }
 }
 
 struct ElasticBandView: View {

@@ -67,9 +67,24 @@ public struct NotebookWindowChrome: NSViewRepresentable {
                     window.backgroundColor = self.coverColor
                 }
             }
+            NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let window = self.window else { return }
+                    WindowState.shared.isFullScreen = true
+                    // Only matters if the window actually reaches under the camera housing.
+                    if let screen = window.screen {
+                        let uncovered = screen.frame.maxY - window.frame.maxY
+                        WindowState.shared.fullScreenTopInset = max(0, screen.safeAreaInsets.top - uncovered)
+                    }
+                    FullScreenMenuBar.shared.begin(screen: window.screen)
+                }
+            }
             NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let window = self?.window else { return }
+                    FullScreenMenuBar.shared.end()
+                    WindowState.shared.isFullScreen = false
+                    WindowState.shared.fullScreenTopInset = 0
                     window.isOpaque = false
                     window.backgroundColor = .clear
                     window.invalidateShadow()
@@ -85,6 +100,16 @@ public struct NotebookWindowChrome: NSViewRepresentable {
             proxy = p
         }
     }
+}
+
+/// Window facts the chrome needs at layout time.
+@MainActor
+@Observable
+public final class WindowState {
+    public static let shared = WindowState()
+    /// Height of the camera-housing strip to keep content below in full screen.
+    public var fullScreenTopInset: CGFloat = 0
+    public var isFullScreen = false
 }
 
 public enum TrafficLights {
@@ -126,6 +151,58 @@ struct WindowFinder: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if let window { found?(window) }
+        }
+    }
+}
+
+/// In full screen the system keeps drawing the menu titles in the camera-housing
+/// strip for windows like ours. This hides the menu bar outright while full
+/// screen and brings it back when the pointer touches the top edge (or a menu
+/// is open), which is what native full-screen apps feel like.
+@MainActor
+final class FullScreenMenuBar {
+    static let shared = FullScreenMenuBar()
+    private var timer: Timer?
+    private var screen: NSScreen?
+    private var revealed = false
+    private var menuTracking = false
+    private var observers: [NSObjectProtocol] = []
+
+    func begin(screen: NSScreen?) {
+        self.screen = screen
+        revealed = false
+        NSMenu.setMenuBarVisible(false)
+        observers = [
+            NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.menuTracking = true }
+            },
+            NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.menuTracking = false }
+            },
+        ]
+        timer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+    }
+
+    func end() {
+        timer?.invalidate(); timer = nil
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers = []
+        NSMenu.setMenuBarVisible(true)
+        revealed = false
+    }
+
+    private func tick() {
+        guard let screen = screen ?? NSScreen.main else { return }
+        let y = NSEvent.mouseLocation.y
+        let top = screen.frame.maxY
+        if !revealed, y >= top - 1 {
+            revealed = true
+            NSMenu.setMenuBarVisible(true)
+        } else if revealed, !menuTracking, y < top - 44 {
+            revealed = false
+            NSMenu.setMenuBarVisible(false)
         }
     }
 }
