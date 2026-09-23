@@ -17,6 +17,9 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     var isRestyling = false
     /// Called after every styling pass, outside the storage edit.
     var onStyled: (() -> Void)?
+    /// The view whose selection decides which lines show their syntax.
+    weak var textView: NSTextView?
+    private var activeLines: Set<Int> = []
 
     init(palette: EditorPalette) {
         self.palette = palette
@@ -32,7 +35,29 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         guard let storage else { return }
         blockMap = BlockMap.scan(storage.string)
         previousFenceLines = fenceLineCount(blockMap)
+        activeLines = linesUnderSelection(blockMap)
         style(range: NSRange(location: 0, length: storage.length), map: blockMap)
+    }
+
+    /// Lines intersecting the current selection: their markdown syntax stays visible.
+    private func linesUnderSelection(_ map: BlockMap) -> Set<Int> {
+        guard let textView else { return [] }
+        var out: Set<Int> = []
+        for value in textView.selectedRanges {
+            let r = value.rangeValue
+            guard let first = map.line(at: r.location), let last = map.line(at: r.location + r.length) else { continue }
+            for i in first.index...last.index { out.insert(i) }
+        }
+        return out
+    }
+
+    /// Reveal syntax on the caret's line and hide it elsewhere.
+    func selectionChanged() {
+        let now = linesUnderSelection(blockMap)
+        guard now != activeLines else { return }
+        let changed = now.symmetricDifference(activeLines)
+        activeLines = now
+        restyle(lines: Array(changed))
     }
 
     // MARK: NSTextStorageDelegate
@@ -44,6 +69,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             let text = textStorage.string as NSString
             let newMap = BlockMap.scan(textStorage.string)
             let paragraphRange = text.paragraphRange(for: editedRange)
+            activeLines = linesUnderSelection(newMap)
             let fenceNow = fenceLineCount(newMap)
             let touchesFence = touchesFenceLine(newMap, range: paragraphRange) || touchesFenceLine(blockMap, range: NSRange(location: paragraphRange.location, length: max(0, paragraphRange.length - delta)))
             blockMap = newMap
@@ -127,13 +153,16 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             storage.addAttributes(attrs, range: a)
         }
 
+        // Syntax is dimmed on the caret's line and hidden everywhere else (Bear-style).
+        let reveal = activeLines.contains(line.index)
+        let syntaxAttrs: [NSAttributedString.Key: Any] = reveal ? [.foregroundColor: p.dimInk] : p.hiddenAttributes
         var inlineRange = NSRange(location: 0, length: text.length)
         switch line.kind {
         case .heading(let level):
             base[.font] = p.headings[min(level, p.headings.count) - 1]
             storage.setAttributes(base, range: para)
             let hashes = text.range(of: "^#{1,6}\\s", options: .regularExpression)
-            if hashes.location != NSNotFound { set([.foregroundColor: p.dimInk], hashes) }
+            if hashes.location != NSNotFound { set(syntaxAttrs, hashes) }
         case .fenceOpen(let lang):
             language = lang; inBlockComment = false
             base[.font] = p.mono; base[.foregroundColor] = p.dimInk
@@ -183,6 +212,12 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         case .imageLine:
             base[.foregroundColor] = p.dimInk
             storage.setAttributes(base, range: para)
+            // Keep the alt text as a caption; hide `![` and `](path)`.
+            if let m = try? NSRegularExpression(pattern: #"^(\s*!\[)([^\]|]*)(\|[^\]]*)?(\]\(.*\)\s*)$"#).firstMatch(in: line.text, range: NSRange(location: 0, length: text.length)) {
+                set(syntaxAttrs, m.range(at: 1))
+                if m.range(at: 3).location != NSNotFound { set(syntaxAttrs, m.range(at: 3)) }
+                set(syntaxAttrs, m.range(at: 4))
+            }
             return
         case .urlLine(let url):
             storage.setAttributes(base, range: para)
@@ -213,7 +248,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
                 set([.foregroundColor: p.accent, .link: url], sh(t.range))
             case .tag: set([.foregroundColor: p.accent, .backgroundColor: p.tagBackground], sh(t.range))
             }
-            for s in t.syntax { set([.foregroundColor: p.dimInk], sh(s)) }
+            for s in t.syntax { set(syntaxAttrs, sh(s)) }
         }
     }
 }

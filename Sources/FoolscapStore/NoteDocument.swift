@@ -186,6 +186,28 @@ public final class NoteDocument: Identifiable {
         textStorage.replaceCharacters(in: t.range, with: replaced)
     }
 
+    /// Replace the text after the checkbox on a task line, keeping indent, bullet and mark.
+    public func replaceTaskTitle(line: Int, expectedKey: String, with title: String) throws {
+        let cleaned = title.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+        guard !cleaned.isEmpty else { return }
+        let target = try locateTask(line: line, expectedKey: expectedKey)
+        guard let parsed = TaskLineParser.parse(target.text) else { throw TaskWriteError.moved }
+        let prefix = (target.text as NSString).substring(to: parsed.markOffset + 2)
+        textStorage.replaceCharacters(in: target.range, with: prefix + " " + cleaned)
+    }
+
+    private func locateTask(line: Int, expectedKey: String) throws -> ScannedLine {
+        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        func matches(_ l: ScannedLine) -> Bool {
+            guard let p = TaskLineParser.parse(l.text) else { return false }
+            return TaskItem.contentKey(for: p.title) == expectedKey
+        }
+        if line < map.lines.count, matches(map.lines[line]) { return map.lines[line] }
+        let candidates = map.lines.filter(matches)
+        guard candidates.count == 1 else { throw TaskWriteError.moved }
+        return candidates[0]
+    }
+
     /// Append a task line under a `## Tasks` heading, creating it if needed.
     public func appendTask(_ title: String, status: TaskStatus = .notStarted) {
         var text = textStorage.string

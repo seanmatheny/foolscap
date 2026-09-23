@@ -53,6 +53,25 @@ public final class TaskAggregator {
         tasks.filter { $0.status == status && (tag == nil || $0.tags.contains(tag!)) }
     }
 
+    public func rename(_ task: TaskItem, to title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != task.title, !trimmed.isEmpty, !task.isReadOnly,
+              let provider = providers.first(where: { $0.id == task.providerID }) else { return }
+        if let i = tasks.firstIndex(where: { $0.id == task.id }) {
+            var t = tasks[i]; t.title = trimmed; t.tags = TaskLineParser.tags(in: trimmed); tasks[i] = t
+        }
+        Task {
+            do { try await provider.setTitle(trimmed, of: task) }
+            catch { self.error = "Could not edit task: \(error)"; await reload() }
+        }
+    }
+
+    public func addTag(_ tag: String, to task: TaskItem) {
+        let clean = tag.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased()
+        guard !clean.isEmpty, !task.tags.contains(clean) else { return }
+        rename(task, to: task.title + " #" + clean)
+    }
+
     public func move(_ task: TaskItem, to status: TaskStatus) {
         guard task.status != status, !task.isReadOnly,
               let provider = providers.first(where: { $0.id == task.providerID }) else { return }

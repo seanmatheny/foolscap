@@ -13,11 +13,9 @@ enum NotebookMetrics {
     static let spineRadius: CGFloat = 6      // the bound edge is nearly square
     static let edgeRadius: CGFloat = 16      // the opening edge is rounded
     static let topMargin: CGFloat = 30       // leather above the page; hosts the traffic lights
-    static let sideMargin: CGFloat = 18
+    static let sideMargin: CGFloat = 50      // leather to the right of the page: hosts the index tabs
     static let bottomMargin: CGFloat = 20
     static let spineMargin: CGFloat = 30
-    static let tabColumnWidth: CGFloat = 132 // how far tabs stick out beyond the cover
-    static let tabOverlap: CGFloat = 26      // how far tabs reach under the cover
 }
 
 /// The whole notebook: leather cover, page block, index tabs and elastic band.
@@ -34,27 +32,26 @@ public struct NotebookView<Page: View>: View {
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            CoverBlock {
-                ZStack(alignment: .topTrailing) {
-                    PageView { page(selection) }
-                        .padding(EdgeInsets(top: NotebookMetrics.topMargin, leading: NotebookMetrics.spineMargin,
-                                            bottom: NotebookMetrics.bottomMargin, trailing: NotebookMetrics.sideMargin))
-                    ElasticBandView()
-                        .padding(.trailing, NotebookMetrics.sideMargin + 10)
-                    // Leather band above the page: reveals the traffic lights and drags the window.
-                    TrafficLightHoverZone()
-                        .frame(height: NotebookMetrics.topMargin)
-                        .frame(maxWidth: .infinity)
-                        .gesture(WindowDragGesture())
-                }
+        CoverBlock {
+            ZStack(alignment: .topTrailing) {
+                PageView { page(selection) }
+                    .shadow(color: .black.opacity(0.35), radius: 3, x: 2, y: 0)
+                    // Index tabs are glued to the page edge, behind it, sticking out to the right.
+                    .background(alignment: .topTrailing) {
+                        IndexTabsView(tabs: tabs, selection: $selection)
+                            .padding(.top, 22)
+                            .offset(x: PaperTab.width)
+                    }
+                    .padding(EdgeInsets(top: NotebookMetrics.topMargin, leading: NotebookMetrics.spineMargin,
+                                        bottom: NotebookMetrics.bottomMargin, trailing: NotebookMetrics.sideMargin))
+                ElasticBandView()
+                    .padding(.trailing, NotebookMetrics.sideMargin + 16)
+                // Leather band above the page: reveals the traffic lights and drags the window.
+                TrafficLightHoverZone()
+                    .frame(height: NotebookMetrics.topMargin)
+                    .frame(maxWidth: .infinity)
+                    .gesture(WindowDragGesture())
             }
-            .zIndex(1)
-            IndexTabsView(tabs: tabs, selection: $selection)
-                .frame(width: NotebookMetrics.tabColumnWidth + NotebookMetrics.tabOverlap)
-                .padding(.leading, -NotebookMetrics.tabOverlap)
-                .padding(.top, NotebookMetrics.topMargin + 26)
-                .zIndex(0)
         }
         .background(NotebookWindowChrome(shapeVersion: selection))
         .ignoresSafeArea()
@@ -139,7 +136,7 @@ struct IndexTabsView: View {
     @Binding var selection: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .trailing, spacing: 10) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
                 PaperTab(appearance: tab.appearance,
                          color: theme.tabColor(at: tab.appearance.colorIndex ?? index),
@@ -151,6 +148,5 @@ struct IndexTabsView: View {
             }
             Spacer()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

@@ -107,4 +107,10 @@ public protocol TaskProvider: AnyObject, Sendable {
     var changes: AsyncStream<Void> { get }
     func tasks() async throws -> [TaskItem]
     func setStatus(_ status: TaskStatus, of task: TaskItem) async throws
+    /// Replace the task's text (including its #tags). Read-only providers throw.
+    func setTitle(_ title: String, of task: TaskItem) async throws
+}
+
+public extension TaskProvider {
+    func setTitle(_ title: String, of task: TaskItem) async throws { throw TaskWriteError.readOnly }
 }

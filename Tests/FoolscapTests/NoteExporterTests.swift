@@ -34,6 +34,18 @@ import Foundation
         let htmlText = try String(contentsOf: html.files[0], encoding: .utf8)
         #expect(htmlText.contains("<h1>Two</h1>"))
 
+        let tb = try NoteExporter.export(library: library, scope: .day(d1), format: .textbundle, includeAttachments: true,
+                                         theme: .classicBlack, to: out.appendingPathComponent("one.textbundle"))
+        #expect(tb.files.count == 1)
+        let tbText = try String(contentsOf: tb.files[0].appendingPathComponent("text.md"), encoding: .utf8)
+        #expect(tbText.contains("![pic](assets/pic.png)"))
+        #expect(FileManager.default.fileExists(atPath: tb.files[0].appendingPathComponent("assets/pic.png").path))
+        let info = try JSONSerialization.jsonObject(with: Data(contentsOf: tb.files[0].appendingPathComponent("info.json"))) as? [String: Any]
+        #expect(info?["type"] as? String == "net.daringfireball.markdown")
+        let tbAll = try NoteExporter.export(library: library, scope: .all, format: .textbundle, includeAttachments: true,
+                                            theme: .classicBlack, to: out)
+        #expect(tbAll.files.map(\.lastPathComponent) == ["2026-09-20.textbundle", "2026-09-21.textbundle"])
+
         let pdf = try NoteExporter.export(library: library, scope: .range(d1, d2), format: .pdf, includeAttachments: false,
                                           theme: .classicBlack, to: out)
         let pdfData = try Data(contentsOf: pdf.files[0])

@@ -1,8 +1,8 @@
 # Foolscap — notes for Claude
 
 - Build with `make app-debug` / `make test`, never bare `swift`: `swift` on PATH is
-  python-swiftclient. The Makefile uses `xcrun swift` and, when Xcode's licence
-  is not accepted, passes `-plugin-path` to Xcode's SwiftUI macro plugins.
+  python-swiftclient. The Makefile uses Xcode's toolchain (`DEVELOPER_DIR`) when
+  its licence is accepted, else the Command Line Tools plus Xcode's macro plugins.
 - Verify UI changes visually: `make run && sleep 3 && Tools/window-shot.sh` then
   read the PNG. Quit with `pkill -x Foolscap` before rebuilding.
 - The markdown text storage is the source of truth. Never put ids or hidden
@@ -27,3 +27,8 @@
   needs `needsDisplay = true` after overlay changes.
 - Plug-in sections must depend only on FoolscapCore, so the theme environment
   key and `RGBA.color` live in Core (Sections.swift), not in FoolscapUI.
+- Markdown syntax hiding: `MarkdownStyler` keeps syntax visible (dimmed) only on
+  lines under the selection; elsewhere it applies `EditorPalette.hiddenAttributes`
+  (0.01pt clear font). The text view forwards selection changes to the styler.
+- Index tabs are the page's `.background` offset to the right, so they draw behind
+  the page edge and inside the cover; the window never needs a transparent margin.

@@ -37,8 +37,22 @@ public final class MarkdownTextView: NSTextView {
         super.init(frame: .zero, textContainer: container)
         configure()
         styler.onStyled = { [weak self] in self?.overlaysChanged() }
+        styler.textView = self
         styler.attach(to: document.textStorage)
-        registerForDraggedTypes([.fileURL, .png, .tiff])
+        registerForDraggedTypes(registeredDraggedTypes + [.fileURL, .png, .tiff])
+    }
+
+    /// Plain-text views only declare text as pasteable, which disables the
+    /// Paste menu item (and ⌘V) whenever the clipboard holds a screenshot.
+    public override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        super.readablePasteboardTypes + [.png, .tiff, .fileURL]
+    }
+
+    // MARK: Active line (markdown syntax is revealed only where the caret is)
+
+    public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        styler.selectionChanged()
     }
 
     // MARK: Overlays
@@ -95,7 +109,8 @@ public final class MarkdownTextView: NSTextView {
             for url in urls { if let md = AttachmentImporter.importFile(url, document: document) { insertMarkdown(md, ownLine: true) } }
             return true
         }
-        if let image = NSImage(pasteboard: pb), pb.types?.contains(where: { $0 == .png || $0 == .tiff }) == true {
+        // Text wins over images when both are present (e.g. a web selection).
+        if pb.string(forType: .string) == nil, let image = NSImage(pasteboard: pb) {
             if let md = AttachmentImporter.importImage(image, document: document) { insertMarkdown(md, ownLine: true) }
             return true
         }

@@ -68,6 +68,12 @@ final class DailyNotesTaskProvider: TaskProvider {
         try doc.replaceTaskMark(line: task.source.line, expectedKey: task.contentKey, with: status)
         library.flushAll()
     }
+
+    func setTitle(_ title: String, of task: TaskItem) async throws {
+        let doc = library.document(atRelativePath: task.source.path)
+        try doc.replaceTaskTitle(line: task.source.line, expectedKey: task.contentKey, with: title)
+        library.flushAll()
+    }
 }
 
 struct DailyNotesPage: View {

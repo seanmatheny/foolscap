@@ -49,6 +49,10 @@ public struct ExportPanel: View {
             if format == .markdown {
                 Toggle("Copy attachments alongside", isOn: $includeAttachments)
             }
+            if format == .textbundle {
+                Text("One .textbundle package per note, with images inside. Opens in Bear, Ulysses, iA Writer and others.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
             HStack {
                 Spacer()

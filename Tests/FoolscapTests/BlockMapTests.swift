@@ -68,3 +68,14 @@ import Foundation
         #expect(DayKey.fromFileName("notes.md") == nil)
     }
 }
+
+@Suite struct ImageWidthTests {
+    @Test func altWidthRoundTrips() {
+        #expect(BlockMap.imageAlt("shot|400").width == 400)
+        #expect(BlockMap.imageAlt("shot|400").alt == "shot")
+        #expect(BlockMap.imageAlt("plain").width == nil)
+        #expect(BlockMap.imageLine(alt: "shot", width: 400, path: "a.png") == "![shot|400](a.png)")
+        #expect(BlockMap.imageLine(alt: "shot", width: nil, path: "a.png") == "![shot](a.png)")
+        if case .imageLine(let alt, _) = BlockMap.scan("![shot|400](a.png)").lines[0].kind { #expect(alt == "shot|400") } else { Issue.record("not an image line") }
+    }
+}

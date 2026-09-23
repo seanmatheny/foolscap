@@ -5,12 +5,19 @@ import FoolscapEditor
 import FoolscapUI
 
 public enum ExportFormat: String, CaseIterable, Identifiable, Sendable {
-    case markdown, html, pdf
+    case markdown, textbundle, html, pdf
     public var id: String { rawValue }
     public var title: String {
-        switch self { case .markdown: return "Markdown"; case .html: return "HTML"; case .pdf: return "PDF" }
+        switch self {
+        case .markdown: return "Markdown"
+        case .textbundle: return "TextBundle"
+        case .html: return "HTML"
+        case .pdf: return "PDF"
+        }
     }
     var fileExtension: String { self == .markdown ? "md" : rawValue }
+    /// TextBundles are one package per note, so ranges always go into a folder.
+    var isPerNote: Bool { self == .textbundle }
 }
 
 public enum ExportScope: Hashable, Sendable {
@@ -33,6 +40,17 @@ public enum NoteExporter {
         let notes: [(day: DayKey, text: String)] = days.compactMap { day in
             guard let data = try? FileIO.read(library.folder.url(for: day)) else { return nil }
             return (day, String(decoding: data, as: UTF8.self))
+        }
+        if format == .textbundle {
+            let dir = isDirectoryURL(destination) ? destination : destination.deletingLastPathComponent()
+            var files: [URL] = []
+            for note in notes {
+                let bundleURL = notes.count == 1 && !isDirectoryURL(destination)
+                    ? destination : dir.appendingPathComponent("\(note.day.string).textbundle", isDirectory: true)
+                try writeTextBundle(note: note, library: library, to: bundleURL)
+                files.append(bundleURL)
+            }
+            return Result(files: files)
         }
         let single = notes.count == 1
         let title = single ? notes[0].day.longTitle : "Foolscap \(notes.first!.day) to \(notes.last!.day)"
@@ -72,8 +90,34 @@ public enum NoteExporter {
             let data = try pdf(notes: notes, library: library, theme: theme)
             try FileIO.write(data, to: outFile)
             files = [outFile]
+        case .textbundle:
+            break   // handled above
         }
         return Result(files: files)
+    }
+
+    static func isDirectoryURL(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+    }
+
+    /// TextBundle (textbundle.org) v2: text.md, info.json and assets/.
+    static func writeTextBundle(note: (day: DayKey, text: String), library: NotebookLibrary, to bundleURL: URL) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: bundleURL.path) { try fm.removeItem(at: bundleURL) }
+        try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let assets = bundleURL.appendingPathComponent("assets", isDirectory: true)
+        var copied: [URL] = []
+        var text = try copyingAttachments(in: note.text, from: library.folder.url(for: note.day), to: assets, filesOut: &copied)
+        text = text.replacingOccurrences(of: "](Attachments/", with: "](assets/")
+        try Data(text.utf8).write(to: bundleURL.appendingPathComponent("text.md"), options: .atomic)
+        let info: [String: Any] = [
+            "version": 2,
+            "type": "net.daringfireball.markdown",
+            "transient": false,
+            "creatorIdentifier": "com.seanmatheny.foolscap",
+        ]
+        let json = try JSONSerialization.data(withJSONObject: info, options: [.prettyPrinted, .sortedKeys])
+        try json.write(to: bundleURL.appendingPathComponent("info.json"), options: .atomic)
     }
 
     static func selectDays(library: NotebookLibrary, scope: ExportScope) -> [DayKey] {

@@ -97,6 +97,20 @@ public struct BlockMap: Sendable {
         return .plain
     }
 
+    /// Split `alt|400` into the caption and the requested display width.
+    public static func imageAlt(_ raw: String) -> (alt: String, width: Double?) {
+        guard let bar = raw.lastIndex(of: "|"), let w = Double(raw[raw.index(after: bar)...].trimmingCharacters(in: .whitespaces)), w > 0 else {
+            return (raw, nil)
+        }
+        return (String(raw[..<bar]).trimmingCharacters(in: .whitespaces), w)
+    }
+
+    /// The markdown for an image line with an optional width.
+    public static func imageLine(alt: String, width: Double?, path: String) -> String {
+        let w = width.map { "|\(Int($0.rounded()))" } ?? ""
+        return "![\(alt)\(w)](\(path))"
+    }
+
     /// The line containing a UTF-16 offset.
     public func line(at offset: Int) -> ScannedLine? {
         var lo = 0, hi = lines.count - 1

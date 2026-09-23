@@ -25,15 +25,19 @@ Tasks are ordinary markdown checkboxes, with the Obsidian convention for
 
 ## Features
 
-- Daily Notes: one markdown page per day with inline styling, code blocks, pasted
-  screenshots (saved to `Attachments/`), and link-preview cards for bare URLs.
+- Daily Notes: one markdown page per day. Markdown syntax is shown only on the
+  line the caret is on (Bear-style). Paste or drop screenshots and images: they
+  are saved to `Attachments/` and shown inline; drag the corner handle to resize
+  (stored as `![alt|width](path)`). Bare URLs get link-preview cards.
   ⌘[ / ⌘] flip days, ⌘T is today.
 - Tasks: every `- [ ]` line from every note, grouped by status. Drag a task
-  between sections or click its checkbox; the change is written back into the
-  note. `+` adds a task to today's note. Categories come from `#tags`.
+  between sections or click its checkbox; double-click (or the pencil) to edit
+  its text, the tag button or the context menu to add `#tags`. Every change is
+  written back into the note. `+` adds a task to today's note.
 - Search: ⌘⇧F searches all notes and tasks (SQLite FTS5); ⌘F finds in the page.
 - Export: File ▸ Export Notes… (⌘⇧E) writes a day, a range or everything as
-  Markdown (with attachments), HTML or PDF.
+  Markdown (with attachments), TextBundle (one package per note, images inside),
+  HTML or PDF.
 - Themes: Classic Black, Oxblood, Kraft, Midnight (Foolscap ▸ Settings…).
 - iCloud Drive: the notebook folder can live in iCloud Drive; placeholder files
   are downloaded on demand and conflicting copies get a Keep mine / Take theirs /
@@ -50,8 +54,9 @@ make test
 make install    # copies to ~/Applications
 ```
 
-Requirements: macOS 26+, Xcode 26+ (or the Command Line Tools with Xcode
-installed alongside, for the SwiftUI macro plugin). `swift` on PATH may be
+Requirements: macOS 26+ and Xcode 26+ with its licence accepted. (If the licence
+is not accepted the Makefile falls back to the Command Line Tools and borrows
+Xcode's SwiftUI macro plugins.) `swift` on PATH may be
 python-swiftclient on this machine, so the Makefile always uses `xcrun swift`.
 
 ## Package targets

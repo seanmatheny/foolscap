@@ -102,3 +102,12 @@ import Foundation
         #expect(doc.externalChangePending)
     }
 }
+
+@Suite @MainActor struct TaskTitleTests {
+    @Test func replacesTitleKeepingPrefix() throws {
+        let doc = NoteDocument(path: "x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)
+        doc.setText("  - [/] Old title #a\n- [ ] Other\n")
+        try doc.replaceTaskTitle(line: 0, expectedKey: TaskItem.contentKey(for: "Old title #a"), with: "New title #a #b")
+        #expect(doc.text == "  - [/] New title #a #b\n- [ ] Other\n")
+    }
+}

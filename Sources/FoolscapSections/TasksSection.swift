@@ -65,10 +65,13 @@ struct TasksPage: View {
                         ForEach(TaskStatus.allCases, id: \.self) { status in
                             TaskSectionView(status: status,
                                             tasks: section.aggregator.tasks(status: status, tag: section.selectedTag),
+                                            allTags: section.aggregator.tags,
                                             pitch: pitch,
                                             onMove: { section.aggregator.move($0, to: status) },
                                             onToggle: { section.aggregator.move($0, to: $0.status.next) },
-                                            onOpen: { section.openNote(SectionRoute(path: $0.source.path, line: $0.source.line)) })
+                                            onOpen: { section.openNote(SectionRoute(path: $0.source.path, line: $0.source.line)) },
+                                            onRename: { section.aggregator.rename($0, to: $1) },
+                                            onAddTag: { section.aggregator.addTag($1, to: $0) })
                         }
                         Spacer(minLength: pitch * 2)
                     }
@@ -149,10 +152,13 @@ struct TaskSectionView: View {
     @Environment(\.notebookTheme) private var theme
     let status: TaskStatus
     let tasks: [TaskItem]
+    let allTags: [String]
     let pitch: CGFloat
     let onMove: (TaskItem) -> Void
     let onToggle: (TaskItem) -> Void
     let onOpen: (TaskItem) -> Void
+    let onRename: (TaskItem, String) -> Void
+    let onAddTag: (TaskItem, String) -> Void
     @State private var targeted = false
 
     var body: some View {
@@ -172,7 +178,9 @@ struct TaskSectionView: View {
                     .padding(.leading, 28)
             }
             ForEach(tasks) { task in
-                TaskRow(task: task, pitch: pitch, onToggle: { onToggle(task) }, onOpen: { onOpen(task) })
+                TaskRow(task: task, pitch: pitch, allTags: allTags,
+                        onToggle: { onToggle(task) }, onOpen: { onOpen(task) },
+                        onRename: { onRename(task, $0) }, onAddTag: { onAddTag(task, $0) })
                     .draggable(task) {
                         Text(task.displayTitle).font(.system(size: 14, design: .serif))
                             .padding(6).background(theme.page.paperColor.color).cornerRadius(4)
@@ -198,9 +206,17 @@ struct TaskRow: View {
     @Environment(\.notebookTheme) private var theme
     let task: TaskItem
     let pitch: CGFloat
+    let allTags: [String]
     let onToggle: () -> Void
     let onOpen: () -> Void
+    let onRename: (String) -> Void
+    let onAddTag: (String) -> Void
     @State private var hovering = false
+    @State private var editing = false
+    @State private var draft = ""
+    @State private var askTag = false
+    @State private var newTag = ""
+    @FocusState private var fieldFocused: Bool
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -212,18 +228,36 @@ struct TaskRow: View {
             }
             .buttonStyle(.plain)
             .disabled(task.isReadOnly)
-            Text(task.displayTitle)
-                .font(.system(size: 14.5, design: .serif))
-                .strikethrough(task.status == .completed, color: theme.dimInk.color)
-                .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
-                .lineLimit(1)
-                .highlighted(theme.highlighter[task.status])
-            ForEach(task.tags, id: \.self) { tag in
-                Text("#" + tag)
-                    .font(.system(size: 11, design: .serif))
-                    .foregroundStyle(theme.accent.color)
-                    .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(Capsule().fill(theme.accent.color.opacity(0.12)))
+            if editing {
+                TextField("Task text, with #tags", text: $draft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14.5, design: .serif))
+                    .focused($fieldFocused)
+                    .onSubmit { commit() }
+                    .onExitCommand { editing = false }
+                    .onChange(of: fieldFocused) { _, f in if !f && editing { commit() } }
+            } else {
+                Text(task.displayTitle)
+                    .font(.system(size: 14.5, design: .serif))
+                    .strikethrough(task.status == .completed, color: theme.dimInk.color)
+                    .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
+                    .lineLimit(1)
+                    .highlighted(theme.highlighter[task.status])
+                    .onTapGesture(count: 2) { beginEditing() }
+                ForEach(task.tags, id: \.self) { tag in
+                    Text("#" + tag)
+                        .font(.system(size: 11, design: .serif))
+                        .foregroundStyle(theme.accent.color)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Capsule().fill(theme.accent.color.opacity(0.12)))
+                }
+                if hovering && !task.isReadOnly {
+                    Button { beginEditing() } label: { Image(systemName: "pencil").font(.system(size: 11)) }
+                        .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help("Edit (double-click)")
+                    Button { askTag = true } label: { Image(systemName: "tag").font(.system(size: 11)) }
+                        .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help("Add a tag")
+                        .popover(isPresented: $askTag) { tagPopover }
+                }
             }
             Spacer()
             if task.isReadOnly {
@@ -242,6 +276,47 @@ struct TaskRow: View {
         .padding(.leading, 8)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .contextMenu {
+            if !task.isReadOnly {
+                Button("Edit Task…") { beginEditing() }
+                Menu("Add Tag") {
+                    ForEach(allTags.filter { !task.tags.contains($0) }, id: \.self) { tag in
+                        Button("#" + tag) { onAddTag(tag) }
+                    }
+                    Divider()
+                    Button("New Tag…") { askTag = true }
+                }
+                Button("Mark \(task.status.next.title)") { onToggle() }
+                Divider()
+            }
+            Button("Open in Daily Note") { onOpen() }
+        }
+    }
+
+    private var tagPopover: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("tag", text: $newTag)
+                .textFieldStyle(.roundedBorder).frame(width: 200)
+                .onSubmit { onAddTag(newTag); newTag = ""; askTag = false }
+            if !allTags.isEmpty {
+                HStack { ForEach(allTags.prefix(6), id: \.self) { tag in
+                    Button("#" + tag) { onAddTag(tag); askTag = false }.buttonStyle(.link).font(.caption)
+                } }
+            }
+        }
+        .padding(12)
+    }
+
+    private func beginEditing() {
+        guard !task.isReadOnly else { return }
+        draft = task.title
+        editing = true
+        DispatchQueue.main.async { fieldFocused = true }
+    }
+
+    private func commit() {
+        editing = false
+        onRename(draft)
     }
 
     private var symbol: String {

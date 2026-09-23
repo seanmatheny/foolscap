@@ -55,6 +55,11 @@ public struct EditorPalette {
         isDark = theme.isDark
     }
 
+    /// Attributes that make syntax characters take (almost) no space and no ink.
+    public var hiddenAttributes: [NSAttributedString.Key: Any] {
+        [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
+    }
+
     public var baseParagraphStyle: NSParagraphStyle {
         let p = NSMutableParagraphStyle()
         p.minimumLineHeight = pitch
