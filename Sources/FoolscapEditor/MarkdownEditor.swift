@@ -21,7 +21,6 @@ public struct MarkdownEditor: NSViewRepresentable {
         let palette = EditorPalette(theme: theme)
         let textView = MarkdownTextView(document: document, palette: palette)
         textView.delegate = context.coordinator
-        textView.restyleAll()
 
         let scroll = NSScrollView()
         scroll.drawsBackground = false
@@ -61,6 +60,12 @@ public struct MarkdownEditor: NSViewRepresentable {
 
         public func textDidChange(_ notification: Notification) {
             onEdit()
+        }
+
+        public func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            if let s = link as? String, let url = URL(string: s) { NSWorkspace.shared.open(url); return true }
+            if let url = link as? URL { NSWorkspace.shared.open(url); return true }
+            return false
         }
     }
 }

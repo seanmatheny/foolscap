@@ -14,11 +14,15 @@ enum EditorMetrics {
 /// paper ruling itself so lines scroll with the text and text sits on them.
 public final class MarkdownTextView: NSTextView {
     var palette: EditorPalette
+    let styler: MarkdownStyler
+    let document: NoteDocument
     /// Distance from a line fragment's top to the baseline, measured from layout.
     private var measuredBaseline: CGFloat?
 
     public init(document: NoteDocument, palette: EditorPalette) {
         self.palette = palette
+        self.document = document
+        self.styler = MarkdownStyler(palette: palette)
         let contentStorage = NSTextContentStorage()
         contentStorage.textStorage = document.textStorage
         let layoutManager = NSTextLayoutManager()
@@ -29,6 +33,7 @@ public final class MarkdownTextView: NSTextView {
         layoutManager.textContainer = container
         super.init(frame: .zero, textContainer: container)
         configure()
+        styler.attach(to: document.textStorage)
     }
 
     @available(*, unavailable)
@@ -64,12 +69,30 @@ public final class MarkdownTextView: NSTextView {
         needsDisplay = true
     }
 
-    /// Apply base attributes to everything (used once when a document is attached).
+    /// Re-apply all display attributes (after a palette change).
     func restyleAll() {
-        guard let storage = textStorage else { return }
-        storage.beginEditing()
-        storage.setAttributes(palette.baseAttributes, range: NSRange(location: 0, length: storage.length))
-        storage.endEditing()
+        styler.palette = palette
+        styler.restyleAll()
+    }
+
+    // MARK: Clicks
+
+    /// Clicking a task's checkbox cycles its status; clicks on links open them.
+    public override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let index = characterIndexForInsertion(at: point)
+        if event.clickCount == 1, let line = styler.blockMap.line(at: index), case .task = line.kind,
+           let parsed = TaskLineParser.parse(line.text) {
+            let markRange = NSRange(location: line.range.location + parsed.markOffset - 1, length: 3)
+            if NSLocationInRange(index, NSRange(location: markRange.location, length: markRange.length + 1)),
+               let replaced = TaskLineParser.replacingStatus(in: line.text, with: parsed.status.next),
+               shouldChangeText(in: line.range, replacementString: replaced) {
+                textStorage?.replaceCharacters(in: line.range, with: replaced)
+                didChangeText()
+                return
+            }
+        }
+        super.mouseDown(with: event)
     }
 
     // MARK: Ruling
@@ -90,7 +113,51 @@ public final class MarkdownTextView: NSTextView {
 
     public override func draw(_ dirtyRect: NSRect) {
         drawRuling(in: dirtyRect)
+        drawCodeBlocks(in: dirtyRect)
         super.draw(dirtyRect)
+    }
+
+    /// Frames (in view coordinates) of the layout fragments covering a character range.
+    func fragmentRect(for range: NSRange) -> NSRect? {
+        guard let tlm = textLayoutManager, let cm = tlm.textContentManager else { return nil }
+        let doc = tlm.documentRange
+        guard let start = cm.location(doc.location, offsetBy: range.location) else { return nil }
+        let endOffset = range.location + range.length
+        var rect: NSRect?
+        tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
+            let fStart = cm.offset(from: doc.location, to: fragment.rangeInElement.location)
+            if fStart >= endOffset && range.length > 0 { return false }
+            var f = fragment.layoutFragmentFrame
+            f.origin.x += textContainerInset.width
+            f.origin.y += textContainerInset.height
+            rect = rect.map { $0.union(f) } ?? f
+            let fEnd = cm.offset(from: doc.location, to: fragment.rangeInElement.endLocation)
+            return fEnd < endOffset
+        }
+        return rect
+    }
+
+    private func drawCodeBlocks(in rect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let lines = styler.blockMap.lines
+        var i = 0
+        while i < lines.count {
+            guard case .fenceOpen = lines[i].kind else { i += 1; continue }
+            var j = i
+            while j + 1 < lines.count, lines[j].kind != .fenceClose { j += 1 }
+            let range = NSRange(location: lines[i].range.location,
+                                length: lines[j].range.location + lines[j].range.length - lines[i].range.location)
+            if let r = fragmentRect(for: range), r.intersects(rect) {
+                let block = NSRect(x: textContainerInset.width - 10, y: r.minY - 2,
+                                   width: bounds.width - textContainerInset.width * 2 + 20, height: r.height + 4)
+                let path = NSBezierPath(roundedRect: block, xRadius: 5, yRadius: 5)
+                ctx.setFillColor(palette.codeBlockBackground.cgColor)
+                ctx.addPath(path.cgPath); ctx.fillPath()
+                ctx.setStrokeColor(palette.dimInk.withAlphaComponent(0.18).cgColor); ctx.setLineWidth(0.5)
+                ctx.addPath(path.cgPath); ctx.strokePath()
+            }
+            i = j + 1
+        }
     }
 
     private func drawRuling(in rect: NSRect) {

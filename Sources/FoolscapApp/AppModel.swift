@@ -37,6 +37,12 @@ final class AppModel {
                         PlaceholderSection(id: "tasks", label: "Tasks", symbol: "checklist")]
         }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
+        // `Foolscap --day 2026-09-22` opens on a given day (handy for scripted screenshots).
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--day"), i + 1 < args.count, let day = DayKey(args[i + 1]) {
+            dailyNotes?.selectedDay = day
+            selectedSectionID = "daily"
+        }
     }
 
     func section(id: String) -> (any NotebookSection)? { sections.first { $0.id == id } }

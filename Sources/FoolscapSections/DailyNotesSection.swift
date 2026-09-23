@@ -80,7 +80,7 @@ struct DailyNotesPage: View {
                                         removal: .opacity))
             DayNavigator(section: section, showCalendar: $showCalendar)
                 .padding(.top, 8)
-                .padding(.trailing, 14)
+                .padding(.trailing, 44)
             if document.isDownloading {
                 Text("Downloading from iCloud…")
                     .font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
@@ -89,7 +89,7 @@ struct DailyNotesPage: View {
             }
             if document.externalChangePending {
                 ExternalChangeBanner(document: document)
-                    .padding(.top, 44).padding(.trailing, 14)
+                    .padding(.top, 44).padding(.trailing, 44)
             }
         }
         .animation(.easeInOut(duration: 0.25), value: section.selectedDay)

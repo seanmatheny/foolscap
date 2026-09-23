@@ -18,6 +18,8 @@ public struct EditorPalette {
     public var bold: NSFont
     public var italic: NSFont
     public var codeBackground: NSColor
+    /// Opaque backdrop for fenced code blocks (hides the ruling).
+    public var codeBlockBackground: NSColor
     public var tagBackground: NSColor
     public var selection: NSColor
     public var highlighter: [TaskStatus: NSColor]
@@ -44,6 +46,8 @@ public struct EditorPalette {
         bold = fm.convert(body, toHaveTrait: .boldFontMask)
         italic = fm.convert(body, toHaveTrait: .italicFontMask)
         codeBackground = theme.isDark ? NSColor.white.withAlphaComponent(0.06) : NSColor.black.withAlphaComponent(0.05)
+        codeBlockBackground = theme.page.paperColor.nsColor.blended(withFraction: theme.isDark ? 0.08 : 0.055,
+                                                                     of: theme.isDark ? .white : .black) ?? paper
         tagBackground = theme.accent.nsColor.withAlphaComponent(0.14)
         selection = theme.accent.nsColor.withAlphaComponent(0.22)
         highlighter = theme.highlighter.mapValues { $0.nsColor }
