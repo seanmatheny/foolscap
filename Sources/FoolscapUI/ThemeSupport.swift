@@ -3,7 +3,6 @@ import AppKit
 import FoolscapCore
 
 public extension RGBA {
-    var color: Color { Color(.sRGB, red: r, green: g, blue: b, opacity: a) }
     var nsColor: NSColor { NSColor(srgbRed: r, green: g, blue: b, alpha: a) }
 }
 
@@ -26,17 +25,6 @@ public extension FontSpec {
         }
     }
     var font: Font { Font(nsFont) }
-}
-
-private struct NotebookThemeKey: EnvironmentKey {
-    static let defaultValue: NotebookTheme = .classicBlack
-}
-
-public extension EnvironmentValues {
-    var notebookTheme: NotebookTheme {
-        get { self[NotebookThemeKey.self] }
-        set { self[NotebookThemeKey.self] = newValue }
-    }
 }
 
 /// Finds this package's resource bundle both under `swift run` and inside the

@@ -94,6 +94,9 @@ struct DailyNotesPage: View {
             if document.externalChangePending {
                 ExternalChangeBanner(document: document)
                     .padding(.top, 44).padding(.trailing, 44)
+            } else if !document.conflictVersions.isEmpty {
+                ConflictBanner(document: document)
+                    .padding(.top, 44).padding(.trailing, 44)
             }
         }
         .animation(.easeInOut(duration: 0.25), value: section.selectedDay)
@@ -161,6 +164,24 @@ struct CalendarPopover: View {
         .padding(12)
         .frame(width: 280)
         .onAppear { date = section.selectedDay.date }
+    }
+}
+
+struct ConflictBanner: View {
+    @Environment(\.notebookTheme) private var theme
+    let document: NoteDocument
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.triangle.branch")
+            Text("iCloud has \(document.conflictVersions.count) conflicting cop\(document.conflictVersions.count == 1 ? "y" : "ies") of this note.")
+            Button("Keep mine") { try? document.resolveConflicts(.keepMine) }
+            Button("Take theirs") { try? document.resolveConflicts(.takeTheirs) }
+            Button("Keep both") { try? document.resolveConflicts(.keepBoth) }
+        }
+        .font(.system(size: 12, design: .serif))
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .background(Capsule().fill(theme.accent.color.opacity(0.18)))
+        .foregroundStyle(theme.ink.color)
     }
 }
 

@@ -8,13 +8,16 @@ public struct PreferencesView: View {
     @Binding var themeID: String
     let notesFolderPath: String
     let chooseFolder: (URL) -> Void
+    let moveToFolder: (URL) -> Void
     @AppStorage("exportFormat") private var exportFormat = "markdown"
     @AppStorage("exportIncludeAttachments") private var exportAttachments = true
 
-    public init(themeID: Binding<String>, notesFolderPath: String, chooseFolder: @escaping (URL) -> Void) {
+    public init(themeID: Binding<String>, notesFolderPath: String, chooseFolder: @escaping (URL) -> Void,
+                moveToFolder: @escaping (URL) -> Void) {
         self._themeID = themeID
         self.notesFolderPath = notesFolderPath
         self.chooseFolder = chooseFolder
+        self.moveToFolder = moveToFolder
     }
 
     public var body: some View {
@@ -38,7 +41,18 @@ public struct PreferencesView: View {
                             panel.prompt = "Use Folder"
                             panel.message = "Choose where daily notes and attachments are kept. iCloud Drive syncs between Macs."
                             panel.directoryURL = URL(fileURLWithPath: notesFolderPath)
-                            if panel.runModal() == .OK, let url = panel.url { chooseFolder(url) }
+                            guard panel.runModal() == .OK, let url = panel.url else { return }
+                            let alert = NSAlert()
+                            alert.messageText = "Use \(url.lastPathComponent)?"
+                            alert.informativeText = "Move your existing notes and attachments into this folder, or open it as it is? The current folder is left untouched either way."
+                            alert.addButton(withTitle: "Move Notes Here")
+                            alert.addButton(withTitle: "Open As Is")
+                            alert.addButton(withTitle: "Cancel")
+                            switch alert.runModal() {
+                            case .alertFirstButtonReturn: moveToFolder(url)
+                            case .alertSecondButtonReturn: chooseFolder(url)
+                            default: break
+                            }
                         }
                     }
                 }

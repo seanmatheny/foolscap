@@ -43,6 +43,9 @@ struct FoolscapApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1100, height: 760)
         .commands {
+            CommandGroup(after: .importExport) {
+                Button("Export Notes…") { model.showExport = true }.keyboardShortcut("e", modifiers: [.command, .shift])
+            }
             CommandGroup(after: .textEditing) {
                 Button("Find in Note…") { FindCommands.perform(.showFindInterface) }.keyboardShortcut("f")
                 Button("Find Next") { FindCommands.perform(.nextMatch) }.keyboardShortcut("g")
@@ -95,6 +98,12 @@ struct RootView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: model.search.isPresented)
+        .sheet(isPresented: $model.showExport) {
+            if let library = model.library {
+                ExportPanel(library: library, currentDay: model.dailyNotes?.selectedDay ?? .today)
+                    .environment(\.notebookTheme, model.theme)
+            }
+        }
     }
 }
 
@@ -102,7 +111,9 @@ struct PreferencesRoot: View {
     @Environment(AppModel.self) private var model
     var body: some View {
         @Bindable var model = model
-        PreferencesView(themeID: $model.themeID, notesFolderPath: model.notesFolderPath) { model.changeNotesFolder(to: $0) }
+        PreferencesView(themeID: $model.themeID, notesFolderPath: model.notesFolderPath,
+                        chooseFolder: { model.changeNotesFolder(to: $0) },
+                        moveToFolder: { model.moveNotesFolder(to: $0) })
             .onAppear { AppDelegate.flush = { model.flush() } }
     }
 }

@@ -15,3 +15,15 @@
 - Sections plug in through `NotebookSection` (FoolscapCore/Sections.swift);
   tasks through `TaskProvider`. A future Scribe package should depend only on
   FoolscapCore (and FoolscapStore if it needs caching).
+- Launch flags for verification: `--day YYYY-MM-DD`, `--search q`, `--export`,
+  `--prefs`, `--scribe-stub`; `Tools/window-shot.sh Foolscap out.png all` captures
+  every window. Synthetic mouse events are ignored (no Accessibility grant), so
+  hover and drag behaviour can only be checked by the user.
+- TextKit 2 gotchas: never read `layoutManager` on the text view (it downgrades
+  to TextKit 1) and never override `textContainerOrigin` (layout stops drawing).
+  Use `textContainerInset` and `textLayoutManager.usageBoundsForTextContainer`.
+- Overlays (images, link cards) are subviews positioned in `layout()`; the styler
+  reserves space with paragraph spacing. Custom drawing (ruling, code backdrops)
+  needs `needsDisplay = true` after overlay changes.
+- Plug-in sections must depend only on FoolscapCore, so the theme environment
+  key and `RGBA.color` live in Core (Sections.swift), not in FoolscapUI.

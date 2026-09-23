@@ -55,3 +55,20 @@ public extension NotebookSection {
     var taskProvider: (any TaskProvider)? { nil }
     func makeSettingsPane() -> AnyView? { nil }
 }
+
+// MARK: - Theme in the SwiftUI environment (here so plug-ins need only Core)
+
+private struct NotebookThemeKey: EnvironmentKey {
+    static let defaultValue: NotebookTheme = .classicBlack
+}
+
+public extension EnvironmentValues {
+    var notebookTheme: NotebookTheme {
+        get { self[NotebookThemeKey.self] }
+        set { self[NotebookThemeKey.self] = newValue }
+    }
+}
+
+public extension RGBA {
+    var color: Color { Color(.sRGB, red: r, green: g, blue: b, opacity: a) }
+}

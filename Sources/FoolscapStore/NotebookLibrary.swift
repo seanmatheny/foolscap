@@ -129,8 +129,48 @@ public final class NotebookLibrary {
     // MARK: Scanning
 
     private func externalChange() async {
-        for doc in documents.values { doc.reloadIfChanged() }
+        for doc in documents.values {
+            doc.reloadIfChanged()
+            doc.checkConflicts()
+        }
         await rescan()
+    }
+
+    /// Copy the notebook into a new folder, verify, and switch to it. The old
+    /// folder is left untouched.
+    public func migrate(to newRoot: URL) async throws {
+        flushAll()
+        let source = folder
+        let target = NotesFolder(root: newRoot)
+        try target.ensureLayout()
+        try await Task.detached(priority: .userInitiated) {
+            try Self.copyNotebookFiles(from: source, to: target)
+        }.value
+        try open(folder: target)
+    }
+
+    /// Synchronous copy with read-back verification (runs off the main actor).
+    nonisolated private static func copyNotebookFiles(from source: NotesFolder, to target: NotesFolder) throws {
+        let fm = FileManager.default
+        for sub in ["Daily", "Attachments"] {
+            let from = source.root.appendingPathComponent(sub, isDirectory: true).resolvingSymlinksInPath()
+            let to = target.root.appendingPathComponent(sub, isDirectory: true)
+            guard let items = fm.enumerator(at: from, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
+            for case let raw as URL in items {
+                let file = raw.resolvingSymlinksInPath()
+                guard (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                      !file.lastPathComponent.hasSuffix(".icloud"), file.path.hasPrefix(from.path) else { continue }
+                let rel = file.path.dropFirst(from.path.count + 1)
+                let dest = to.appendingPathComponent(String(rel))
+                try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let data = try FileIO.read(file)
+                if let existing = try? FileIO.read(dest), FileIO.hash(existing) == FileIO.hash(data) { continue }
+                try FileIO.write(data, to: dest)
+                guard let back = try? FileIO.read(dest), FileIO.hash(back) == FileIO.hash(data) else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+            }
+        }
     }
 
     /// Bring the index up to date with the folder. File IO and hashing run off

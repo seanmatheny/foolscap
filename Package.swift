@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "FoolscapStore", targets: ["FoolscapStore"]),
         .library(name: "FoolscapEditor", targets: ["FoolscapEditor"]),
         .library(name: "FoolscapUI", targets: ["FoolscapUI"]),
+        .library(name: "FoolscapScribe", targets: ["FoolscapScribe"]),
         .executable(name: "Foolscap", targets: ["FoolscapApp"]),
     ],
     dependencies: [
@@ -42,9 +43,14 @@ let package = Package(
             name: "FoolscapSections",
             dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI"]
         ),
+        // Future Kindle Scribe section. Depends only on Core so it stays a clean plug-in.
+        .target(
+            name: "FoolscapScribe",
+            dependencies: ["FoolscapCore"]
+        ),
         .executableTarget(
             name: "FoolscapApp",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections"],
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe"],
             exclude: ["Info.plist"]
         ),
         .testTarget(

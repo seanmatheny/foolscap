@@ -18,6 +18,8 @@ public final class NoteDocument: Identifiable {
     public private(set) var isDownloading = false
     /// Set when the file changed on disk while we had unsaved edits.
     public var externalChangePending = false
+    /// iCloud conflict versions waiting for a decision.
+    public private(set) var conflictVersions: [NSFileVersion] = []
     public var blockMap: BlockMap = BlockMap(lines: [])
     /// Bumped on every edit so views can observe cheaply.
     public private(set) var editCount = 0
@@ -88,6 +90,46 @@ public final class NoteDocument: Identifiable {
         setText(String(decoding: data, as: UTF8.self))
         lastSavedHash = hash
         return true
+    }
+
+    // MARK: iCloud conflicts
+
+    /// Look for unresolved conflict versions (iCloud writes them when two
+    /// devices edited the same file).
+    public func checkConflicts() {
+        conflictVersions = NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []
+    }
+
+    public enum ConflictResolution { case keepMine, takeTheirs, keepBoth }
+
+    public func resolveConflicts(_ resolution: ConflictResolution) throws {
+        let versions = conflictVersions
+        guard !versions.isEmpty else { return }
+        switch resolution {
+        case .keepMine:
+            break
+        case .takeTheirs:
+            if let latest = versions.max(by: { ($0.modificationDate ?? .distantPast) < ($1.modificationDate ?? .distantPast) }),
+               let data = try? Data(contentsOf: latest.url) {
+                setText(String(decoding: data, as: UTF8.self))
+                isDirty = true
+            }
+        case .keepBoth:
+            var text = textStorage.string
+            for v in versions {
+                guard let data = try? Data(contentsOf: v.url) else { continue }
+                let theirs = String(decoding: data, as: UTF8.self)
+                if theirs != text {
+                    let stamp = v.modificationDate.map { DateFormatter.localizedString(from: $0, dateStyle: .short, timeStyle: .short) } ?? "other device"
+                    text += (text.hasSuffix("\n") ? "" : "\n") + "\n---\n\n<!-- conflicting copy from \(stamp) -->\n" + theirs
+                }
+            }
+            setText(text)
+            isDirty = true
+        }
+        try NSFileVersion.removeOtherVersionsOfItem(at: url)
+        for v in versions { v.isResolved = true }
+        conflictVersions = []
     }
 
     /// Discard local edits and take the on-disk version.

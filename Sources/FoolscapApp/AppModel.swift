@@ -3,6 +3,7 @@ import FoolscapCore
 import FoolscapStore
 import FoolscapUI
 import FoolscapSections
+import FoolscapScribe
 
 /// Wires the store, the section registry and user preferences together.
 @MainActor
@@ -18,6 +19,7 @@ final class AppModel {
     private(set) var library: NotebookLibrary?
     private(set) var startupError: String?
     let search = SearchCoordinator()
+    var showExport = false
 
     var theme: NotebookTheme { NotebookTheme.builtIn(id: themeID) ?? .classicBlack }
     var tabs: [NotebookTabItem] { sections.map { NotebookTabItem(id: $0.id, appearance: $0.tab) } }
@@ -41,6 +43,10 @@ final class AppModel {
                 daily.navigate(to: route)
             }
             sections = [daily, tasks]
+            // The Scribe seam is opt-in until the real module lands.
+            if CommandLine.arguments.contains("--scribe-stub") || defaults.bool(forKey: "scribeStub") {
+                sections.append(ScribeSection())
+            }
             tasks.aggregator.setProviders(sections.compactMap(\.taskProvider))
             search.setSections(sections)
             search.navigate = { [weak self] sectionID, route in
@@ -59,6 +65,7 @@ final class AppModel {
         if let i = args.firstIndex(of: "--search"), i + 1 < args.count {
             search.open(with: args[i + 1])
         }
+        if args.contains("--export") { showExport = true }
     }
 
     func section(id: String) -> (any NotebookSection)? { sections.first { $0.id == id } }
@@ -80,6 +87,18 @@ final class AppModel {
     var dailyNotes: DailyNotesSection? { section(id: "daily") as? DailyNotesSection }
 
     func showDailyNotes() { selectedSectionID = "daily" }
+
+    func moveNotesFolder(to url: URL) {
+        guard let library else { changeNotesFolder(to: url); return }
+        Task {
+            do {
+                try await library.migrate(to: url)
+                UserDefaults.standard.set(url.path, forKey: "notesFolder")
+            } catch {
+                startupError = "Could not move the notebook: \(error.localizedDescription)"
+            }
+        }
+    }
 
     func rebuildIndex() {
         Task { await library?.rebuildIndex() }
