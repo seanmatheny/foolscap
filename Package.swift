@@ -1,0 +1,55 @@
+// swift-tools-version: 6.2
+import PackageDescription
+
+let package = Package(
+    name: "foolscap",
+    platforms: [.macOS(.v26)],
+    products: [
+        .library(name: "FoolscapCore", targets: ["FoolscapCore"]),
+        .library(name: "FoolscapStore", targets: ["FoolscapStore"]),
+        .library(name: "FoolscapEditor", targets: ["FoolscapEditor"]),
+        .library(name: "FoolscapUI", targets: ["FoolscapUI"]),
+        .executable(name: "Foolscap", targets: ["FoolscapApp"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-markdown.git", from: "0.6.0"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
+    ],
+    targets: [
+        // Platform-neutral models, protocols and markdown parsing helpers.
+        .target(
+            name: "FoolscapCore",
+            dependencies: [.product(name: "Markdown", package: "swift-markdown")]
+        ),
+        // Files on disk, iCloud coordination, SQLite FTS index.
+        .target(
+            name: "FoolscapStore",
+            dependencies: ["FoolscapCore", .product(name: "GRDB", package: "GRDB.swift")]
+        ),
+        // TextKit 2 hybrid markdown editor.
+        .target(
+            name: "FoolscapEditor",
+            dependencies: ["FoolscapCore", "FoolscapStore"]
+        ),
+        // Skeuomorphic notebook chrome and themes.
+        .target(
+            name: "FoolscapUI",
+            dependencies: ["FoolscapCore"],
+            resources: [.copy("Textures")]
+        ),
+        // The app's own sections: Daily Notes, Tasks, search, preferences, export.
+        .target(
+            name: "FoolscapSections",
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI"]
+        ),
+        .executableTarget(
+            name: "FoolscapApp",
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections"],
+            exclude: ["Info.plist"]
+        ),
+        .testTarget(
+            name: "FoolscapTests",
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor"]
+        ),
+    ]
+)

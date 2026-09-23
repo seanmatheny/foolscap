@@ -1,0 +1,7 @@
+.build/
+Foolscap.app/
+*.xcodeproj/
+.swiftpm/
+.DS_Store
+Icon/Foolscap.iconset/
+Icon/Foolscap.icns
