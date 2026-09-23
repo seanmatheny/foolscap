@@ -47,6 +47,8 @@ Tasks are ordinary markdown checkboxes, with the Obsidian convention for
 - Text size: ⌘+ / ⌘− / ⌘0, or the slider in Settings. Ruling and line height
   scale with the text.
 - Tabs: ⌘D Daily Notes, ⌘T Tasks. ⌘⇧T is today, ⌘[ / ⌘] flip days.
+- On launch the closed cover, embossed with the jester, swings open (Settings can
+  turn this off; Reduce Motion skips it).
 - Full screen (green button or ⌃⌘F): the notebook fills the display with square
   corners; the menu bar hides and comes back when the pointer touches the top.
 - Export: File ▸ Export Notes… (⌘⇧E) writes a day, a range or everything as

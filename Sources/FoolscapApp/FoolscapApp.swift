@@ -107,6 +107,7 @@ struct RootView: View {
                 Text("No section").foregroundStyle(.secondary)
             }
         }
+        .overlay { CoverOpeningOverlay() }
         .overlay(alignment: .top) {
             if model.search.isPresented {
                 ZStack(alignment: .top) {

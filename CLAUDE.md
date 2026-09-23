@@ -60,3 +60,7 @@
   `Ruling` stays in the model for a future opt-in. Midnight is the OLED-black theme.
 - The app icon is a flat jester silhouette from `Tools/make-icon.swift` (`make icon`);
   pieces are filled one by one because compound paths cancel where they overlap.
+- The launch animation (`CoverOpeningOverlay`) is a SwiftUI `rotation3DEffect`
+  around the leading edge, so Core Animation drives it at the display's refresh
+  rate. `FOOLSCAP_SLOW_OPEN=1` stretches it 4x for screenshots; `--no-opening`
+  skips it. `JesterShape` mirrors the icon geometry in `Tools/make-icon.swift`.

@@ -11,6 +11,7 @@ public struct PreferencesView: View {
     let chooseFolder: (URL) -> Void
     let moveToFolder: (URL) -> Void
     @AppStorage("textScale") private var textScale = 1.0
+    @AppStorage("openingAnimation") private var openingAnimation = true
     @AppStorage("exportFormat") private var exportFormat = "markdown"
     @AppStorage("exportIncludeAttachments") private var exportAttachments = true
 
@@ -39,8 +40,9 @@ public struct PreferencesView: View {
                         Button("Reset") { textScale = 1 }.disabled(textScale == 1)
                     }
                 }
-                Text("Also ⌘+ and ⌘− in the View menu. Line height and ruling scale with the text.")
+                Text("Also ⌘+ and ⌘− in the View menu. Line height scales with the text.")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle("Open the cover when the app starts", isOn: $openingAnimation)
             }
             Section("Shortcuts") {
                 LabeledContent("Quick task (anywhere)") { ShortcutRecorder(name: "quickTaskHotKey", defaultCombo: .quickTaskDefault) }
