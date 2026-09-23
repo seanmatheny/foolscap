@@ -17,6 +17,7 @@ final class AppModel {
     }
     private(set) var library: NotebookLibrary?
     private(set) var startupError: String?
+    let search = SearchCoordinator()
 
     var theme: NotebookTheme { NotebookTheme.builtIn(id: themeID) ?? .classicBlack }
     var tabs: [NotebookTabItem] { sections.map { NotebookTabItem(id: $0.id, appearance: $0.tab) } }
@@ -41,6 +42,12 @@ final class AppModel {
             }
             sections = [daily, tasks]
             tasks.aggregator.setProviders(sections.compactMap(\.taskProvider))
+            search.setSections(sections)
+            search.navigate = { [weak self] sectionID, route in
+                guard let self else { return }
+                self.selectedSectionID = sectionID
+                self.section(id: sectionID)?.navigate(to: route)
+            }
         }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
         // `Foolscap --day 2026-09-22` opens on a given day (handy for scripted screenshots).
@@ -48,6 +55,9 @@ final class AppModel {
         if let i = args.firstIndex(of: "--day"), i + 1 < args.count, let day = DayKey(args[i + 1]) {
             dailyNotes?.selectedDay = day
             selectedSectionID = "daily"
+        }
+        if let i = args.firstIndex(of: "--search"), i + 1 < args.count {
+            search.open(with: args[i + 1])
         }
     }
 

@@ -16,11 +16,15 @@ public final class DailyNotesSection: NotebookSection {
     public var pendingLine: Int?
 
     @ObservationIgnored private let _taskProvider: DailyNotesTaskProvider
+    @ObservationIgnored private let _searchProvider: DailyNotesSearchProvider
 
     public init(library: NotebookLibrary) {
         self.library = library
         _taskProvider = DailyNotesTaskProvider(library: library)
+        _searchProvider = DailyNotesSearchProvider(library: library)
     }
+
+    public var searchProvider: (any SearchProvider)? { _searchProvider }
 
     public func makeRootView() -> AnyView { AnyView(DailyNotesPage(section: self)) }
 

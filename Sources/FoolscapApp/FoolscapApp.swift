@@ -3,6 +3,7 @@ import AppKit
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
+import FoolscapSections
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -31,6 +32,13 @@ struct FoolscapApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1100, height: 760)
         .commands {
+            CommandGroup(after: .textEditing) {
+                Button("Find in Note…") { FindCommands.perform(.showFindInterface) }.keyboardShortcut("f")
+                Button("Find Next") { FindCommands.perform(.nextMatch) }.keyboardShortcut("g")
+                Button("Find Previous") { FindCommands.perform(.previousMatch) }.keyboardShortcut("g", modifiers: [.command, .shift])
+                Divider()
+                Button("Search Notebook…") { model.search.open() }.keyboardShortcut("f", modifiers: [.command, .shift])
+            }
             CommandMenu("Go") {
                 Button("Today") { model.showDailyNotes(); model.dailyNotes?.goToday() }.keyboardShortcut("t")
                 Button("Previous Day") { model.showDailyNotes(); model.dailyNotes?.go(days: -1) }.keyboardShortcut("[")
@@ -65,6 +73,17 @@ struct RootView: View {
                 Text("No section").foregroundStyle(.secondary)
             }
         }
+        .overlay(alignment: .top) {
+            if model.search.isPresented {
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.001).contentShape(Rectangle())
+                        .onTapGesture { model.search.isPresented = false }
+                    SearchPalette(coordinator: model.search).padding(.top, 70)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: model.search.isPresented)
     }
 }
 
