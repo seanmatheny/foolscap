@@ -1,20 +1,40 @@
 import SwiftUI
+import AppKit
 import FoolscapCore
+import FoolscapStore
 import FoolscapUI
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    static var flush: (() -> Void)?
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        AppDelegate.flush?()
+        return .terminateNow
+    }
+    func applicationDidResignActive(_ notification: Notification) { AppDelegate.flush?() }
+}
 
 @main
 struct FoolscapApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model = AppModel()
 
     var body: some Scene {
         WindowGroup("Foolscap") {
             RootView()
                 .environment(model)
+                .onAppear { AppDelegate.flush = { model.flush() } }
                 .environment(\.notebookTheme, model.theme)
                 .frame(minWidth: 820, minHeight: 560)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 760)
+        .commands {
+            CommandMenu("Debug") {
+                Button("Rebuild Index") { model.rebuildIndex() }
+                Button("Save Now") { model.flush() }.keyboardShortcut("s")
+            }
+        }
 
         Settings {
             PreferencesRoot()
@@ -47,7 +67,19 @@ struct PreferencesRoot: View {
             Picker("Theme", selection: $model.themeID) {
                 ForEach(NotebookTheme.builtIn) { Text($0.name).tag($0.id) }
             }
+            LabeledContent("Notebook folder") {
+                HStack {
+                    Text(model.notesFolderPath).truncationMode(.middle).lineLimit(1)
+                    Button("Choose…") {
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
+                        panel.directoryURL = URL(fileURLWithPath: model.notesFolderPath)
+                        if panel.runModal() == .OK, let url = panel.url { model.changeNotesFolder(to: url) }
+                    }
+                }
+            }
         }
+        .onAppear { AppDelegate.flush = { model.flush() } }
         .padding(20)
         .frame(width: 420)
     }

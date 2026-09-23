@@ -26,7 +26,12 @@ XCODE_PLUGINS := $(XCODE_DEV)/Platforms/MacOSX.platform/Developer/usr/lib/swift/
 ifeq ($(XCODE_OK),yes)
   SWIFT_FLAGS :=
 else ifneq ($(wildcard $(XCODE_PLUGINS)),)
-  SWIFT_FLAGS := -Xswiftc -plugin-path -Xswiftc $(XCODE_PLUGINS)
+  # An explicit -plugin-path replaces the default search, so add the CLT's
+  # own plugin directories back (Swift Testing lives under plugins/testing).
+  CLT_PLUGINS := $(shell xcrun --find swift | sed 's|/bin/swift$$||')/lib/swift/host/plugins
+  SWIFT_FLAGS := -Xswiftc -plugin-path -Xswiftc $(XCODE_PLUGINS) \
+                 -Xswiftc -plugin-path -Xswiftc $(CLT_PLUGINS) \
+                 -Xswiftc -plugin-path -Xswiftc $(CLT_PLUGINS)/testing
 endif
 SWIFT := xcrun swift
 

@@ -1,5 +1,6 @@
 import SwiftUI
 import FoolscapCore
+import FoolscapStore
 import FoolscapUI
 
 /// Wires the store, the section registry and user preferences together.
@@ -13,20 +14,49 @@ final class AppModel {
     var themeID: String {
         didSet { UserDefaults.standard.set(themeID, forKey: "themeID") }
     }
+    private(set) var library: NotebookLibrary?
+    private(set) var startupError: String?
 
     var theme: NotebookTheme { NotebookTheme.builtIn(id: themeID) ?? .classicBlack }
     var tabs: [NotebookTabItem] { sections.map { NotebookTabItem(id: $0.id, appearance: $0.tab) } }
+    var notesFolderPath: String { library?.folder.root.path ?? "" }
 
     init() {
         let defaults = UserDefaults.standard
         themeID = defaults.string(forKey: "themeID") ?? NotebookTheme.classicBlack.id
         selectedSectionID = defaults.string(forKey: "selectedSection") ?? "daily"
+        let root = defaults.string(forKey: "notesFolder").map { URL(fileURLWithPath: $0) } ?? NotesFolder.defaultRoot
+        do {
+            library = try NotebookLibrary(folder: NotesFolder(root: root))
+        } catch {
+            startupError = "Could not open notebook folder \(root.path): \(error.localizedDescription)"
+        }
         sections = [PlaceholderSection(id: "daily", label: "Daily Notes", symbol: "calendar"),
                     PlaceholderSection(id: "tasks", label: "Tasks", symbol: "checklist")]
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
     }
 
     func section(id: String) -> (any NotebookSection)? { sections.first { $0.id == id } }
+
+    func changeNotesFolder(to url: URL) {
+        do {
+            if let library {
+                try library.open(folder: NotesFolder(root: url))
+            } else {
+                library = try NotebookLibrary(folder: NotesFolder(root: url))
+                startupError = nil
+            }
+            UserDefaults.standard.set(url.path, forKey: "notesFolder")
+        } catch {
+            startupError = "Could not open \(url.path): \(error.localizedDescription)"
+        }
+    }
+
+    func rebuildIndex() {
+        Task { await library?.rebuildIndex() }
+    }
+
+    func flush() { library?.flushAll() }
 }
 
 /// Phase 0 stand-in until the real sections exist.
@@ -45,15 +75,23 @@ final class PlaceholderSection: NotebookSection {
 
 private struct PlaceholderPage: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(AppModel.self) private var model
     let label: String
     var body: some View {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(label).font(.system(size: 26, weight: .bold, design: .serif))
-                Text("Coming in the next phase.").font(.system(size: 15, design: .serif)).opacity(0.6)
-                Spacer()
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label).font(.system(size: 26, weight: .bold, design: .serif))
+            Text("Coming in the next phase.").font(.system(size: 15, design: .serif)).opacity(0.6)
+            if let lib = model.library {
+                Text("\(lib.days.count) daily notes in \(lib.folder.root.path) · index v\(lib.indexVersion)")
+                    .font(.system(size: 12, design: .monospaced)).opacity(0.5)
             }
-            .foregroundStyle(theme.ink.color)
-            .padding(EdgeInsets(top: 34, leading: 64, bottom: 24, trailing: 40))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            if let err = model.startupError ?? model.library?.lastError {
+                Text(err).foregroundStyle(.red)
+            }
+            Spacer()
+        }
+        .foregroundStyle(theme.ink.color)
+        .padding(EdgeInsets(top: 34, leading: 64, bottom: 24, trailing: 40))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
