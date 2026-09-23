@@ -13,6 +13,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
     func applicationDidResignActive(_ notification: Notification) { AppDelegate.flush?() }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        if CommandLine.arguments.contains("--prefs") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                // Trigger the app menu's Settings… item, wherever SwiftUI wired it.
+                let items = NSApp.mainMenu?.items.first?.submenu?.items ?? []
+                if let item = items.first(where: { $0.title.hasPrefix("Settings") || $0.title.hasPrefix("Preferences") }) {
+                    NSApp.sendAction(item.action ?? Selector(("showSettingsWindow:")), to: item.target, from: item)
+                }
+            }
+        }
+    }
 }
 
 @main
@@ -91,24 +102,7 @@ struct PreferencesRoot: View {
     @Environment(AppModel.self) private var model
     var body: some View {
         @Bindable var model = model
-        Form {
-            Picker("Theme", selection: $model.themeID) {
-                ForEach(NotebookTheme.builtIn) { Text($0.name).tag($0.id) }
-            }
-            LabeledContent("Notebook folder") {
-                HStack {
-                    Text(model.notesFolderPath).truncationMode(.middle).lineLimit(1)
-                    Button("Choose…") {
-                        let panel = NSOpenPanel()
-                        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
-                        panel.directoryURL = URL(fileURLWithPath: model.notesFolderPath)
-                        if panel.runModal() == .OK, let url = panel.url { model.changeNotesFolder(to: url) }
-                    }
-                }
-            }
-        }
-        .onAppear { AppDelegate.flush = { model.flush() } }
-        .padding(20)
-        .frame(width: 420)
+        PreferencesView(themeID: $model.themeID, notesFolderPath: model.notesFolderPath) { model.changeNotesFolder(to: $0) }
+            .onAppear { AppDelegate.flush = { model.flush() } }
     }
 }
