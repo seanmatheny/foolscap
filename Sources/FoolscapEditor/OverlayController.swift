@@ -109,6 +109,7 @@ final class OverlayController {
         case .urlLine(let urlString):
             guard let url = URL(string: urlString) else { return nil }
             let card = LinkCardView(url: url)
+            card.onReveal = { [weak self] in self?.revealLine(forKey: "url:" + urlString) }
             LinkPreviewCache.shared.metadata(for: url) { [weak card] metadata in
                 guard let card, let metadata else { return }
                 card.linkView.metadata = metadata
@@ -179,14 +180,18 @@ final class OverlayController {
         textView.didChangeText()
     }
 
-    /// Put the caret on the image's markdown line so the path can be read or edited.
-    private func revealLine(forImage path: String) {
-        guard let overlay = overlays["img:" + path], overlay.lineIndex < textView.styler.blockMap.lines.count else { return }
-        let line = textView.styler.blockMap.lines[overlay.lineIndex]
+    /// Show the markdown behind an overlay and put the caret at its end.
+    private func revealLine(forKey key: String) {
+        guard let overlay = overlays[key], overlay.lineIndex < textView.styler.blockMap.lines.count else { return }
+        let index = overlay.lineIndex
+        textView.styler.forceReveal(line: index)
+        let line = textView.styler.blockMap.lines[index]
         textView.window?.makeFirstResponder(textView)
         textView.setSelectedRange(NSRange(location: line.range.location + line.range.length, length: 0))
         textView.scrollRangeToVisible(line.range)
     }
+
+    private func revealLine(forImage path: String) { revealLine(forKey: "img:" + path) }
 
     func invalidateImage(_ path: String) { imageCache[path] = nil; overlays["img:" + path]?.view.removeFromSuperview(); overlays["img:" + path] = nil }
 }
@@ -196,8 +201,10 @@ final class OverlayController {
 final class LinkCardView: NSView {
     let linkView: LPLinkView
     private let copyButton = NSButton()
+    private let revealButton = NSButton()
     private let url: URL
     private var trackingArea: NSTrackingArea?
+    var onReveal: (() -> Void)?
 
     init(url: URL) {
         self.url = url
@@ -217,10 +224,26 @@ final class LinkCardView: NSView {
         copyButton.autoresizingMask = [.minXMargin, .minYMargin]
         copyButton.target = self
         copyButton.action = #selector(copyLink)
-        copyButton.toolTip = url.absoluteString
+        copyButton.toolTip = "Copy link"
         copyButton.isHidden = true
         addSubview(copyButton)
+        revealButton.bezelStyle = .accessoryBarAction
+        revealButton.isBordered = false
+        revealButton.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: "Show the link")
+        revealButton.contentTintColor = .white
+        revealButton.wantsLayer = true
+        revealButton.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.45).cgColor
+        revealButton.layer?.cornerRadius = 6
+        revealButton.frame = NSRect(x: bounds.maxX - 58, y: bounds.maxY - 30, width: 24, height: 24)
+        revealButton.autoresizingMask = [.minXMargin, .minYMargin]
+        revealButton.target = self
+        revealButton.action = #selector(reveal)
+        revealButton.toolTip = url.absoluteString
+        revealButton.isHidden = true
+        addSubview(revealButton)
     }
+
+    @objc private func reveal() { onReveal?() }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
@@ -242,8 +265,8 @@ final class LinkCardView: NSView {
         trackingArea = area
     }
 
-    override func mouseEntered(with event: NSEvent) { copyButton.isHidden = false }
-    override func mouseExited(with event: NSEvent) { copyButton.isHidden = true }
+    override func mouseEntered(with event: NSEvent) { copyButton.isHidden = false; revealButton.isHidden = false }
+    override func mouseExited(with event: NSEvent) { copyButton.isHidden = true; revealButton.isHidden = true }
 }
 
 /// An image with hover badges: a resize grip (bottom-right, drag to scale)

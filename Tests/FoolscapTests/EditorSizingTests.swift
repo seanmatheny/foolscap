@@ -17,3 +17,24 @@ import AppKit
         #expect(view.frame.height > 1000, "frame height was \(view.frame.height)")
     }
 }
+
+@Suite @MainActor struct CaretSkipTests {
+    @Test func caretStepsOverCollapsedImageLines() {
+        let doc = NoteDocument(path: "x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)
+        doc.setText("one\n![pic](a.png)\nthree\n")          // lines at 0, 4, 18
+        let view = MarkdownTextView(document: doc, palette: EditorPalette(theme: .classicBlack))
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        view.setSelectedRange(NSRange(location: 8, length: 0))   // click inside the image line, moving forward
+        #expect(view.selectedRange().location == 18)             // start of "three"
+        view.setSelectedRange(NSRange(location: 21, length: 0))
+        view.setSelectedRange(NSRange(location: 10, length: 0))  // moving backward
+        #expect(view.selectedRange().location == 3)              // end of "one"
+        // Revealed from the badge: the caret may sit there.
+        view.styler.forceReveal(line: 1)
+        view.setSelectedRange(NSRange(location: 8, length: 0))
+        #expect(view.selectedRange().location == 8)
+        // Leaving the line collapses it again.
+        view.setSelectedRange(NSRange(location: 21, length: 0))
+        #expect(view.styler.isCollapsed(line: 1))
+    }
+}

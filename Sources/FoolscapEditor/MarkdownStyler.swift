@@ -20,6 +20,9 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     /// The view whose selection decides which lines show their syntax.
     weak var textView: NSTextView?
     private var activeLines: Set<Int> = []
+    /// An image/URL line whose markdown was revealed from its hover badge.
+    /// It collapses again as soon as the selection leaves it.
+    private(set) var forcedRevealLine: Int?
 
     init(palette: EditorPalette) {
         self.palette = palette
@@ -54,10 +57,30 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     /// Reveal syntax on the caret's line and hide it elsewhere.
     func selectionChanged() {
         let now = linesUnderSelection(blockMap)
-        guard now != activeLines else { return }
-        let changed = now.symmetricDifference(activeLines)
+        var changed = now.symmetricDifference(activeLines)
+        if let forced = forcedRevealLine, !now.contains(forced) {
+            forcedRevealLine = nil
+            changed.insert(forced)
+        }
+        guard !changed.isEmpty else { return }
         activeLines = now
         restyle(lines: Array(changed))
+    }
+
+    /// Show the markdown of an image/URL line (from its badge) until the caret leaves it.
+    func forceReveal(line: Int) {
+        let previous = forcedRevealLine
+        forcedRevealLine = line
+        restyle(lines: [previous, line].compactMap { $0 })
+    }
+
+    /// True for image/URL lines that are drawn as a hairline (caret must skip them).
+    func isCollapsed(line index: Int) -> Bool {
+        guard index < blockMap.lines.count else { return false }
+        switch blockMap.lines[index].kind {
+        case .imageLine, .urlLine: return forcedRevealLine != index
+        default: return false
+        }
     }
 
     // MARK: NSTextStorageDelegate
@@ -144,7 +167,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         // Overlay lines (image, URL) collapse to a hairline unless the caret is on them;
         // the reserved block height stays a whole number of ruled lines either way.
         let isOverlayLine: Bool = { if case .imageLine = line.kind { return true }; if case .urlLine = line.kind { return true }; return false }()
-        let collapsed = isOverlayLine && !activeLines.contains(line.index)
+        let collapsed = isOverlayLine && forcedRevealLine != line.index
         if collapsed { ps.minimumLineHeight = 1; ps.maximumLineHeight = 1 }
         if let total = overlayHeights[line.index] {
             ps.paragraphSpacing = max(0, total - (collapsed ? 1 : p.pitch))
@@ -161,7 +184,10 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         }
 
         // Syntax is dimmed on the caret's line and hidden everywhere else (Bear-style).
-        let reveal = activeLines.contains(line.index)
+        // Image and URL lines are different: the caret never rests on them, so they
+        // only reveal when asked from the picture's or card's badge.
+        let isOverlay: Bool = { if case .imageLine = line.kind { return true }; if case .urlLine = line.kind { return true }; return false }()
+        let reveal = isOverlay ? forcedRevealLine == line.index : activeLines.contains(line.index)
         let syntaxAttrs: [NSAttributedString.Key: Any] = reveal ? [.foregroundColor: p.dimInk] : p.hiddenAttributes
         var inlineRange = NSRange(location: 0, length: text.length)
         switch line.kind {

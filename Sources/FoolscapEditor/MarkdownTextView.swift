@@ -50,8 +50,24 @@ public final class MarkdownTextView: NSTextView {
 
     // MARK: Active line (markdown syntax is revealed only where the caret is)
 
+    private var lastCaret = 0
+
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        var ranges = ranges
+        // A caret can't rest on a collapsed image/URL line: step over it in the
+        // direction of travel, so clicks and arrow keys never expand the markdown.
+        if ranges.count == 1, ranges[0].rangeValue.length == 0 {
+            let caret = ranges[0].rangeValue.location
+            if let line = styler.blockMap.line(at: caret), styler.isCollapsed(line: line.index) {
+                let length = (string as NSString).length
+                let forward = caret >= lastCaret
+                let target = forward ? min(length, line.range.location + line.range.length + 1)
+                                     : max(0, line.range.location - 1)
+                ranges = [NSValue(range: NSRange(location: target, length: 0))]
+            }
+        }
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        if ranges.count == 1, ranges[0].rangeValue.length == 0 { lastCaret = ranges[0].rangeValue.location }
         styler.selectionChanged()
     }
 
