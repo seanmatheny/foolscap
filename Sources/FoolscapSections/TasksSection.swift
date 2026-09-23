@@ -20,7 +20,7 @@ extension TaskItem: Transferable {
 @Observable
 public final class TasksSection: NotebookSection {
     public let id = "tasks"
-    public let tab = TabAppearance(label: "Tasks", systemImage: "checklist")
+    public let tab = TabAppearance(label: "Tasks", systemImage: "checklist", shortcut: "t")
     public let aggregator = TaskAggregator()
     let library: NotebookLibrary
     let openNote: (SectionRoute) -> Void
@@ -33,14 +33,9 @@ public final class TasksSection: NotebookSection {
 
     public func makeRootView() -> AnyView { AnyView(TasksPage(section: self)) }
 
-    /// New tasks live in today's note, so notes stay the source of truth.
-    func addTask(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let doc = library.document(forDay: .today)
-        doc.appendTask(trimmed)
-        library.flushAll()
-    }
+    /// New tasks go to the standalone Tasks.md, so markdown stays the source of truth
+    /// without touching a daily page.
+    func addTask(_ text: String) { library.addStandaloneTask(text) }
 }
 
 struct TasksPage: View {
@@ -50,6 +45,7 @@ struct TasksPage: View {
     @State private var newTaskText = ""
 
     private var pitch: CGFloat { theme.linePitch }
+    private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
         GeometryReader { geo in
@@ -89,7 +85,7 @@ struct TasksPage: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             Text("Tasks").font(theme.type.heading.font).fontWeight(.bold)
-            Text("\(section.aggregator.tasks.count)").font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
+            Text("\(section.aggregator.tasks.count)").font(.system(size: 13 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
             Spacer()
             Button {
                 showNewTask.toggle()
@@ -106,7 +102,7 @@ struct TasksPage: View {
                         TextField("Task, with #category", text: $newTaskText)
                             .paperField().frame(width: 320)
                             .onSubmit { submit() }
-                        Text("Added to today's note under “## Tasks”.").font(.caption).foregroundStyle(theme.dimInk.color)
+                        Text("Kept in Tasks.md in your notebook folder.").font(.caption).foregroundStyle(theme.dimInk.color)
                     }
                 }
             }
@@ -163,6 +159,7 @@ struct TaskSectionView: View {
     let onUpdate: (TaskItem, String, String?) -> Void
     let onAddTag: (TaskItem, String) -> Void
     @State private var targeted = false
+    private var scale: CGFloat { theme.type.body.size / 15 }
     @AppStorage private var folded: Bool
     @State private var showAll = false
     static let recentLimit = 8
@@ -192,9 +189,9 @@ struct TaskSectionView: View {
                     .rotationEffect(.degrees(folded ? 0 : 90))
                     .frame(width: 12)
                 Text(status.title)
-                    .font(.system(size: 17, weight: .bold, design: .serif))
+                    .font(.system(size: 17 * scale, weight: .bold, design: .serif))
                     .highlighted(theme.highlighter[status])
-                Text("\(tasks.count)").font(.system(size: 12, design: .serif)).foregroundStyle(theme.dimInk.color)
+                Text("\(tasks.count)").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
             }
             .frame(height: pitch)
             .contentShape(Rectangle())
@@ -258,19 +255,20 @@ struct TaskRow: View {
     @State private var hovering = false
     @State private var editing = false
     @State private var askTag = false
+    private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
             Button(action: onToggle) {
                 Image(systemName: symbol)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 14 * scale, weight: .regular))
                     .foregroundStyle(task.status == .notStarted ? theme.dimInk.color : theme.accent.color)
                     .frame(width: 20)
             }
             .buttonStyle(.plain)
             .disabled(task.isReadOnly)
             Text(task.displayTitle)
-                .font(.system(size: 14.5, design: .serif))
+                .font(.system(size: 14.5 * scale, design: .serif))
                 .strikethrough(task.status == .completed, color: theme.dimInk.color)
                 .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
                 .lineLimit(1)
@@ -278,7 +276,7 @@ struct TaskRow: View {
                 .onTapGesture(count: 2) { if !task.isReadOnly { editing = true } }
             ForEach(task.tags, id: \.self) { tag in
                 Text("#" + tag)
-                    .font(.system(size: 11, design: .serif))
+                    .font(.system(size: 11 * scale, design: .serif))
                     .foregroundStyle(theme.accent.color)
                     .padding(.horizontal, 6).padding(.vertical, 1)
                     .background(Capsule().fill(theme.accent.color.opacity(0.12)))
@@ -308,14 +306,20 @@ struct TaskRow: View {
             if task.isReadOnly {
                 Image(systemName: "lock").font(.system(size: 10)).foregroundStyle(theme.dimInk.color)
             }
-            Button(action: onOpen) {
-                Text(task.source.day.flatMap(DayKey.init)?.shortTitle ?? task.source.path)
-                    .font(.system(size: 11, design: .serif))
-                    .foregroundStyle(theme.dimInk.color)
-                    .underline(hovering)
+            if let day = task.source.day.flatMap(DayKey.init) {
+                Button(action: onOpen) {
+                    Text(day.shortTitle)
+                        .font(.system(size: 11 * scale, design: .serif))
+                        .foregroundStyle(theme.dimInk.color)
+                        .underline(hovering)
+                }
+                .buttonStyle(.plain)
+                .help("Open in the daily note")
+            } else if !task.isReadOnly {
+                Text("Tasks").font(.system(size: 11 * scale, design: .serif)).foregroundStyle(theme.dimInk.color.opacity(0.7))
+            } else {
+                Text(task.source.path).font(.system(size: 11 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
             }
-            .buttonStyle(.plain)
-            .help("Open in the daily note")
         }
         .frame(height: pitch)
         .padding(.leading, 8)
@@ -334,7 +338,7 @@ struct TaskRow: View {
                 Button("Mark \(task.status.next.title)") { onToggle() }
                 Divider()
             }
-            Button("Open in Daily Note") { onOpen() }
+            if task.source.day != nil { Button("Open in Daily Note") { onOpen() } }
         }
     }
 

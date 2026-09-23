@@ -12,6 +12,7 @@ Named for foolscap paper, the old ruled sheet whose watermark was a jester's cap
 ```
 Daily/2026-09-23.md               one file per day
 Attachments/2026-09-23/*.png      pasted screenshots and images
+Tasks.md                          tasks added from the Tasks tab or quick-task panel
 ```
 
 Tasks are ordinary markdown checkboxes, with the Obsidian convention for
@@ -36,7 +37,16 @@ Tasks are ordinary markdown checkboxes, with the Obsidian convention for
   editor for its one-line text and its notes; the tag button or the context menu
   adds `#tags`. Every change is written back into the note. `+` adds a task to
   today's note.
+- Tags: `#tag` anywhere in a note is highlighted and indexed, but shown nowhere
+  else. In search, type `#` for a list of tags; `#tag` in a query is a strict
+  filter (a tag being typed filters by prefix).
 - Search: ⌘⇧F searches all notes and tasks (SQLite FTS5); ⌘F finds in the page.
+- Quick task: ⌃⌥Space from any app (configurable in Settings) opens a small
+  panel; Return adds the task to the Tasks tab. Tasks added this way, or with
+  the tab's `+`, live in `Tasks.md` at the notebook root rather than in a day.
+- Text size: ⌘+ / ⌘− / ⌘0, or the slider in Settings. Ruling and line height
+  scale with the text.
+- Tabs: ⌘D Daily Notes, ⌘T Tasks. ⌘⇧T is today, ⌘[ / ⌘] flip days.
 - Export: File ▸ Export Notes… (⌘⇧E) writes a day, a range or everything as
   Markdown (with attachments), TextBundle (one package per note, images inside),
   HTML or PDF.

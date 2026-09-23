@@ -54,16 +54,33 @@ struct FoolscapApp: App {
                 Button("Search Notebook…") { model.search.open() }.keyboardShortcut("f", modifiers: [.command, .shift])
             }
             CommandMenu("Go") {
-                Button("Today") { model.showDailyNotes(); model.dailyNotes?.goToday() }.keyboardShortcut("t")
+                ForEach(model.sections, id: \.id) { section in
+                    if let c = section.tab.shortcut {
+                        Button(section.tab.label) { model.selectedSectionID = section.id }
+                            .keyboardShortcut(KeyEquivalent(c))
+                    } else {
+                        Button(section.tab.label) { model.selectedSectionID = section.id }
+                    }
+                }
+                Divider()
+                Button("Today") { model.showDailyNotes(); model.dailyNotes?.goToday() }.keyboardShortcut("t", modifiers: [.command, .shift])
                 Button("Previous Day") { model.showDailyNotes(); model.dailyNotes?.go(days: -1) }.keyboardShortcut("[")
                 Button("Next Day") { model.showDailyNotes(); model.dailyNotes?.go(days: 1) }.keyboardShortcut("]")
+            }
+            CommandMenu("Tasks") {
+                Button("Quick Task…") { model.quickTask() }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                Text("Also \(HotKeyPreferences.quickTask?.display ?? "off") from any app")
+            }
+            CommandGroup(after: .toolbar) {
+                Button("Bigger Text") { model.adjustTextScale(by: 0.1) }.keyboardShortcut("=", modifiers: [.command])
+                Button("Smaller Text") { model.adjustTextScale(by: -0.1) }.keyboardShortcut("-", modifiers: [.command])
+                Button("Actual Size") { model.adjustTextScale(by: 1 - model.textScale) }.keyboardShortcut("0", modifiers: [.command])
                 Divider()
-                Button("Daily Notes") { model.selectedSectionID = "daily" }.keyboardShortcut("1")
-                Button("Tasks") { model.selectedSectionID = "tasks" }.keyboardShortcut("2")
             }
             CommandMenu("Debug") {
                 Button("Rebuild Index") { model.rebuildIndex() }
-                Button("Save Now") { model.flush() }.keyboardShortcut("s")
+                Button("Save Now") { model.flush() }
             }
         }
 

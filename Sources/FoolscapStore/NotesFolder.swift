@@ -11,6 +11,18 @@ public struct NotesFolder: Hashable, Sendable {
     public var attachmentsDirectory: URL { root.appendingPathComponent("Attachments", isDirectory: true) }
 
     public func url(for day: DayKey) -> URL { dailyDirectory.appendingPathComponent(day.fileName) }
+
+    /// Tasks created from the Tasks tab or the quick-task panel live here, not in a day.
+    public static let tasksFileName = "Tasks.md"
+    public var tasksFile: URL { root.appendingPathComponent(NotesFolder.tasksFileName) }
+    public static let tasksTemplate = "# Tasks\n\nTasks added from the Tasks tab and the quick-task panel.\n\n"
+
+    /// Every markdown file the index should know about: daily notes plus Tasks.md.
+    public func listIndexableNotes() -> [(url: URL, day: DayKey?)] {
+        var out: [(URL, DayKey?)] = listDailyNotes().filter { !$0.isPlaceholder }.map { ($0.url, $0.day) }
+        if FileManager.default.fileExists(atPath: tasksFile.path) { out.append((tasksFile, nil)) }
+        return out
+    }
     public func attachmentsDirectory(for day: DayKey) -> URL {
         attachmentsDirectory.appendingPathComponent(day.string, isDirectory: true)
     }

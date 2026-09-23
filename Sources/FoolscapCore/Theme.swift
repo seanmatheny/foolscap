@@ -117,6 +117,16 @@ public struct NotebookTheme: Codable, Identifiable, Hashable, Sendable {
 
     /// Vertical pitch of the ruling and of every body line, in points.
     public var linePitch: Double { (type.body.size * type.lineHeightMultiple * 1.35).rounded() }
+
+    /// The same theme with all type sizes multiplied (text size preference).
+    public func scaled(by factor: Double) -> NotebookTheme {
+        guard factor != 1 else { return self }
+        var t = self
+        t.type.body.size *= factor
+        t.type.heading.size *= factor
+        t.type.mono.size *= factor
+        return t
+    }
 }
 
 // MARK: - Built-in themes

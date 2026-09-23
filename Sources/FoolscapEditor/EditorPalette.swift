@@ -39,8 +39,9 @@ public struct EditorPalette {
         body = theme.type.body.nsFont
         mono = theme.type.mono.nsFont
         let h = theme.type.heading
-        headings = [24, 20, 17.5, 16, 15.5, 15].map { size in
-            FontSpec(family: h.family, size: size, design: h.design, bold: true).nsFont
+        let bodySize = theme.type.body.size
+        headings = [1.6, 1.33, 1.17, 1.07, 1.03, 1.0].map { ratio in
+            FontSpec(family: h.family, size: (bodySize * ratio).rounded(), design: h.design, bold: true).nsFont
         }
         let fm = NSFontManager.shared
         bold = fm.convert(body, toHaveTrait: .boldFontMask)

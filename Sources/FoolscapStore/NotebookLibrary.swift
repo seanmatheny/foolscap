@@ -79,9 +79,20 @@ public final class NotebookLibrary {
         if let d = documents[path] { return d }
         let url = folder.url(forRelativePath: path)
         let d = NoteDocument(path: path, url: url, day: folder.day(forRelativePath: path))
-        d.load()
+        d.load(template: path == NotesFolder.tasksFileName ? NotesFolder.tasksTemplate : "")
         documents[path] = d
         return d
+    }
+
+    /// The standalone tasks file (created on first use).
+    public var tasksDocument: NoteDocument { document(atRelativePath: NotesFolder.tasksFileName) }
+
+    /// Add a task to the Tasks file and save.
+    public func addStandaloneTask(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        tasksDocument.appendTaskLine(trimmed)
+        flushAll()
     }
 
     /// Drop documents that are saved and not the given ones, to bound memory.
@@ -183,7 +194,7 @@ public final class NotebookLibrary {
             var changed = false
             let known = Dictionary(uniqueKeysWithValues: ((try? index.allNoteRecords()) ?? []).map { ($0.path, $0) })
             var seen = Set<String>()
-            for entry in folder.listDailyNotes() where !entry.isPlaceholder {
+            for entry in folder.listIndexableNotes() {
                 if Task.isCancelled { return changed }
                 let path = folder.relativePath(of: entry.url)
                 seen.insert(path)

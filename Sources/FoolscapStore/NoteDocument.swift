@@ -224,6 +224,14 @@ public final class NoteDocument: Identifiable {
         return candidates[0]
     }
 
+    /// Append a task line at the end of the document (for the standalone Tasks file).
+    public func appendTaskLine(_ title: String, status: TaskStatus = .notStarted) {
+        var text = textStorage.string
+        if !text.isEmpty && !text.hasSuffix("\n") { text += "\n" }
+        text += "- [\(status.mark)] \(title)\n"
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: text)
+    }
+
     /// Append a task line under a `## Tasks` heading, creating it if needed.
     public func appendTask(_ title: String, status: TaskStatus = .notStarted) {
         var text = textStorage.string

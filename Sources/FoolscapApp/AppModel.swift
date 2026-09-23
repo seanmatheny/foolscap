@@ -16,18 +16,23 @@ final class AppModel {
     var themeID: String {
         didSet { UserDefaults.standard.set(themeID, forKey: "themeID") }
     }
+    /// Text size multiplier (View ▸ Bigger/Smaller Text, or the Settings slider).
+    var textScale: Double {
+        didSet { UserDefaults.standard.set(textScale, forKey: "textScale") }
+    }
     private(set) var library: NotebookLibrary?
     private(set) var startupError: String?
     let search = SearchCoordinator()
     var showExport = false
 
-    var theme: NotebookTheme { NotebookTheme.builtIn(id: themeID) ?? .classicBlack }
+    var theme: NotebookTheme { (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).scaled(by: textScale) }
     var tabs: [NotebookTabItem] { sections.map { NotebookTabItem(id: $0.id, appearance: $0.tab) } }
     var notesFolderPath: String { library?.folder.root.path ?? "" }
 
     init() {
         let defaults = UserDefaults.standard
         themeID = defaults.string(forKey: "themeID") ?? NotebookTheme.classicBlack.id
+        textScale = defaults.object(forKey: "textScale") as? Double ?? 1.0
         selectedSectionID = defaults.string(forKey: "selectedSection") ?? "daily"
         let root = defaults.string(forKey: "notesFolder").map { URL(fileURLWithPath: $0) } ?? NotesFolder.defaultRoot
         do {
@@ -66,6 +71,37 @@ final class AppModel {
             search.open(with: args[i + 1])
         }
         if args.contains("--export") { showExport = true }
+        registerHotKeys()
+        if args.contains("--quick-task") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.quickTask() }
+        }
+        NotificationCenter.default.addObserver(forName: HotKeyPreferences.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.registerHotKeys() }
+        }
+        // Settings changes the scale through @AppStorage; mirror them here.
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let v = UserDefaults.standard.object(forKey: "textScale") as? Double ?? 1.0
+                if v != self.textScale { self.textScale = v }
+            }
+        }
+    }
+
+    func registerHotKeys() {
+        GlobalHotKey.shared.register(name: HotKeyPreferences.quickTaskName, combo: HotKeyPreferences.quickTask) { [weak self] in
+            guard let self, let library = self.library else { return }
+            QuickTaskPanel.shared.toggle(library: library, theme: self.theme)
+        }
+    }
+
+    func adjustTextScale(by delta: Double) {
+        textScale = min(1.6, max(0.8, (textScale + delta).rounded(toPlaces: 2)))
+    }
+
+    func quickTask() {
+        guard let library else { return }
+        QuickTaskPanel.shared.toggle(library: library, theme: theme)
     }
 
     func section(id: String) -> (any NotebookSection)? { sections.first { $0.id == id } }
@@ -142,4 +178,8 @@ private struct PlaceholderPage: View {
         .padding(EdgeInsets(top: 34, leading: 64, bottom: 24, trailing: 40))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+}
+
+private extension Double {
+    func rounded(toPlaces n: Int) -> Double { let p = pow(10.0, Double(n)); return (self * p).rounded() / p }
 }

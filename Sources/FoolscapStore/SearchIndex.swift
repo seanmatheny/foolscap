@@ -78,6 +78,14 @@ public final class SearchIndex: Sendable {
         migrator.registerMigration("v2-task-notes") { db in
             try db.alter(table: "tasks") { t in t.add(column: "notes", .text) }
         }
+        migrator.registerMigration("v3-note-tags") { db in
+            try db.create(table: "note_tags") { t in
+                t.column("path", .text).notNull().indexed()
+                t.column("tag", .text).notNull().indexed()
+            }
+            // Existing notes are re-indexed on the next full scan.
+            try db.execute(sql: "UPDATE notes SET hash = ''")
+        }
         try migrator.migrate(db)
     }
 
@@ -114,6 +122,10 @@ public final class SearchIndex: Sendable {
             try db.execute(sql: "DELETE FROM notes WHERE path = ?", arguments: [path])
             try db.execute(sql: "DELETE FROM notes_fts WHERE path = ?", arguments: [path])
             try db.execute(sql: "DELETE FROM tasks WHERE path = ?", arguments: [path])
+            try db.execute(sql: "DELETE FROM note_tags WHERE path = ?", arguments: [path])
+            for tag in parsed.tags {
+                try db.execute(sql: "INSERT INTO note_tags (path, tag) VALUES (?,?)", arguments: [path, tag])
+            }
             try db.execute(sql: "INSERT INTO notes (path, day, mtime, size, hash, title) VALUES (?,?,?,?,?,?)",
                            arguments: [path, day?.string, stat.mtime, stat.size, hash, parsed.title])
             try db.execute(sql: "INSERT INTO notes_fts (path, title, body) VALUES (?,?,?)",
@@ -136,13 +148,51 @@ public final class SearchIndex: Sendable {
             try db.execute(sql: "DELETE FROM notes WHERE path = ?", arguments: [path])
             try db.execute(sql: "DELETE FROM notes_fts WHERE path = ?", arguments: [path])
             try db.execute(sql: "DELETE FROM tasks WHERE path = ?", arguments: [path])
+            try db.execute(sql: "DELETE FROM note_tags WHERE path = ?", arguments: [path])
         }
     }
 
     public func removeAll() throws {
         try db.write { db in
-            try db.execute(sql: "DELETE FROM notes; DELETE FROM notes_fts; DELETE FROM tasks;")
+            try db.execute(sql: "DELETE FROM notes; DELETE FROM notes_fts; DELETE FROM tasks; DELETE FROM note_tags;")
         }
+    }
+
+    // MARK: - Tags
+
+    /// Every tag used anywhere (notes and tasks), most used first.
+    public func allTags() throws -> [String] {
+        try db.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT tag FROM (SELECT tag FROM note_tags UNION ALL SELECT tag FROM task_tags)
+                GROUP BY tag ORDER BY COUNT(*) DESC, tag
+                """)
+        }
+    }
+
+    /// Paths of notes carrying every complete tag, and (while one is being typed)
+    /// at least one tag starting with the partial text.
+    func paths(matching query: SearchQuery, db: Database) throws -> Set<String> {
+        var result: Set<String>? = nil
+        if !query.tags.isEmpty {
+            let marks = Array(repeating: "?", count: query.tags.count).joined(separator: ",")
+            result = Set(try String.fetchAll(db, sql: """
+                SELECT path FROM note_tags WHERE tag IN (\(marks)) GROUP BY path HAVING COUNT(DISTINCT tag) = ?
+                """, arguments: StatementArguments(query.tags + [query.tags.count])))
+        }
+        if let partial = query.pendingTag, !partial.isEmpty {
+            let prefixed = Set(try String.fetchAll(db, sql: "SELECT DISTINCT path FROM note_tags WHERE tag LIKE ?",
+                                                   arguments: [partial.replacingOccurrences(of: "%", with: "") + "%"]))
+            result = result.map { $0.intersection(prefixed) } ?? prefixed
+        }
+        return result ?? []
+    }
+
+    /// Does a task's own tag list satisfy the query's tag constraints?
+    private static func taskTagsMatch(_ tags: [String], _ query: SearchQuery) -> Bool {
+        guard query.tags.allSatisfy({ tags.contains($0) }) else { return false }
+        if let partial = query.pendingTag, !partial.isEmpty { return tags.contains { $0.hasPrefix(partial) } }
+        return true
     }
 
     // MARK: - Tasks
@@ -187,25 +237,43 @@ public final class SearchIndex: Sendable {
     }
 
     public func searchNotes(_ text: String, limit: Int = 50) throws -> [NoteHit] {
-        let q = Self.ftsQuery(text)
-        guard !q.isEmpty else { return [] }
+        let query = SearchQuery(text)
+        let q = Self.ftsQuery(query.wordText)
+        guard !q.isEmpty || query.hasTagFilter else { return [] }
         return try db.read { db in
-            try Row.fetchAll(db, sql: """
+            let tagged = try paths(matching: query, db: db)
+            if q.isEmpty {
+                // Tags only: every note carrying them, newest first, first line as the snippet.
+                let marks = Array(repeating: "?", count: tagged.count).joined(separator: ",")
+                guard !tagged.isEmpty else { return [] }
+                return try Row.fetchAll(db, sql: """
+                    SELECT n.path AS path, n.day AS day, n.title AS title, substr(f.body, 1, 140) AS snippet
+                    FROM notes n JOIN notes_fts f ON f.path = n.path
+                    WHERE n.path IN (\(marks)) ORDER BY n.day DESC LIMIT ?
+                    """, arguments: StatementArguments(Array(tagged) + [limit]))
+                .map { NoteHit(path: $0["path"], day: $0["day"], title: $0["title"], snippet: $0["snippet"]) }
+            }
+            let hits = try Row.fetchAll(db, sql: """
                 SELECT n.path AS path, n.day AS day, n.title AS title,
                        snippet(notes_fts, 2, '\u{1}', '\u{2}', '…', 14) AS snippet
                 FROM notes_fts JOIN notes n ON n.path = notes_fts.path
                 WHERE notes_fts MATCH ? ORDER BY bm25(notes_fts), n.day DESC LIMIT ?
-                """, arguments: [q, limit])
+                """, arguments: [q, query.hasTagFilter ? limit * 4 : limit])
             .map { NoteHit(path: $0["path"], day: $0["day"], title: $0["title"], snippet: $0["snippet"]) }
+            return query.hasTagFilter ? Array(hits.filter { tagged.contains($0.path) }.prefix(limit)) : hits
         }
     }
 
     public func searchTasks(_ text: String, limit: Int = 50) throws -> [TaskItem] {
-        let words = text.lowercased().split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        guard !words.isEmpty else { return [] }
+        let query = SearchQuery(text)
+        let words = query.words.map { $0.lowercased() }
+        guard !words.isEmpty || query.hasTagFilter else { return [] }
+        let tagged = try db.read { db in try paths(matching: query, db: db) }
         return try tasks().filter { t in
             let hay = t.title.lowercased()
-            return words.allSatisfy { hay.contains($0) }
+            guard words.allSatisfy({ hay.contains($0) }) else { return false }
+            guard query.hasTagFilter else { return true }
+            return Self.taskTagsMatch(t.tags, query) || tagged.contains(t.source.path)
         }.prefix(limit).map { $0 }
     }
 

@@ -132,3 +132,26 @@ import Foundation
         #expect(doc.text == "- [ ] Call Dave #work\n- [ ] Other\n  a\n  b\n")
     }
 }
+
+@Suite struct TagSearchTests {
+    @Test func tagsFilterNotesAndTasks() throws {
+        let index = try SearchIndex(inMemory: ())
+        try index.index(path: "Daily/2026-09-21.md", day: DayKey("2026-09-21"), text: "# A\n\nCluster notes #hpc #work\n- [ ] Fix nodes\n",
+                        stat: FileIO.Stat(mtime: 1, size: 1), hash: "a")
+        try index.index(path: "Daily/2026-09-22.md", day: DayKey("2026-09-22"), text: "# B\n\nCluster again #home\n- [ ] Fix sink #home\n",
+                        stat: FileIO.Stat(mtime: 1, size: 1), hash: "b")
+        #expect(try index.allTags() == ["home", "hpc", "work"])
+        #expect(try index.searchNotes("cluster").count == 2)
+        #expect(try index.searchNotes("cluster #hpc").map(\.path) == ["Daily/2026-09-21.md"])
+        #expect(try index.searchNotes("#work #hpc").map(\.path) == ["Daily/2026-09-21.md"])
+        #expect(try index.searchNotes("#home").map(\.path) == ["Daily/2026-09-22.md"])
+        #expect(try index.searchNotes("#nothing").isEmpty)
+        #expect(try index.searchNotes("#h").map(\.path) == ["Daily/2026-09-22.md", "Daily/2026-09-21.md"])   // prefix while typing
+        #expect(try index.searchTasks("fix #home").map(\.title) == ["Fix sink #home"])
+        #expect(try index.searchTasks("fix #hpc").map(\.title) == ["Fix nodes"])   // note-level tag applies
+        let q = SearchQuery("cluster #wo")
+        #expect(q.words == ["cluster"] && q.tags.isEmpty && q.pendingTag == "wo")
+        #expect(SearchQuery.completing("cluster #wo", with: "work") == "cluster #work ")
+        #expect(SearchQuery("#work ").tags == ["work"])
+    }
+}

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Carbon.HIToolbox
 import FoolscapCore
 import FoolscapUI
 
@@ -9,6 +10,7 @@ public struct PreferencesView: View {
     let notesFolderPath: String
     let chooseFolder: (URL) -> Void
     let moveToFolder: (URL) -> Void
+    @AppStorage("textScale") private var textScale = 1.0
     @AppStorage("exportFormat") private var exportFormat = "markdown"
     @AppStorage("exportIncludeAttachments") private var exportAttachments = true
 
@@ -30,6 +32,21 @@ public struct PreferencesView: View {
                     }
                 }
                 .padding(.vertical, 4)
+                LabeledContent("Text size") {
+                    HStack {
+                        Slider(value: $textScale, in: 0.8...1.6, step: 0.05).frame(width: 200)
+                        Text("\(Int((textScale * 100).rounded()))%").monospacedDigit().frame(width: 44, alignment: .trailing)
+                        Button("Reset") { textScale = 1 }.disabled(textScale == 1)
+                    }
+                }
+                Text("Also ⌘+ and ⌘− in the View menu. Line height and ruling scale with the text.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Shortcuts") {
+                LabeledContent("Quick task (anywhere)") { ShortcutRecorder(name: "quickTaskHotKey", defaultCombo: .quickTaskDefault) }
+                Text("Opens a small panel over any app; ↩ adds the task to the Tasks tab.")
+                    .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Tabs") { Text("⌘D Daily Notes · ⌘T Tasks").foregroundStyle(.secondary) }
             }
             Section("Storage") {
                 LabeledContent("Notebook folder") {
@@ -107,5 +124,66 @@ struct ThemeSwatch: View {
             Text(theme.name).font(.system(size: 12, weight: isSelected ? .semibold : .regular))
         }
         .contentShape(Rectangle())
+    }
+}
+
+
+/// Click, press a key combination, done. Stored in UserDefaults under `name`;
+/// `HotKeyPreferences.changed` tells the app to re-register.
+struct ShortcutRecorder: View {
+    let name: String
+    let defaultCombo: HotKeyCombo
+    @State private var combo: HotKeyCombo?
+    @State private var recording = false
+    @State private var monitor: Any?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: startRecording) {
+                Text(recording ? "Press keys…" : (combo?.display ?? "Off"))
+                    .frame(minWidth: 110)
+            }
+            .buttonStyle(.bordered)
+            Button("Default") { set(defaultCombo) }.disabled(combo == defaultCombo)
+            Button("Off") { set(nil) }.disabled(combo == nil)
+        }
+        .onAppear { combo = HotKeyCombo.load(name) ?? defaultCombo; if UserDefaults.standard.bool(forKey: name + ".off") { combo = nil } }
+        .onDisappear { stopRecording() }
+    }
+
+    private func startRecording() {
+        recording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            if event.keyCode == UInt16(kVK_Escape) && mods.isEmpty { stopRecording(); return nil }
+            guard !mods.isEmpty || event.keyCode >= UInt16(kVK_F1) else { NSSound.beep(); return nil }
+            set(HotKeyCombo(keyCode: UInt32(event.keyCode), modifiers: mods, display: HotKeyCombo.display(for: event)))
+            stopRecording()
+            return nil
+        }
+    }
+
+    private func stopRecording() {
+        recording = false
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+
+    private func set(_ c: HotKeyCombo?) {
+        combo = c
+        if let c { c.save(name); UserDefaults.standard.set(false, forKey: name + ".off") }
+        else { UserDefaults.standard.set(true, forKey: name + ".off") }
+        NotificationCenter.default.post(name: HotKeyPreferences.changed, object: nil)
+    }
+}
+
+public enum HotKeyPreferences {
+    public static let changed = Notification.Name("foolscap.hotkeys.changed")
+    public static let quickTaskName = "quickTaskHotKey"
+
+    /// The effective quick-task combo, or nil when turned off.
+    public static var quickTask: HotKeyCombo? {
+        if UserDefaults.standard.bool(forKey: quickTaskName + ".off") { return nil }
+        return HotKeyCombo.load(quickTaskName) ?? .quickTaskDefault
     }
 }

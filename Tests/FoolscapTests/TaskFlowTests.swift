@@ -40,3 +40,25 @@ import Foundation
         #expect(try library.index.tasks().count == 3)
     }
 }
+
+@Suite @MainActor struct StandaloneTaskTests {
+    @Test func quickTasksLandInTasksFile() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-standalone-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp)
+        try folder.ensureLayout()
+        let library = try NotebookLibrary(folder: folder)
+        library.addStandaloneTask("Buy stamps #errands")
+        library.addStandaloneTask("Renew passport")
+        let text = try String(contentsOf: folder.tasksFile, encoding: .utf8)
+        #expect(text == NotesFolder.tasksTemplate + "- [ ] Buy stamps #errands\n- [ ] Renew passport\n")
+        await library.rescan(full: true)
+        let tasks = try library.index.tasks()
+        #expect(tasks.map(\.title) == ["Buy stamps #errands", "Renew passport"])
+        #expect(tasks.allSatisfy { $0.source.day == nil && $0.source.path == "Tasks.md" })
+        // Status changes write back like any other note.
+        let provider = DailyNotesTaskProvider(library: library)
+        try await provider.setStatus(.completed, of: tasks[1])
+        #expect(try String(contentsOf: folder.tasksFile, encoding: .utf8).contains("- [x] Renew passport"))
+    }
+}

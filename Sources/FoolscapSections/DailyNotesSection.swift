@@ -9,7 +9,7 @@ import FoolscapUI
 @Observable
 public final class DailyNotesSection: NotebookSection {
     public let id = "daily"
-    public let tab = TabAppearance(label: "Daily Notes", systemImage: "calendar")
+    public let tab = TabAppearance(label: "Daily Notes", systemImage: "calendar", shortcut: "d")
     public let library: NotebookLibrary
     public var selectedDay: DayKey = .today
     /// Requested line to reveal after navigation (from search).

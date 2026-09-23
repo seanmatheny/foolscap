@@ -25,9 +25,12 @@ final class DailyNotesSearchProvider: SearchProvider {
         return hits
     }
 
-    /// The first line containing any query word, so the editor can jump there.
+    func tags() async throws -> [String] { try library.index.allTags() }
+
+    /// The first line containing any query word (or tag), so the editor can jump there.
     private func firstLine(matching query: String, inNoteAt path: String) -> Int? {
-        let words = query.lowercased().split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let parsed = SearchQuery(query)
+        let words = parsed.words.map { $0.lowercased() } + parsed.tags.map { "#" + $0 }
         guard !words.isEmpty else { return nil }
         let url = library.folder.url(forRelativePath: path)
         guard let data = try? FileIO.read(url) else { return nil }
@@ -48,6 +51,14 @@ public final class SearchCoordinator {
     public var query = "" { didSet { schedule() } }
     public private(set) var hits: [SearchHit] = []
     public var selection: Int = 0
+    /// All known tags, refreshed when the palette opens.
+    public private(set) var knownTags: [String] = []
+    /// Tag suggestions for a `#` token being typed.
+    public var tagSuggestions: [String] {
+        guard let pending = SearchQuery(query).pendingTag else { return [] }
+        let already = Set(SearchQuery(query).tags)
+        return knownTags.filter { !already.contains($0) && (pending.isEmpty || $0.hasPrefix(pending)) }.prefix(12).map { $0 }
+    }
     var providers: [(id: String, provider: any SearchProvider)] = []
     public var navigate: ((String, SectionRoute) -> Void)?
     private var task: Task<Void, Never>?
@@ -61,7 +72,9 @@ public final class SearchCoordinator {
     private func schedule() {
         task?.cancel()
         let q = query.trimmingCharacters(in: .whitespaces)
-        guard q.count >= 2 else { hits = []; return }
+        let parsed = SearchQuery(q)
+        // A lone `#` is a suggestion request; a partial tag already filters by prefix.
+        guard !parsed.isEmpty, parsed.wordText.count >= 2 || parsed.hasTagFilter else { hits = []; return }
         task = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(80))
             guard !Task.isCancelled, let self else { return }
@@ -75,6 +88,17 @@ public final class SearchCoordinator {
     public func open(with query: String? = nil) {
         if let query { self.query = query }
         isPresented = true
+        Task { [weak self] in
+            guard let self else { return }
+            var all: [String] = []
+            for (_, p) in providers { all += (try? await p.tags()) ?? [] }
+            var seen = Set<String>()
+            self.knownTags = all.filter { seen.insert($0).inserted }
+        }
+    }
+
+    public func complete(tag: String) {
+        query = SearchQuery.completing(query, with: tag)
     }
 
     public func activate(_ hit: SearchHit) {
@@ -114,6 +138,10 @@ public struct SearchPalette: View {
                 }
             }
             .padding(.horizontal, 14).frame(height: 44)
+            if SearchQuery(coordinator.query).pendingTag != nil {
+                Divider().overlay(theme.ink.color.opacity(0.15))
+                TagSuggestionList(tags: coordinator.tagSuggestions) { coordinator.complete(tag: $0) }
+            }
             if !coordinator.hits.isEmpty {
                 Divider().overlay(theme.ink.color.opacity(0.15))
                 ScrollViewReader { proxy in
@@ -132,7 +160,7 @@ public struct SearchPalette: View {
                         if coordinator.hits.indices.contains(s) { proxy.scrollTo(coordinator.hits[s].id) }
                     }
                 }
-            } else if coordinator.query.count >= 2 {
+            } else if coordinator.query.count >= 2, SearchQuery(coordinator.query).pendingTag == nil {
                 Divider().overlay(theme.ink.color.opacity(0.15))
                 Text("No matches").font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
                     .frame(height: 40)
@@ -156,6 +184,58 @@ public struct SearchPalette: View {
         let n = coordinator.hits.count
         guard n > 0 else { return }
         coordinator.selection = (coordinator.selection + delta + n) % n
+    }
+}
+
+/// Tags matching a `#` token being typed; click one to complete it.
+struct TagSuggestionList: View {
+    @Environment(\.notebookTheme) private var theme
+    let tags: [String]
+    let pick: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(tags.isEmpty ? "No tags yet. Type #tag in a note to create one." : "Filter by tag")
+                .font(.system(size: 11, design: .serif)).foregroundStyle(theme.dimInk.color)
+            if !tags.isEmpty {
+                FlowLayout(spacing: 6) {
+                    ForEach(tags, id: \.self) { tag in
+                        Button("#" + tag) { pick(tag) }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .medium, design: .serif))
+                            .foregroundStyle(theme.accent.color)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Capsule().fill(theme.accent.color.opacity(0.12)))
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Wraps children onto new rows.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 400
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x + s.width > width, x > 0 { x = 0; y += rowH + spacing; rowH = 0 }
+            x += s.width + spacing; rowH = max(rowH, s.height)
+        }
+        return CGSize(width: width, height: y + rowH)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x + s.width > bounds.maxX, x > bounds.minX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
+            v.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+            x += s.width + spacing; rowH = max(rowH, s.height)
+        }
     }
 }
 

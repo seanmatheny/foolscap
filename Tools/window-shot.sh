@@ -7,7 +7,7 @@ IDS=$(xcrun swift - "$APP" <<'SWIFT'
 import CoreGraphics
 let name = CommandLine.arguments[1]
 let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as! [[String: Any]]
-for w in list where (w[kCGWindowOwnerName as String] as? String) == name && (w[kCGWindowLayer as String] as? Int) == 0 {
+for w in list where (w[kCGWindowOwnerName as String] as? String) == name && ((w[kCGWindowLayer as String] as? Int) ?? 99) <= 3 {
     print(w[kCGWindowNumber as String] as! Int)
 }
 SWIFT

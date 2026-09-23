@@ -40,3 +40,9 @@
   grows past the clip view and scrolling silently stops.
 - Rotated SwiftUI labels keep their unrotated layout size: collapse them with
   `.frame(width: 1, height: 1)` after `.rotationEffect` (see PaperTab).
+- The global quick-task hotkey uses Carbon `RegisterEventHotKey` (no Accessibility
+  permission). The panel is a non-activating NSPanel built in AppKit, styled from
+  the theme by hand (SwiftUI focus is unreliable in non-activating panels).
+- `SearchQuery` splits words from `#tags`; a trailing `#partial` filters by prefix
+  and drives the suggestion chips. Note tags live in `note_tags`; the v3 migration
+  blanks note hashes so the next scan re-indexes them.

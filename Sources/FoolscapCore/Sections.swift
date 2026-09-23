@@ -7,9 +7,47 @@ public struct TabAppearance: Hashable, Sendable {
     public var systemImage: String?
     /// Index into the theme's tab colours; `nil` uses the section's position.
     public var colorIndex: Int?
+    /// ⌘ + this letter switches to the tab.
+    public var shortcut: Character?
 
-    public init(label: String, systemImage: String? = nil, colorIndex: Int? = nil) {
-        self.label = label; self.systemImage = systemImage; self.colorIndex = colorIndex
+    public init(label: String, systemImage: String? = nil, colorIndex: Int? = nil, shortcut: Character? = nil) {
+        self.label = label; self.systemImage = systemImage; self.colorIndex = colorIndex; self.shortcut = shortcut
+    }
+}
+
+/// A search string split into words and `#tags`. Tags are strict filters.
+public struct SearchQuery: Equatable, Sendable {
+    public var words: [String]
+    public var tags: [String]
+    /// A `#` token still being typed (last token), used for suggestions.
+    public var pendingTag: String?
+
+    public init(_ text: String) {
+        let tokens = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        var words: [String] = [], tags: [String] = []
+        for t in tokens {
+            if t.hasPrefix("#") { tags.append(String(t.dropFirst()).lowercased()) } else { words.append(t) }
+        }
+        let endsWithSpace = text.last?.isWhitespace ?? true
+        if !endsWithSpace, let last = tokens.last, last.hasPrefix("#") {
+            pendingTag = String(last.dropFirst()).lowercased()
+            tags.removeLast()
+        } else {
+            pendingTag = nil
+        }
+        self.words = words
+        self.tags = tags.filter { !$0.isEmpty }
+    }
+
+    public var wordText: String { words.joined(separator: " ") }
+    public var isEmpty: Bool { words.isEmpty && tags.isEmpty && pendingTag == nil }
+    /// True when the query carries any tag constraint (complete or partial).
+    public var hasTagFilter: Bool { !tags.isEmpty || !(pendingTag ?? "").isEmpty }
+
+    /// Replace the pending `#` token with a chosen tag.
+    public static func completing(_ text: String, with tag: String) -> String {
+        guard let hash = text.lastIndex(of: "#") else { return text + " #" + tag + " " }
+        return String(text[..<hash]) + "#" + tag + " "
     }
 }
 
@@ -34,6 +72,12 @@ public struct SearchHit: Identifiable, Hashable, Sendable {
 
 public protocol SearchProvider: AnyObject, Sendable {
     func search(_ query: String, limit: Int) async throws -> [SearchHit]
+    /// Tags the provider knows, most used first (for `#` completion).
+    func tags() async throws -> [String]
+}
+
+public extension SearchProvider {
+    func tags() async throws -> [String] { [] }
 }
 
 /// A tab in the notebook. Daily Notes and Tasks are built in; Scribe will be another.
