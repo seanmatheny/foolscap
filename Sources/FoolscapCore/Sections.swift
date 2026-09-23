@@ -49,6 +49,18 @@ public struct SearchQuery: Equatable, Sendable {
         guard let hash = text.lastIndex(of: "#") else { return text + " #" + tag + " " }
         return String(text[..<hash]) + "#" + tag + " "
     }
+
+    /// The first line of `text` containing any query word (or tag), so a
+    /// section can jump there when a search hit is opened.
+    public func firstMatchingLine(in text: String) -> Int? {
+        let needles = words.map { $0.lowercased() } + tags.map { "#" + $0 }
+        guard !needles.isEmpty else { return nil }
+        for (i, line) in text.components(separatedBy: "\n").enumerated() {
+            let l = line.lowercased()
+            if needles.contains(where: { l.contains($0) }) { return i }
+        }
+        return nil
+    }
 }
 
 /// A place a section can be asked to show: a note, optionally a line in it.

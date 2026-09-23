@@ -87,12 +87,26 @@ public final class NotebookLibrary {
     /// The standalone tasks file (created on first use).
     public var tasksDocument: NoteDocument { document(atRelativePath: NotesFolder.tasksFileName) }
 
-    /// Add a task to the Tasks file and save.
-    public func addStandaloneTask(_ text: String) {
+    /// Add a task to the Tasks file and save. With `skipIfPresent`, a task whose
+    /// content key already appears in the file is not added again (the Scribe
+    /// sync relies on this after its own state is lost). Returns whether a line
+    /// was written.
+    @discardableResult
+    public func addStandaloneTask(_ text: String, notes: String? = nil, skipIfPresent: Bool = false) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        tasksDocument.appendTaskLine(trimmed)
+        guard !trimmed.isEmpty else { return false }
+        let doc = tasksDocument
+        if skipIfPresent, doc.containsTask(withKey: TaskItem.contentKey(for: trimmed)) { return false }
+        doc.appendTaskLine(trimmed, notes: notes)
         flushAll()
+        return true
+    }
+
+    /// Whether `rescan` indexes the Scribe transcripts under `Scribe/`. Off by
+    /// default; the Scribe section switches it on, and switching it off purges
+    /// the rows on the next scan.
+    public var indexesScribe = false {
+        didSet { if oldValue != indexesScribe { Task { await rescan() } } }
     }
 
     /// Drop documents that are saved and not the given ones, to bound memory.
@@ -163,7 +177,7 @@ public final class NotebookLibrary {
     /// Synchronous copy with read-back verification (runs off the main actor).
     nonisolated private static func copyNotebookFiles(from source: NotesFolder, to target: NotesFolder) throws {
         let fm = FileManager.default
-        for sub in ["Daily", "Attachments"] {
+        for sub in ["Daily", "Attachments", "Scribe"] {
             let from = source.root.appendingPathComponent(sub, isDirectory: true).resolvingSymlinksInPath()
             let to = target.root.appendingPathComponent(sub, isDirectory: true)
             guard let items = fm.enumerator(at: from, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
@@ -190,11 +204,12 @@ public final class NotebookLibrary {
         rescanTask?.cancel()
         let folder = self.folder
         let index = self.index
+        let includeScribe = indexesScribe
         let task = Task.detached(priority: .utility) { () -> Bool in
             var changed = false
             let known = Dictionary(uniqueKeysWithValues: ((try? index.allNoteRecords()) ?? []).map { ($0.path, $0) })
             var seen = Set<String>()
-            for entry in folder.listIndexableNotes() {
+            for entry in folder.listIndexableNotes(includingScribe: includeScribe) {
                 if Task.isCancelled { return changed }
                 let path = folder.relativePath(of: entry.url)
                 seen.insert(path)

@@ -10,15 +10,18 @@ final class DailyNotesSearchProvider: SearchProvider {
     let library: NotebookLibrary
     init(library: NotebookLibrary) { self.library = library }
 
+    /// Scribe transcripts share the index but belong to the Scribe section.
+    private let scope = SearchIndex.PathScope.notUnder(NotesFolder.scribeDirectoryName + "/")
+
     func search(_ query: String, limit: Int) async throws -> [SearchHit] {
         library.flushAll()
         var hits: [SearchHit] = []
-        for note in try library.index.searchNotes(query, limit: limit) {
+        for note in try library.index.searchNotes(query, limit: limit, scope: scope) {
             let line = firstLine(matching: query, inNoteAt: note.path)
             hits.append(SearchHit(sectionID: NoteParser.dailyProviderID, title: note.title,
                                   snippet: note.snippet, route: SectionRoute(path: note.path, line: line)))
         }
-        for task in try library.index.searchTasks(query, limit: limit) {
+        for task in try library.index.searchTasks(query, limit: limit, scope: scope) {
             hits.append(SearchHit(sectionID: NoteParser.dailyProviderID, title: "Task · " + (task.source.day ?? ""),
                                   snippet: task.title, route: SectionRoute(path: task.source.path, line: task.source.line)))
         }
@@ -29,17 +32,9 @@ final class DailyNotesSearchProvider: SearchProvider {
 
     /// The first line containing any query word (or tag), so the editor can jump there.
     private func firstLine(matching query: String, inNoteAt path: String) -> Int? {
-        let parsed = SearchQuery(query)
-        let words = parsed.words.map { $0.lowercased() } + parsed.tags.map { "#" + $0 }
-        guard !words.isEmpty else { return nil }
         let url = library.folder.url(forRelativePath: path)
         guard let data = try? FileIO.read(url) else { return nil }
-        let text = String(decoding: data, as: UTF8.self)
-        for (i, line) in text.components(separatedBy: "\n").enumerated() {
-            let l = line.lowercased()
-            if words.contains(where: { l.contains($0) }) { return i }
-        }
-        return nil
+        return SearchQuery(query).firstMatchingLine(in: String(decoding: data, as: UTF8.self))
     }
 }
 

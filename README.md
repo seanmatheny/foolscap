@@ -86,9 +86,9 @@ python-swiftclient on this machine, so the Makefile always uses `xcrun swift`.
 | `FoolscapEditor` | TextKit 2 hybrid markdown editor |
 | `FoolscapUI` | Notebook chrome, themes, textures |
 | `FoolscapSections` | Daily Notes, Tasks, search, preferences, export |
+| `FoolscapScribe` | Kindle Scribe tab: Amazon sync, handwriting OCR, transcripts, `#scribe` tasks |
+| `FoolscapScribeOCR` | The `scribe-ocr` helper bundled next to the app binary (Vision runs out of process) |
 | `FoolscapApp` | The executable |
-
-| `FoolscapScribe` | Stub for the future Kindle Scribe tab (enable with `--scribe-stub`) |
 
 New sections (for example a Kindle Scribe tab) conform to `NotebookSection`
 in `FoolscapCore` and are registered in `AppModel.sections`. A section can
@@ -102,7 +102,7 @@ Foolscap --day 2026-09-22      open on a given day
 Foolscap --search dave         open the search palette with a query
 Foolscap --export              open the export sheet
 Foolscap --prefs               open Settings
-Foolscap --scribe-stub         show the Scribe placeholder tab
+Foolscap --scribe              show the Scribe tab whatever Settings says
 ```
 
 `Tools/window-shot.sh Foolscap out.png [all]` captures the app's window(s).

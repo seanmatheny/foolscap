@@ -61,4 +61,24 @@ import Foundation
         try await provider.setStatus(.completed, of: tasks[1])
         #expect(try String(contentsOf: folder.tasksFile, encoding: .utf8).contains("- [x] Renew passport"))
     }
+
+    @Test func tasksWithNotesAndPresenceCheck() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-notes-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp)
+        try folder.ensureLayout()
+        let library = try NotebookLibrary(folder: folder)
+        #expect(library.addStandaloneTask("Call Bob #scribe", notes: "From Work/todo, p. 3", skipIfPresent: true))
+        // Same text again (case and spacing differ): refused, file untouched.
+        #expect(!library.addStandaloneTask("call  Bob #scribe", notes: "From Work/todo, p. 4", skipIfPresent: true))
+        let text = try String(contentsOf: folder.tasksFile, encoding: .utf8)
+        #expect(text == NotesFolder.tasksTemplate + "- [ ] Call Bob #scribe\n  From Work/todo, p. 3\n")
+        await library.rescan(full: true)
+        let tasks = try library.index.tasks()
+        #expect(tasks.count == 1)
+        #expect(tasks[0].notes == "From Work/todo, p. 3")
+        #expect(tasks[0].tags == ["scribe"])
+        // Without the check, duplicates are the caller's business.
+        #expect(library.addStandaloneTask("Call Bob #scribe"))
+    }
 }

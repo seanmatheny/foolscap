@@ -24,6 +24,11 @@ final class AppModel {
     private(set) var startupError: String?
     let search = SearchCoordinator()
     var showExport = false
+    /// The Scribe tab is a hard toggle: off means no section object, no sync, no index rows.
+    private(set) var scribeEnabled = false
+    /// `--scribe` keeps the tab on for this launch whatever Settings says.
+    private var scribeForced = false
+    private var tasksSection: TasksSection?
 
     var theme: NotebookTheme { (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).scaled(by: textScale) }
     var tabs: [NotebookTabItem] { sections.map { NotebookTabItem(id: $0.id, appearance: $0.tab) } }
@@ -48,17 +53,15 @@ final class AppModel {
                 daily.navigate(to: route)
             }
             sections = [daily, tasks]
-            // The Scribe seam is opt-in until the real module lands.
-            if CommandLine.arguments.contains("--scribe-stub") || defaults.bool(forKey: "scribeStub") {
-                sections.append(ScribeSection())
-            }
-            tasks.aggregator.setProviders(sections.compactMap(\.taskProvider))
-            search.setSections(sections)
+            tasksSection = tasks
             search.navigate = { [weak self] sectionID, route in
                 guard let self else { return }
                 self.selectedSectionID = sectionID
                 self.section(id: sectionID)?.navigate(to: route)
             }
+            scribeForced = CommandLine.arguments.contains("--scribe")
+            setScribeEnabled(scribeForced || defaults.bool(forKey: "scribeEnabled"))
+            rewireSections()
         }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
         // `Foolscap --day 2026-09-22` opens on a given day (handy for scripted screenshots).
@@ -84,14 +87,48 @@ final class AppModel {
         NotificationCenter.default.addObserver(forName: HotKeyPreferences.changed, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.registerHotKeys() }
         }
-        // Settings changes the scale through @AppStorage; mirror them here.
+        // Settings changes the scale and the Scribe toggle through @AppStorage; mirror them here.
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 let v = UserDefaults.standard.object(forKey: "textScale") as? Double ?? 1.0
                 if v != self.textScale { self.textScale = v }
+                let scribe = UserDefaults.standard.bool(forKey: "scribeEnabled")
+                if !self.scribeForced, scribe != self.scribeEnabled { self.setScribeEnabled(scribe) }
             }
         }
+    }
+
+    /// Add or remove the Scribe section at runtime, and everything derived from `sections`.
+    func setScribeEnabled(_ on: Bool) {
+        guard on != scribeEnabled, let library else { return }
+        scribeEnabled = on
+        if on {
+            let scribe = ScribeSection(library: library)
+            sections.append(scribe)
+            library.indexesScribe = true
+            scribe.start()
+        } else {
+            (section(id: ScribeSection.sectionID) as? ScribeSection)?.stop()
+            sections.removeAll { $0.id == ScribeSection.sectionID }
+            library.indexesScribe = false
+            if selectedSectionID == ScribeSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
+        }
+        rewireSections()
+    }
+
+    private func rewireSections() {
+        tasksSection?.aggregator.setProviders(sections.compactMap(\.taskProvider))
+        search.setSections(sections)
+    }
+
+    /// One line for Settings: "⌘D Daily Notes · ⌘T Tasks · ⌘K Scribe".
+    var tabsSummary: String {
+        sections.compactMap { s in s.tab.shortcut.map { "⌘\($0.uppercased()) \(s.tab.label)" } }.joined(separator: " · ")
+    }
+
+    var sectionSettingsPanes: [SectionSettingsPane] {
+        sections.compactMap { s in s.makeSettingsPane().map { SectionSettingsPane(id: s.id, title: s.tab.label, view: $0) } }
     }
 
     func registerHotKeys() {

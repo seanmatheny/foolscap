@@ -15,8 +15,9 @@ public enum TaskLineParser {
     // ^(indent)(bullet)\s+\[(mark)\]\s+(title)
     private static let lineRegex = try! NSRegularExpression(
         pattern: #"^([ \t]*)([-*+]|\d+[.)])[ \t]+\[([ xX/])\][ \t]+(.*)$"#)
+    // A backslash before the # is an escape (Scribe transcripts escape OCR text), not a tag.
     private static let tagRegex = try! NSRegularExpression(
-        pattern: #"(?<![\w/#`])#([\p{L}\p{N}_][\p{L}\p{N}_\-/]*)"#)
+        pattern: #"(?<![\w/#`\\])#([\p{L}\p{N}_][\p{L}\p{N}_\-/]*)"#)
 
     public static func parse(_ line: String) -> ParsedTaskLine? {
         let ns = line as NSString

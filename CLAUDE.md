@@ -13,10 +13,11 @@
 - Resource bundles are copied into `Foolscap.app/Contents/Resources`; look them
   up through `FoolscapUIResources.bundle`, not `Bundle.module` directly.
 - Sections plug in through `NotebookSection` (FoolscapCore/Sections.swift);
-  tasks through `TaskProvider`. A future Scribe package should depend only on
-  FoolscapCore (and FoolscapStore if it needs caching).
+  tasks through `TaskProvider`. Third-party sections should depend only on
+  FoolscapCore (and FoolscapStore for files/index); `FoolscapScribe` is first-party
+  and also uses FoolscapUI chrome.
 - Launch flags for verification: `--day YYYY-MM-DD`, `--search q`, `--export`,
-  `--prefs`, `--scribe-stub`; `Tools/window-shot.sh Foolscap out.png all` captures
+  `--prefs`, `--scribe`; `Tools/window-shot.sh Foolscap out.png all` captures
   every window. Synthetic mouse events are ignored (no Accessibility grant), so
   hover and drag behaviour can only be checked by the user.
 - TextKit 2 gotchas: never read `layoutManager` on the text view (it downgrades
@@ -64,3 +65,19 @@
   around the leading edge, so Core Animation drives it at the display's refresh
   rate. `FOOLSCAP_SLOW_OPEN=1` stretches it 4x for screenshots; `--no-opening`
   skips it. `JesterShape` mirrors the icon geometry in `Tools/make-icon.swift`.
+- Kindle Scribe (`FoolscapScribe`): a hard toggle (`scribeEnabled`, default off);
+  `AppModel.setScribeEnabled` adds/removes the section at runtime and flips
+  `NotebookLibrary.indexesScribe`, which gates `Scribe/**/*.md` in the index (the
+  rescan purge drops the rows when off). Files: `Scribe/<Folder>/<Notebook>.pdf`
+  + `.md` in the notes folder; state and OCR cache in Application Support/Foolscap/Scribe.
+  The transcript markdown is what the page renders (`ScribeTranscript.parse`).
+- OCR runs in the bundled helper `Contents/MacOS/scribe-ocr` (target `FoolscapScribeOCR`,
+  the verbatim tool from KindleScribeSync-mac) via `Process`, so Vision's models
+  unload after each run; drain both pipes off-thread or a long notebook deadlocks.
+  The OCR cache is keyed on the page-PNG content hash, not the PDF bytes
+  (CGPDFContext embeds dates).
+- Amazon sign-in is a WKWebView window with the Android user agent (the notebook
+  web app is only served to phones); cookies are copied to `HTTPCookieStorage.shared`
+  for URLSession. The client refuses redirects: a 3xx means signed out.
+- Heuristics (`ScribeLayout`, `ScribeTodos`, `SequenceMatcher`) are line-for-line
+  ports of notes_sync.py; keep them in step with its tests, which are ported too.

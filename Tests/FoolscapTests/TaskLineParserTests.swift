@@ -22,6 +22,18 @@ import Testing
         #expect(TaskLineParser.stripTags(from: p.title) == "Email Dave about and `#notatag` C#")
     }
 
+    @Test func escapedHashIsNotATag() {
+        // Scribe transcripts escape recognised text; `\#budget` must not become a tag.
+        #expect(TaskLineParser.tags(in: ##"\#budget is \#5 but #scribe/book-notes is"##) == ["scribe/book-notes"])
+    }
+
+    @Test func firstMatchingLineFindsWordsAndTags() {
+        let text = "# Title\n\nnothing\nthe Budget line\n#work here\n"
+        #expect(SearchQuery("budget").firstMatchingLine(in: text) == 3)
+        #expect(SearchQuery("#work ").firstMatchingLine(in: text) == 4)
+        #expect(SearchQuery("absent").firstMatchingLine(in: text) == nil)
+    }
+
     @Test func replacesStatusByteExact() {
         #expect(TaskLineParser.replacingStatus(in: "\t- [ ]  Two  spaces #a", with: .inProgress) == "\t- [/]  Two  spaces #a")
     }

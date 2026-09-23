@@ -43,10 +43,16 @@ let package = Package(
             name: "FoolscapSections",
             dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI"]
         ),
-        // Future Kindle Scribe section. Depends only on Core so it stays a clean plug-in.
+        // Kindle Scribe section: Amazon sync, handwriting OCR, transcripts, TODO tasks.
         .target(
             name: "FoolscapScribe",
-            dependencies: ["FoolscapCore"]
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI"]
+        ),
+        // The OCR helper, bundled as Contents/MacOS/scribe-ocr. A separate process so
+        // Vision's recognition models are unloaded again when a run finishes.
+        .executableTarget(
+            name: "FoolscapScribeOCR",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
             name: "FoolscapApp",
@@ -55,7 +61,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FoolscapTests",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapSections"]
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapSections", "FoolscapScribe"]
         ),
     ]
 )

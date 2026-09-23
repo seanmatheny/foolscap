@@ -4,21 +4,34 @@ import Carbon.HIToolbox
 import FoolscapCore
 import FoolscapUI
 
-/// Preferences: theme, notebook folder, export defaults.
+/// A section's own settings, shown under its heading in Preferences.
+public struct SectionSettingsPane: Identifiable {
+    public var id: String
+    public var title: String
+    public var view: AnyView
+    public init(id: String, title: String, view: AnyView) { self.id = id; self.title = title; self.view = view }
+}
+
+/// Preferences: theme, notebook folder, export defaults, plug-in sections.
 public struct PreferencesView: View {
     @Binding var themeID: String
     let notesFolderPath: String
+    let tabsSummary: String
+    let sectionPanes: [SectionSettingsPane]
     let chooseFolder: (URL) -> Void
     let moveToFolder: (URL) -> Void
     @AppStorage("textScale") private var textScale = 1.0
     @AppStorage("openingAnimation") private var openingAnimation = true
     @AppStorage("exportFormat") private var exportFormat = "markdown"
     @AppStorage("exportIncludeAttachments") private var exportAttachments = true
+    @AppStorage("scribeEnabled") private var scribeEnabled = false
 
-    public init(themeID: Binding<String>, notesFolderPath: String, chooseFolder: @escaping (URL) -> Void,
-                moveToFolder: @escaping (URL) -> Void) {
+    public init(themeID: Binding<String>, notesFolderPath: String, tabsSummary: String, sectionPanes: [SectionSettingsPane],
+                chooseFolder: @escaping (URL) -> Void, moveToFolder: @escaping (URL) -> Void) {
         self._themeID = themeID
         self.notesFolderPath = notesFolderPath
+        self.tabsSummary = tabsSummary
+        self.sectionPanes = sectionPanes
         self.chooseFolder = chooseFolder
         self.moveToFolder = moveToFolder
     }
@@ -48,7 +61,15 @@ public struct PreferencesView: View {
                 LabeledContent("Quick task (anywhere)") { ShortcutRecorder(name: "quickTaskHotKey", defaultCombo: .quickTaskDefault) }
                 Text("Opens a small panel over any app; ↩ adds the task to the Tasks tab.")
                     .font(.caption).foregroundStyle(.secondary)
-                LabeledContent("Tabs") { Text("⌘D Daily Notes · ⌘T Tasks").foregroundStyle(.secondary) }
+                LabeledContent("Tabs") { Text(tabsSummary).foregroundStyle(.secondary) }
+            }
+            Section("Kindle Scribe") {
+                Toggle("Sync Kindle Scribe notebooks", isOn: $scribeEnabled)
+                Text("Adds a Scribe tab. Off, nothing runs: no sync, no handwriting recognition, no tab.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if scribeEnabled || !sectionPanes.isEmpty {
+                    ForEach(sectionPanes) { pane in pane.view }
+                }
             }
             Section("Storage") {
                 LabeledContent("Notebook folder") {

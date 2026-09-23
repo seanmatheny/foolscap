@@ -57,6 +57,7 @@ _bundle:
 	rm -rf "$(BUNDLE_NAME)"
 	mkdir -p "$(MACOS_DIR)" "$(RESOURCES_DIR)"
 	cp "$(BUILD_DIR)/$(BINARY_NAME)" "$(MACOS_DIR)/$(BINARY_NAME)"
+	cp "$(BUILD_DIR)/FoolscapScribeOCR" "$(MACOS_DIR)/scribe-ocr"
 	cp "$(PLIST_SRC)" "$(CONTENTS)/Info.plist"
 	@for b in $(BUILD_DIR)/*.bundle; do [ -d "$$b" ] && cp -R "$$b" "$(RESOURCES_DIR)/"; done; true
 	@[ -f "$(ICNS)" ] && cp "$(ICNS)" "$(RESOURCES_DIR)/Foolscap.icns" || echo "(no icon yet: run make icon)"

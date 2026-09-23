@@ -17,11 +17,32 @@ public struct NotesFolder: Hashable, Sendable {
     public var tasksFile: URL { root.appendingPathComponent(NotesFolder.tasksFileName) }
     public static let tasksTemplate = "# Tasks\n\nTasks added from the Tasks tab and the quick-task panel.\n\n"
 
-    /// Every markdown file the index should know about: daily notes plus Tasks.md.
-    public func listIndexableNotes() -> [(url: URL, day: DayKey?)] {
+    /// Kindle Scribe notebooks (PDF + transcript) mirror the Kindle's folders here.
+    public static let scribeDirectoryName = "Scribe"
+    public var scribeDirectory: URL { root.appendingPathComponent(NotesFolder.scribeDirectoryName, isDirectory: true) }
+
+    /// Every markdown file the index should know about: daily notes plus Tasks.md,
+    /// and the Scribe transcripts when that section is on.
+    public func listIndexableNotes(includingScribe: Bool = false) -> [(url: URL, day: DayKey?)] {
         var out: [(URL, DayKey?)] = listDailyNotes().filter { !$0.isPlaceholder }.map { ($0.url, $0.day) }
         if FileManager.default.fileExists(atPath: tasksFile.path) { out.append((tasksFile, nil)) }
+        if includingScribe { out += listScribeNotes().map { ($0, nil) } }
         return out
+    }
+
+    /// Transcripts under `Scribe/`, any depth, sorted by path. iCloud
+    /// placeholders and other dot files are skipped.
+    public func listScribeNotes() -> [URL] {
+        let keys: [URLResourceKey] = [.isRegularFileKey]
+        guard let items = FileManager.default.enumerator(at: scribeDirectory, includingPropertiesForKeys: keys,
+                                                          options: [.skipsHiddenFiles]) else { return [] }
+        var out: [URL] = []
+        for case let url as URL in items {
+            guard url.pathExtension == "md",
+                  (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            out.append(url)
+        }
+        return out.sorted { $0.path < $1.path }
     }
     public func attachmentsDirectory(for day: DayKey) -> URL {
         attachmentsDirectory.appendingPathComponent(day.string, isDirectory: true)

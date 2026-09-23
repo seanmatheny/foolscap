@@ -224,12 +224,26 @@ public final class NoteDocument: Identifiable {
         return candidates[0]
     }
 
-    /// Append a task line at the end of the document (for the standalone Tasks file).
-    public func appendTaskLine(_ title: String, status: TaskStatus = .notStarted) {
+    /// Append a task line at the end of the document (for the standalone Tasks
+    /// file), with optional note lines indented beneath it.
+    public func appendTaskLine(_ title: String, status: TaskStatus = .notStarted, notes: String? = nil) {
         var text = textStorage.string
         if !text.isEmpty && !text.hasSuffix("\n") { text += "\n" }
         text += "- [\(status.mark)] \(title)\n"
+        for line in (notes ?? "").split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty { text += "  \(trimmed)\n" }
+        }
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: text)
+    }
+
+    /// True when some task line in the document has this content key.
+    public func containsTask(withKey key: String) -> Bool {
+        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        return map.lines.contains { line in
+            guard let p = TaskLineParser.parse(line.text) else { return false }
+            return TaskItem.contentKey(for: p.title) == key
+        }
     }
 
     /// Append a task line under a `## Tasks` heading, creating it if needed.

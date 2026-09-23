@@ -133,6 +133,7 @@ struct PreferencesRoot: View {
     var body: some View {
         @Bindable var model = model
         PreferencesView(themeID: $model.themeID, notesFolderPath: model.notesFolderPath,
+                        tabsSummary: model.tabsSummary, sectionPanes: model.sectionSettingsPanes,
                         chooseFolder: { model.changeNotesFolder(to: $0) },
                         moveToFolder: { model.moveNotesFolder(to: $0) })
             .onAppear { AppDelegate.flush = { model.flush() } }

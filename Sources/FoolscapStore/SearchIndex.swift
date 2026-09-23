@@ -221,6 +221,35 @@ public final class SearchIndex: Sendable {
 
     // MARK: - Search
 
+    /// Which notes a search covers, by path prefix. Sections that share the
+    /// index (Daily Notes, Scribe) use disjoint scopes so a hit is reported once.
+    public enum PathScope: Equatable, Sendable {
+        case all
+        case under(String)
+        case notUnder(String)
+
+        func includes(_ path: String) -> Bool {
+            switch self {
+            case .all: return true
+            case .under(let p): return path.hasPrefix(p)
+            case .notUnder(let p): return !path.hasPrefix(p)
+            }
+        }
+
+        /// An SQL condition on `column` plus its argument (empty for `.all`).
+        func sql(column: String) -> (clause: String, arguments: [any DatabaseValueConvertible]) {
+            func pattern(_ p: String) -> String {
+                p.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%")
+                    .replacingOccurrences(of: "_", with: "\\_") + "%"
+            }
+            switch self {
+            case .all: return ("1", [])
+            case .under(let p): return ("\(column) LIKE ? ESCAPE '\\'", [pattern(p)])
+            case .notUnder(let p): return ("\(column) NOT LIKE ? ESCAPE '\\'", [pattern(p)])
+            }
+        }
+    }
+
     public struct NoteHit: Equatable, Sendable {
         public var path: String
         public var day: String?
@@ -236,40 +265,48 @@ public final class SearchIndex: Sendable {
             .joined(separator: " ")
     }
 
-    public func searchNotes(_ text: String, limit: Int = 50) throws -> [NoteHit] {
+    public func searchNotes(_ text: String, limit: Int = 50, scope: PathScope = .all) throws -> [NoteHit] {
         let query = SearchQuery(text)
         let q = Self.ftsQuery(query.wordText)
         guard !q.isEmpty || query.hasTagFilter else { return [] }
+        let scoped = scope.sql(column: "n.path")
         return try db.read { db in
             let tagged = try paths(matching: query, db: db)
             if q.isEmpty {
                 // Tags only: every note carrying them, newest first, first line as the snippet.
                 let marks = Array(repeating: "?", count: tagged.count).joined(separator: ",")
                 guard !tagged.isEmpty else { return [] }
+                var arguments: [any DatabaseValueConvertible] = Array(tagged)
+                arguments += scoped.arguments
+                arguments.append(limit)
                 return try Row.fetchAll(db, sql: """
                     SELECT n.path AS path, n.day AS day, n.title AS title, substr(f.body, 1, 140) AS snippet
                     FROM notes n JOIN notes_fts f ON f.path = n.path
-                    WHERE n.path IN (\(marks)) ORDER BY n.day DESC LIMIT ?
-                    """, arguments: StatementArguments(Array(tagged) + [limit]))
+                    WHERE n.path IN (\(marks)) AND \(scoped.clause) ORDER BY n.day DESC LIMIT ?
+                    """, arguments: StatementArguments(arguments))
                 .map { NoteHit(path: $0["path"], day: $0["day"], title: $0["title"], snippet: $0["snippet"]) }
             }
+            var arguments: [any DatabaseValueConvertible] = [q]
+            arguments += scoped.arguments
+            arguments.append(query.hasTagFilter ? limit * 4 : limit)
             let hits = try Row.fetchAll(db, sql: """
                 SELECT n.path AS path, n.day AS day, n.title AS title,
                        snippet(notes_fts, 2, '\u{1}', '\u{2}', '…', 14) AS snippet
                 FROM notes_fts JOIN notes n ON n.path = notes_fts.path
-                WHERE notes_fts MATCH ? ORDER BY bm25(notes_fts), n.day DESC LIMIT ?
-                """, arguments: [q, query.hasTagFilter ? limit * 4 : limit])
+                WHERE notes_fts MATCH ? AND \(scoped.clause) ORDER BY bm25(notes_fts), n.day DESC LIMIT ?
+                """, arguments: StatementArguments(arguments))
             .map { NoteHit(path: $0["path"], day: $0["day"], title: $0["title"], snippet: $0["snippet"]) }
             return query.hasTagFilter ? Array(hits.filter { tagged.contains($0.path) }.prefix(limit)) : hits
         }
     }
 
-    public func searchTasks(_ text: String, limit: Int = 50) throws -> [TaskItem] {
+    public func searchTasks(_ text: String, limit: Int = 50, scope: PathScope = .all) throws -> [TaskItem] {
         let query = SearchQuery(text)
         let words = query.words.map { $0.lowercased() }
         guard !words.isEmpty || query.hasTagFilter else { return [] }
         let tagged = try db.read { db in try paths(matching: query, db: db) }
         return try tasks().filter { t in
+            guard scope.includes(t.source.path) else { return false }
             let hay = t.title.lowercased()
             guard words.allSatisfy({ hay.contains($0) }) else { return false }
             guard query.hasTagFilter else { return true }

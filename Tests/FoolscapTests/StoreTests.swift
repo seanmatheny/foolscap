@@ -155,3 +155,50 @@ import Foundation
         #expect(SearchQuery("#work ").tags == ["work"])
     }
 }
+
+@Suite @MainActor struct ScribeIndexingTests {
+    @Test func scopesKeepSectionsDisjoint() throws {
+        let index = try SearchIndex(inMemory: ())
+        try index.index(path: "Daily/2026-09-21.md", day: DayKey("2026-09-21"), text: "# A\n\nBudget meeting #work\n- [ ] Send budget\n",
+                        stat: FileIO.Stat(mtime: 1, size: 1), hash: "a")
+        let transcript = "# todo\n#scribe/work\n\n## Page 1\n\n**TODO:** Send budget\n\\#budget is \\*big\\*\n\n---\n*Sync ID abc*\n"
+        try index.index(path: "Scribe/Work/todo.md", day: nil, text: transcript, stat: FileIO.Stat(mtime: 1, size: 1), hash: "s")
+        #expect(try index.searchNotes("budget").count == 2)
+        #expect(try index.searchNotes("budget", scope: .under("Scribe/")).map(\.path) == ["Scribe/Work/todo.md"])
+        #expect(try index.searchNotes("budget", scope: .notUnder("Scribe/")).map(\.path) == ["Daily/2026-09-21.md"])
+        // Tags-only branch honours the scope too, and escaped OCR text made no tags.
+        #expect(try index.searchNotes("#scribe/work ", scope: .under("Scribe/")).map(\.title) == ["todo"])
+        #expect(try index.searchNotes("#scribe/work ", scope: .notUnder("Scribe/")).isEmpty)
+        #expect(try index.allTags() == ["scribe/work", "work"])
+        // A transcript's **TODO:** lines are prose, not task rows.
+        #expect(try index.tasks().map(\.source.path) == ["Daily/2026-09-21.md"])
+        #expect(try index.searchTasks("budget", scope: .under("Scribe/")).isEmpty)
+        #expect(try index.searchTasks("budget", scope: .notUnder("Scribe/")).count == 1)
+    }
+
+    @Test func transcriptsAreListedOnlyWhenEnabled() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-scribe-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp)
+        try folder.ensureLayout()
+        let nested = folder.scribeDirectory.appendingPathComponent("Personal/book notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try "# Notebook 1\n#scribe/personal/book-notes\n\n## Page 1\n\nhello\n".write(to: nested.appendingPathComponent("Notebook 1.md"), atomically: true, encoding: .utf8)
+        try Data().write(to: nested.appendingPathComponent("Notebook 1.pdf"))
+        try "".write(to: nested.appendingPathComponent(".Notebook 2.md.icloud"), atomically: true, encoding: .utf8)
+        #expect(folder.listScribeNotes().map { folder.relativePath(of: $0) } == ["Scribe/Personal/book notes/Notebook 1.md"])
+        #expect(folder.listIndexableNotes().isEmpty)
+        #expect(folder.listIndexableNotes(includingScribe: true).count == 1)
+
+        let library = try NotebookLibrary(folder: folder)
+        await library.rescan(full: true)
+        #expect(try library.index.allNoteRecords().isEmpty)
+        library.indexesScribe = true
+        await library.rescan(full: true)
+        #expect(try library.index.allNoteRecords().map(\.path) == ["Scribe/Personal/book notes/Notebook 1.md"])
+        #expect(try library.index.allTags() == ["scribe/personal/book-notes"])
+        library.indexesScribe = false
+        await library.rescan()
+        #expect(try library.index.allNoteRecords().isEmpty)
+    }
+}
