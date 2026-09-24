@@ -119,5 +119,7 @@
 - Amazon sign-in is a WKWebView window with the Android user agent (the notebook
   web app is only served to phones); cookies are copied to `HTTPCookieStorage.shared`
   for URLSession. The client refuses redirects: a 3xx means signed out.
-- Heuristics (`ScribeLayout`, `ScribeTodos`, `SequenceMatcher`) are line-for-line
-  ports of notes_sync.py; keep them in step with its tests, which are ported too.
+- Heuristics (`ScribeLayout`, `SequenceMatcher`) are line-for-line ports of
+  notes_sync.py. `ScribeTodos` has diverged (the Python tool is retired): its markers
+  accept a spaced, colonless "TO DO" because Vision drops the colon. Bump
+  `ScribeTodos.rulesVersion` when the rules change so notebooks are re-transcribed.

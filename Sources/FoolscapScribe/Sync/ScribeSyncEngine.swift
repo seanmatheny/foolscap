@@ -197,10 +197,10 @@ public actor ScribeSyncEngine {
     }
 
     /// What a transcript is written from besides the page images, so changing the
-    /// handwriting languages or the OCR engine re-reads it, and a rename or move
-    /// rewrites its title, tag and footer.
+    /// handwriting languages, the OCR engine or the TODO rules re-reads it, and a
+    /// rename or move rewrites its title, tag and footer.
     static func transcriptKey(contentHash: String, languages: [String], path: String, title: String) -> String {
-        let parts = [contentHash, languages.joined(separator: ","), ScribeOCR.engineVersion, path, title]
+        let parts = [contentHash, languages.joined(separator: ","), ScribeOCR.engineVersion, ScribeTodos.rulesVersion, path, title]
         return PDFBuilder.sha256(Data(parts.joined(separator: "\n").utf8))
     }
 

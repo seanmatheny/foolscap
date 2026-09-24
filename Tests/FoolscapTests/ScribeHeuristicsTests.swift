@@ -2,7 +2,8 @@ import Testing
 import Foundation
 @testable import FoolscapScribe
 
-// Ported from tests/test_notes_sync.py in KindleScribeSync-mac.
+// Ported from tests/test_notes_sync.py in KindleScribeSync-mac; the TODO marker
+// rules have since diverged (spaced and colonless markers).
 
 func fragment(_ text: String, _ x: Double, _ y: Double, w: Double = 0.3, h: Double = 0.04, alternates: [String] = []) -> OCRObservation {
     OCRObservation(text: text, alternates: alternates, confidence: 1, x: x, y: y, w: w, h: h)
@@ -82,9 +83,31 @@ func tasksIn(_ texts: String...) -> [String] {
     }
 
     @Test func linesThatAreNotTasks() {
-        for line in ["TODO list for the garden", "TODOs: many", "things to do: relax", "nothing to do with it", "TODO wash the car"] {
+        for line in ["TODO list for the garden", "TODOs: many", "things to do: relax", "nothing to do with it",
+                     "To do this, we need a plan", "Today I walked", "Todd came over", "TODD: will call"] {
             #expect(tasksIn(line) == [], "\(line)")
         }
+    }
+
+    @Test func spacedAndColonlessMarkers() {
+        // Vision reads a gapped "TO DO:" as two words and drops the colon.
+        #expect(tasksIn("To Do get her a birthday present!") == ["get her a birthday present!"])
+        for line in ["TO DO: call Bob", "TO Do call Bob", "To DO - call Bob", "TODO call Bob", "TO-DO: call Bob", "- To Do call Bob"] {
+            #expect(tasksIn(line) == ["call Bob"], "\(line)")
+        }
+        #expect(tasksIn("Budget meeting. TO DO: send slides") == ["send slides"])
+    }
+
+    @Test func listHeadingTakesTheBulletsUnderIt() {
+        #expect(tasksIn("TODO list for the garden", "- weed the beds", "- prune roses") == ["weed the beds", "prune roses"])
+        #expect(tasksIn("To Do list", "- buy milk") == ["buy milk"])
+    }
+
+    @Test func alternateReadingRescuesASpacedTodo() {
+        let read = fragment("To do get her a birthy present!", 0.05, 0.1,
+                            alternates: ["To do get her a birty present!", "TO Do get her a birthy present!"])
+        let page = ScribeLayout.layoutPage([read])
+        #expect(ScribeTodos.extractTodos([page]) == [Todo("get her a birthy present!", page: 1)])
     }
 
     @Test func taskNeedsSomeText() {
