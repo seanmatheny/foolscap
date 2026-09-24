@@ -30,6 +30,9 @@ public enum TaskStatus: String, Codable, CaseIterable, Sendable, Hashable {
         }
     }
 
+    /// A click on a task's circle in the Tasks tab: straight to done, or back to not started.
+    public var toggled: TaskStatus { self == .completed ? .notStarted : .completed }
+
     public var next: TaskStatus {
         switch self {
         case .notStarted: return .inProgress

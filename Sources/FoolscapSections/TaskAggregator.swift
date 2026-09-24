@@ -49,6 +49,13 @@ public final class TaskAggregator {
         tags = counts.keys.sorted { (counts[$0]!, $1) > (counts[$1]!, $0) }
     }
 
+    /// Tags on tasks still to do, most used first: the Tasks tab filters only on these.
+    public var openTags: [String] {
+        var counts: [String: Int] = [:]
+        for t in tasks where t.status != .completed { for tag in t.tags { counts[tag, default: 0] += 1 } }
+        return counts.keys.sorted { (counts[$0]!, $1) > (counts[$1]!, $0) }
+    }
+
     /// Tasks in one status section, highest priority first, otherwise in note order.
     public func tasks(status: TaskStatus, tag: String?) -> [TaskItem] {
         // Priority is parsed from the title: once per task, not once per comparison.
@@ -99,14 +106,26 @@ public final class TaskAggregator {
         rename(task, to: task.title + " #" + clean)
     }
 
-    public func move(_ task: TaskItem, to status: TaskStatus) {
-        guard task.status != status, !task.isReadOnly,
-              let provider = providers.first(where: { $0.id == task.providerID }) else { return }
-        // Optimistic: update the list now, the file catches up.
-        if let i = tasks.firstIndex(where: { $0.id == task.id }) { tasks[i].status = status }
+    public func move(_ task: TaskItem, to status: TaskStatus) { move([task], to: status) }
+
+    /// Several tasks at once (a selection or a multi-task drag). The writes run one
+    /// after another, since tasks from the same note edit the same document.
+    public func move(_ items: [TaskItem], to status: TaskStatus) {
+        let moves = items.compactMap { task -> (TaskItem, any TaskProvider)? in
+            guard task.status != status, !task.isReadOnly,
+                  let provider = providers.first(where: { $0.id == task.providerID }) else { return nil }
+            return (task, provider)
+        }
+        guard !moves.isEmpty else { return }
+        // Optimistic: update the list now, the files catch up.
+        for (task, _) in moves {
+            if let i = tasks.firstIndex(where: { $0.id == task.id }) { tasks[i].status = status }
+        }
         Task {
-            do { try await provider.setStatus(status, of: task) }
-            catch { self.error = "Could not update task: \(error)"; await reload() }
+            for (task, provider) in moves {
+                do { try await provider.setStatus(status, of: task) }
+                catch { self.error = "Could not update task: \(error)"; await reload(); return }
+            }
         }
     }
 }

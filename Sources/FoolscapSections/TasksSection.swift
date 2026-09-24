@@ -9,8 +9,11 @@ extension UTType {
     static let foolscapTask = UTType(exportedAs: "com.seanmatheny.foolscap.task")
 }
 
-extension TaskItem: Transferable {
-    public static var transferRepresentation: some TransferRepresentation {
+/// What a task drag carries: the dragged task, or the whole selection when the
+/// task was part of one.
+struct TaskDrag: Codable, Transferable {
+    var tasks: [TaskItem]
+    static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .foolscapTask)
     }
 }
@@ -50,6 +53,10 @@ struct TasksPage: View {
     @Bindable var section: TasksSection
     @State private var showNewTask = false
     @State private var newTaskText = ""
+    /// Selected task ids (click, ⌘-click, ⇧-click), moved together by drag or menu.
+    @State private var selection: Set<String> = []
+    /// Where a ⇧-click range starts.
+    @State private var selectionAnchor: String?
 
     private var pitch: CGFloat { theme.linePitch }
     private var scale: CGFloat { theme.type.body.size / 15 }
@@ -60,9 +67,11 @@ struct TasksPage: View {
                 ZStack(alignment: .topLeading) {
                     RulingView(pitch: pitch, topInset: pitch * 2 - 4, marginX: 58)
                         .frame(minHeight: geo.size.height)
+                        .contentShape(Rectangle())
+                        .onTapGesture { clearSelection() }
                     VStack(alignment: .leading, spacing: 0) {
                         header
-                        CategoryStrip(tags: section.aggregator.tags, selected: $section.selectedTag)
+                        CategoryStrip(tags: stripTags, selected: $section.selectedTag)
                             .frame(height: pitch)
                         Spacer().frame(height: pitch / 2)
                         ForEach(TaskStatus.allCases, id: \.self) { status in
@@ -70,8 +79,11 @@ struct TasksPage: View {
                                             tasks: section.aggregator.tasks(status: status, tag: section.selectedTag),
                                             allTags: section.knownTags,
                                             pitch: pitch,
-                                            onMove: { section.aggregator.move($0, to: status) },
-                                            onToggle: { section.aggregator.move($0, to: $0.status.next) },
+                                            selection: $selection,
+                                            selectionAnchor: $selectionAnchor,
+                                            selectedTasks: selectedTasks,
+                                            onMove: { items, target in section.aggregator.move(items, to: target); clearSelection() },
+                                            onToggle: { section.aggregator.move($0, to: $0.status.toggled) },
                                             onOpen: { section.openNote(SectionRoute(path: $0.source.path, line: $0.source.line)) },
                                             onRename: { section.aggregator.rename($0, to: $1) },
                                             onUpdate: { section.aggregator.update($0, title: $1, notes: $2) },
@@ -87,6 +99,13 @@ struct TasksPage: View {
             }
         }
         .foregroundStyle(theme.ink.color)
+        .background {
+            // Escape clears the selection.
+            if !selection.isEmpty {
+                Button("") { clearSelection() }.keyboardShortcut(.cancelAction).opacity(0)
+            }
+        }
+        .onChange(of: section.selectedTag) { _, _ in clearSelection() }
         .task { await section.aggregator.reload(); section.refreshKnownTags() }
         .onChange(of: section.library.knownTags) { _, _ in section.refreshKnownTags() }
         .onChange(of: section.aggregator.tags) { _, _ in section.refreshKnownTags() }
@@ -122,6 +141,24 @@ struct TasksPage: View {
             if let err = section.aggregator.error { Text(err).font(.caption).foregroundStyle(.red) }
         }
         .frame(height: pitch * 1.5)
+    }
+
+    /// Tags of tasks still to do; the chosen filter stays until it is cleared,
+    /// even once its last task is done.
+    private var stripTags: [String] {
+        var tags = section.aggregator.openTags
+        if let chosen = section.selectedTag, !tags.contains(chosen) { tags.append(chosen) }
+        return tags
+    }
+
+    /// The selection, in list order, as tasks still present.
+    private var selectedTasks: [TaskItem] {
+        selection.isEmpty ? [] : section.aggregator.tasks.filter { selection.contains($0.id) }
+    }
+
+    private func clearSelection() {
+        selection = []
+        selectionAnchor = nil
     }
 
     private func submit() {
@@ -165,7 +202,10 @@ struct TaskSectionView: View {
     let tasks: [TaskItem]
     let allTags: [String]
     let pitch: CGFloat
-    let onMove: (TaskItem) -> Void
+    @Binding var selection: Set<String>
+    @Binding var selectionAnchor: String?
+    let selectedTasks: [TaskItem]
+    let onMove: ([TaskItem], TaskStatus) -> Void
     let onToggle: (TaskItem) -> Void
     let onOpen: (TaskItem) -> Void
     let onRename: (TaskItem, String) -> Void
@@ -179,10 +219,12 @@ struct TaskSectionView: View {
     static let recentLimit = 8
 
     init(status: TaskStatus, tasks: [TaskItem], allTags: [String], pitch: CGFloat,
-         onMove: @escaping (TaskItem) -> Void, onToggle: @escaping (TaskItem) -> Void, onOpen: @escaping (TaskItem) -> Void,
+         selection: Binding<Set<String>>, selectionAnchor: Binding<String?>, selectedTasks: [TaskItem],
+         onMove: @escaping ([TaskItem], TaskStatus) -> Void, onToggle: @escaping (TaskItem) -> Void, onOpen: @escaping (TaskItem) -> Void,
          onRename: @escaping (TaskItem, String) -> Void, onUpdate: @escaping (TaskItem, String, String?) -> Void,
          onAddTag: @escaping (TaskItem, String) -> Void, onSetPriority: @escaping (TaskItem, TaskPriority) -> Void) {
         self.status = status; self.tasks = tasks; self.allTags = allTags; self.pitch = pitch
+        _selection = selection; _selectionAnchor = selectionAnchor; self.selectedTasks = selectedTasks
         self.onMove = onMove; self.onToggle = onToggle; self.onOpen = onOpen
         self.onRename = onRename; self.onUpdate = onUpdate; self.onAddTag = onAddTag; self.onSetPriority = onSetPriority
         _folded = AppStorage(wrappedValue: false, "fold." + status.rawValue)
@@ -219,12 +261,16 @@ struct TaskSectionView: View {
                         .padding(.leading, 28)
                 }
                 ForEach(visibleTasks) { task in
+                    let group = movingGroup(for: task)
                     TaskRow(task: task, pitch: pitch, allTags: allTags,
+                            isSelected: selection.contains(task.id), groupCount: group.count,
+                            onSelect: { select(task) },
                             onToggle: { onToggle(task) }, onOpen: { onOpen(task) },
+                            onSetStatus: { onMove(group, $0) },
                             onUpdate: { onUpdate(task, $0, $1) }, onAddTag: { onAddTag(task, $0) },
                             onSetPriority: { onSetPriority(task, $0) })
-                        .draggable(task) {
-                            Text(task.displayTitle).font(.system(size: 14, design: .serif))
+                        .draggable(TaskDrag(tasks: group)) {
+                            Text(group.count > 1 ? "\(group.count) tasks" : task.displayTitle).font(.system(size: 14, design: .serif))
                                 .padding(6).background(theme.page.paperColor.color).cornerRadius(4)
                         }
                 }
@@ -245,16 +291,43 @@ struct TaskSectionView: View {
             Spacer().frame(height: pitch)
         }
         .contentShape(Rectangle())
+        .onTapGesture { selection = []; selectionAnchor = nil }
         .background(
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(theme.accent.color.opacity(targeted ? 0.6 : 0), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
                 .padding(-6)
         )
-        .dropDestination(for: TaskItem.self) { items, _ in
-            for item in items { onMove(item) }
+        .dropDestination(for: TaskDrag.self) { drags, _ in
+            onMove(drags.flatMap(\.tasks), status)
             return true
         } isTargeted: { targeted = $0 }
         .animation(.easeInOut(duration: 0.15), value: targeted)
+    }
+
+    /// What dragging or re-filing `task` moves: the whole selection when the
+    /// task is part of it, otherwise just the task.
+    private func movingGroup(for task: TaskItem) -> [TaskItem] {
+        selection.contains(task.id) && selectedTasks.count > 1 ? selectedTasks : [task]
+    }
+
+    /// Click selects one task, ⌘-click adds or removes one, ⇧-click extends from
+    /// the last clicked task within this section. Escape or a click on the page clears.
+    private func select(_ task: TaskItem) {
+        let modifiers = NSEvent.modifierFlags
+        if modifiers.contains(.command) {
+            if selection.remove(task.id) == nil { selection.insert(task.id) }
+            selectionAnchor = task.id
+        } else if modifiers.contains(.shift), let anchor = selectionAnchor,
+                  let a = visibleTasks.firstIndex(where: { $0.id == anchor }),
+                  let b = visibleTasks.firstIndex(where: { $0.id == task.id }) {
+            selection.formUnion(visibleTasks[min(a, b)...max(a, b)].map(\.id))
+        } else if modifiers.contains(.shift) {
+            selection.insert(task.id)
+            selectionAnchor = task.id
+        } else {
+            selection = [task.id]
+            selectionAnchor = task.id
+        }
     }
 }
 
@@ -263,8 +336,13 @@ struct TaskRow: View {
     let task: TaskItem
     let pitch: CGFloat
     let allTags: [String]
+    let isSelected: Bool
+    /// How many tasks the status menu items move: this one, or the selection it belongs to.
+    let groupCount: Int
+    let onSelect: () -> Void
     let onToggle: () -> Void
     let onOpen: () -> Void
+    let onSetStatus: (TaskStatus) -> Void
     let onUpdate: (String, String?) -> Void
     let onAddTag: (String) -> Void
     let onSetPriority: (TaskPriority) -> Void
@@ -291,7 +369,6 @@ struct TaskRow: View {
                 .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
                 .lineLimit(1)
                 .highlighted(theme.highlighter[task.status])
-                .onTapGesture(count: 2) { if !task.isReadOnly { editing = true } }
             ForEach(task.tags, id: \.self) { tag in
                 Text("#" + tag)
                     .font(.system(size: 11 * scale, design: .serif))
@@ -339,7 +416,11 @@ struct TaskRow: View {
         }
         .frame(height: pitch)
         .padding(.leading, 8)
+        .background(RoundedRectangle(cornerRadius: 5).fill(theme.accent.color.opacity(isSelected ? 0.16 : 0)).padding(.vertical, 2))
         .contentShape(Rectangle())
+        // A click selects at once; a second click edits (the buttons in the row keep their own clicks).
+        .gesture(TapGesture(count: 2).onEnded { if !task.isReadOnly { editing = true } }
+            .simultaneously(with: TapGesture().onEnded { onSelect() }))
         .onHover { hovering = $0 }
         .contextMenu {
             if !task.isReadOnly {
@@ -358,7 +439,9 @@ struct TaskRow: View {
                         }
                     }
                 }
-                Button("Mark \(task.status.next.title)") { onToggle() }
+                ForEach(TaskStatus.allCases.filter { groupCount > 1 || $0 != task.status }, id: \.self) { target in
+                    Button(groupCount > 1 ? "Move \(groupCount) Tasks to \(target.title)" : "Mark \(target.title)") { onSetStatus(target) }
+                }
                 Divider()
             }
             if task.source.day != nil { Button("Open in Daily Note") { onOpen() } }

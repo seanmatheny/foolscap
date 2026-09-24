@@ -39,6 +39,37 @@ import Foundation
         #expect(text2 == "# Day\n\n- [/] Ship it #work\n- [x] Old\n\n## Tasks\n- [ ] From the tab #life\n")
         #expect(try library.index.tasks().count == 3)
     }
+
+    @Test func movingSeveralTasksFromOneNoteAndOpenTags() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-flow-many-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp)
+        try folder.ensureLayout()
+        let day = DayKey("2026-09-21")!
+        try "# Day\n\n- [ ] One #work\n- [ ] Two #home\n- [x] Done #old\n- [/] Three #work\n".write(to: folder.url(for: day), atomically: true, encoding: .utf8)
+
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
+        await library.rescan(full: true)
+        let aggregator = TaskAggregator()
+        aggregator.setProviders([DailyNotesTaskProvider(library: library)])
+        await aggregator.reload()
+        // #old is only on a completed task, so the filter strip leaves it out.
+        #expect(aggregator.openTags == ["work", "home"])
+
+        #expect(TaskStatus.notStarted.toggled == .completed)
+        #expect(TaskStatus.inProgress.toggled == .completed)
+        #expect(TaskStatus.completed.toggled == .notStarted)
+
+        let open = aggregator.tasks.filter { $0.status != .completed }
+        aggregator.move(open, to: .completed)
+        #expect(aggregator.openTags.isEmpty)
+        for _ in 0..<50 {
+            if try String(contentsOf: folder.url(for: day), encoding: .utf8).contains("[x] Three") { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let text = try String(contentsOf: folder.url(for: day), encoding: .utf8)
+        #expect(text == "# Day\n\n- [x] One #work\n- [x] Two #home\n- [x] Done #old\n- [x] Three #work\n")
+    }
 }
 
 @Suite @MainActor struct StandaloneTaskTests {
