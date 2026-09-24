@@ -53,8 +53,9 @@ public enum TaskLineParser {
 
     // MARK: Priority
 
-    /// `!`, `!!` or `!!!` at the very start of the title, followed by a space or the end.
-    private static let priorityRegex = try! NSRegularExpression(pattern: #"^(!{1,3})(?:[ \t]+|$)"#)
+    /// `!`, `!!` or `!!!` at the very start of the title, with or without a space
+    /// after it (`!Call Bob`, `!! Call Bob`); a fourth `!` makes it plain text.
+    private static let priorityRegex = try! NSRegularExpression(pattern: #"^(!{1,3})(?!!)[ \t]*"#)
 
     public static func priority(in title: String) -> TaskPriority {
         let ns = title as NSString

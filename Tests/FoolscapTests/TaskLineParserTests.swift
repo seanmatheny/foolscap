@@ -54,6 +54,11 @@ import Foundation
         #expect(TaskLineParser.priority(in: "Wow! not a marker") == .none)
         #expect(TaskLineParser.priority(in: "!!!!") == .none)      // four bangs are just text
         #expect(TaskLineParser.priority(in: "!!") == .medium)      // a bare marker still counts
+        #expect(TaskLineParser.priority(in: "!Log into the switches") == .low)   // no space needed
+        #expect(TaskLineParser.priority(in: "!!!Fix it") == .high)
+        #expect(TaskLineParser.priority(in: "!#bau Update docs") == .low)
+        #expect(TaskLineParser.stripPriority(from: "!!Call Bob #work") == "Call Bob #work")
+        #expect(TaskLineParser.settingPriority(.high, in: "!Call Bob") == "!!! Call Bob")
         #expect(TaskLineParser.priorityRange(in: "!! Medium one") == NSRange(location: 0, length: 2))
     }
 
