@@ -85,7 +85,8 @@ struct ScribeContentsColumn: View {
     }
 }
 
-/// "Synced 5 min ago · Sync now", or what the sync is doing right now.
+/// "Synced 5 min ago · Sync now", or what the sync is doing right now, with a
+/// quiet note when the last pass found the Mac offline.
 struct SyncStatusLine: View {
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: ScribeSection
@@ -108,6 +109,14 @@ struct SyncStatusLine: View {
                     Text("·")
                     Button("Sync now") { section.syncNow() }.buttonStyle(.plain).foregroundStyle(theme.accent.color)
                 }
+            }
+            if section.status.isOffline && !section.status.isRunning {
+                // Routine (the lid closed, Wi-Fi dropped), so dim ink, not an error.
+                HStack(spacing: 4) {
+                    Image(systemName: "wifi.slash").font(.system(size: 9))
+                    Text("Offline · will sync later").lineLimit(1)
+                }
+                .help("The Mac was offline at the last sync. Foolscap syncs again when the connection returns.")
             }
             if let error = section.status.lastError {
                 Text(error).lineLimit(2).foregroundStyle(.red.opacity(0.8))

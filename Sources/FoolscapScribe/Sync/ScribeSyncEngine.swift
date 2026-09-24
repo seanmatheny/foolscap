@@ -72,6 +72,9 @@ public actor ScribeSyncEngine {
                 throw ScribeClientError.signedOut
             } catch is CancellationError {
                 throw CancellationError()
+            } catch where ScribeClientError.isOffline(error) {
+                // The connection dropped mid-pass: the rest would fail the same way.
+                throw error
             } catch {
                 report.errors.append("\(notebook.path): \(error)")
             }

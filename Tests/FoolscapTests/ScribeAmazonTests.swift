@@ -164,6 +164,7 @@ final class FakeScribeClient: ScribeClient, @unchecked Sendable {
     var pages: [String: [Data]] = [:]
     var renders = 0
     var signedOut = false
+    var offline = false
     var badTarsFirst = 0
 
     func listNotebooks() async throws -> [RemoteItem] {
@@ -171,6 +172,7 @@ final class FakeScribeClient: ScribeClient, @unchecked Sendable {
         return listing
     }
     func openNotebook(id: String) async throws -> OpenedNotebook {
+        if offline { throw URLError(.notConnectedToInternet) }
         guard let o = opened[id] else { throw ScribeClientError.http(404) }
         return o
     }
@@ -282,5 +284,23 @@ struct FakeOCR: OCRRunning {
         client.signedOut = true
         await #expect(throws: ScribeClientError.signedOut) { try await engine.syncOnce(notesRoot: root, languages: ["en-US"]) }
         #expect(await engine.state == state)
+    }
+
+    @Test func offlineAbortsThePassInsteadOfReportingEachNotebook() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-scribe-offline-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let client = FakeScribeClient()
+        client.listing = [RemoteItem(id: "n1", title: "A", type: "notebook"), RemoteItem(id: "n2", title: "B", type: "notebook")]
+        client.offline = true
+        let engine = ScribeSyncEngine(client: client, ocr: FakeOCR(observations: []),
+                                      cache: OCRCache(directory: tmp.appendingPathComponent("OCR")),
+                                      stateURL: tmp.appendingPathComponent("state.json"), sink: MemorySink(), sleep: { _ in })
+        await #expect(throws: URLError.self) { try await engine.syncOnce(notesRoot: tmp.appendingPathComponent("Notes"), languages: ["en-US"]) }
+        #expect(await engine.state.lastSync == nil)
+
+        #expect(ScribeClientError.isOffline(URLError(.notConnectedToInternet)))
+        #expect(ScribeClientError.isOffline(URLError(.networkConnectionLost)))
+        #expect(!ScribeClientError.isOffline(URLError(.badServerResponse)))
+        #expect(!ScribeClientError.isOffline(ScribeClientError.http(500)))
     }
 }

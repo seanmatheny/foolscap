@@ -45,6 +45,19 @@ public enum ScribeClientError: Error, Equatable {
     case http(Int)
     case invalidResponse(String)
     case notATar
+
+    /// Whether `error` is the Mac being offline (Wi-Fi off, asleep, a dropped
+    /// link): routine, so the page says "Offline" rather than showing a failure.
+    public static func isOffline(_ error: Error) -> Bool {
+        guard let error = error as? URLError else { return false }
+        switch error.code {
+        case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost,
+             .dnsLookupFailed, .timedOut, .internationalRoamingOff, .dataNotAllowed, .callIsActive:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 public protocol ScribeClient: Sendable {

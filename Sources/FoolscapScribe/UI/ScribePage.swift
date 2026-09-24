@@ -132,6 +132,7 @@ struct ScribeSettingsPane: View {
 
     private var statusText: String {
         if let error = section.status.lastError { return error }
+        if section.status.isOffline && !section.status.isRunning { return "Offline; syncs when you reconnect" }
         if let phase = section.status.phase { return phase }
         guard let run = section.status.lastRun ?? section.state.lastSync else { return "Never" }
         var text = "Last " + DateFormatter.localizedString(from: run, dateStyle: .short, timeStyle: .short)

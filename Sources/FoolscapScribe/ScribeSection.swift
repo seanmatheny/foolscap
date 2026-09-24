@@ -1,4 +1,5 @@
 import SwiftUI
+import Network
 import FoolscapCore
 import FoolscapStore
 
@@ -11,6 +12,8 @@ public final class ScribeSyncStatus {
     public var lastRun: Date?
     public var lastReport: SyncReport?
     public var lastError: String?
+    /// The last pass found no connection; the next one runs when it returns.
+    public var isOffline = false
     /// Amazon wants a fresh sign-in before anything else can happen.
     public var needsSignIn = false
     public init() {}
@@ -44,6 +47,8 @@ public final class ScribeSection: NotebookSection {
     @ObservationIgnored var pageLookup: Task<Void, Never>?
     @ObservationIgnored private var engine: ScribeSyncEngine?
     @ObservationIgnored private var scheduler: ScribeScheduler?
+    /// Watches for the connection coming back after an offline pass.
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
     /// Bumped by every pass and by stop and sign-out, so a pass that was
@@ -106,6 +111,16 @@ public final class ScribeSection: NotebookSection {
         let scheduler = ScribeScheduler { [weak self] in await self?.runSync() }
         scheduler.start(minutes: syncMinutes)
         self.scheduler = scheduler
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard path.status == .satisfied else { return }
+            Task { @MainActor in
+                guard let self, self.status.isOffline else { return }
+                self.syncNow()
+            }
+        }
+        monitor.start(queue: .main)
+        pathMonitor = monitor
         account.refresh()
         if account.isSignedIn {
             startupTask = Task { [weak self] in
@@ -121,6 +136,8 @@ public final class ScribeSection: NotebookSection {
     public func stop() {
         scheduler?.stop()
         scheduler = nil
+        pathMonitor?.cancel()
+        pathMonitor = nil
         cancelSync()
         engine = nil
         Task { await renderer.releaseAll() }
@@ -195,6 +212,7 @@ public final class ScribeSection: NotebookSection {
             status.lastRun = Date()
             status.lastReport = report
             status.needsSignIn = false
+            status.isOffline = false
             if !report.errors.isEmpty { status.lastError = report.errors.joined(separator: "\n") }
             if report.changedFiles { await library.rescan() }
             selectDefaultsIfNeeded()
@@ -202,11 +220,16 @@ public final class ScribeSection: NotebookSection {
             guard passID == pass else { return }
             account.markSignedOut()
             status.needsSignIn = true
+            status.isOffline = false
             status.lastError = "Amazon asked for a fresh sign-in."
         } catch is CancellationError {
             // Stopped: nothing to report.
+        } catch where ScribeClientError.isOffline(error) {
+            guard passID == pass else { return }
+            status.isOffline = true
         } catch {
             guard passID == pass else { return }
+            status.isOffline = false
             status.lastError = "\(error)"
         }
     }
