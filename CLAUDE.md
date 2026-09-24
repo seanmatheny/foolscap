@@ -28,7 +28,8 @@
   FoolscapCore (and FoolscapStore for files/index); `FoolscapScribe` is first-party
   and also uses FoolscapUI chrome.
 - Launch flags for verification: `--day=YYYY-MM-DD`, `--search=q`, `--export`,
-  `--prefs` (`--prefs-bottom` also scrolls Settings to its end), `--scribe`,
+  `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
+  to that many points), `--scribe`,
   `--type=text` (types into the focused editor after 2s, e.g. to show tag
   completion), `--backup=file.zip` and `--restore=file.zip` (no confirmation).
   Always use the `flag=value` form with `open Foolscap.app --args …`: a bare

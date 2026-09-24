@@ -95,8 +95,10 @@ final class AppModel {
             search.open(with: query)
         }
         if args.contains("--export") { showExport = true }
-        // `--prefs-bottom` scrolls the Settings form to its end once open (for screenshots).
-        if args.contains("--prefs-bottom") {
+        // `--prefs-bottom` scrolls the Settings form to its end once open, and
+        // `--prefs-scroll=<points>` to that offset (for screenshots).
+        let prefsScroll = args.first { $0.hasPrefix("--prefs-scroll=") }.flatMap { Double($0.dropFirst("--prefs-scroll=".count)) }
+        if args.contains("--prefs-bottom") || prefsScroll != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                 @MainActor func scrollView(in view: NSView?) -> NSScrollView? {
                     guard let view else { return nil }
@@ -106,7 +108,8 @@ final class AppModel {
                 }
                 guard let window = NSApp.windows.first(where: { $0.title.hasSuffix("Settings") }),
                       let scroll = scrollView(in: window.contentView), let doc = scroll.documentView else { return }
-                scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, doc.frame.height - scroll.contentView.bounds.height)))
+                let bottom = max(0, doc.frame.height - scroll.contentView.bounds.height)
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: prefsScroll.map { min(bottom, $0) } ?? bottom))
                 scroll.reflectScrolledClipView(scroll.contentView)
             }
         }
