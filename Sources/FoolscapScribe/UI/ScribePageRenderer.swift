@@ -36,10 +36,16 @@ actor ScribePageRenderer {
         return (0..<doc.pageCount).compactMap { doc.page(at: $0)?.bounds(for: .mediaBox).size }
     }
 
-    /// `pixelWidth` is the display width times the backing scale.
-    func image(id: String, url: URL, version: String, page index: Int, pixelWidth: CGFloat) -> RenderedPage? {
+    /// `width` is the display width in points. The bitmap is drawn at that
+    /// width times the backing scale and sized in points to match, so SwiftUI
+    /// shows it 1:1 instead of resampling it on every display.
+    func image(id: String, url: URL, version: String, page index: Int, width displayWidth: CGFloat, backingScale: CGFloat) -> RenderedPage? {
+        let pixelWidth = displayWidth * backingScale
         let key = "\(id)|\(version)|\(index)|\(Int(pixelWidth))" as NSString
         if let hit = cache.object(forKey: key) { return hit.page }
+        // Requests queue up here; one whose page has scrolled away or whose
+        // notebook was closed is dropped rather than drawn.
+        guard !Task.isCancelled else { return nil }
         guard let doc = document(id: id, url: url), let page = doc.page(at: index) else { return nil }
         let bounds = page.bounds(for: .mediaBox)
         guard bounds.width > 0, bounds.height > 0 else { return nil }
@@ -47,14 +53,16 @@ actor ScribePageRenderer {
         let width = Int(pixelWidth.rounded()), height = Int((bounds.height * scale).rounded())
         guard width > 0, height > 0,
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
         else { return nil }
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
         ctx.scaleBy(x: scale, y: scale)
         page.draw(with: .mediaBox, to: ctx)
         guard let cg = ctx.makeImage() else { return nil }
-        let rendered = RenderedPage(image: NSImage(cgImage: cg, size: NSSize(width: bounds.width, height: bounds.height)))
+        let rendered = RenderedPage(image: NSImage(cgImage: cg, size: NSSize(width: CGFloat(width) / backingScale,
+                                                                           height: CGFloat(height) / backingScale)))
         cache.setObject(RenderedPageBox(rendered), forKey: key, cost: width * height * 4)
         return rendered
     }

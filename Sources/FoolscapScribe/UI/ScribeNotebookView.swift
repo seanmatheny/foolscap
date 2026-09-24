@@ -24,7 +24,8 @@ struct ScribeNotebookView: View {
         GeometryReader { geo in
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
+                    // Lazy, so only the pages on screen are drawn.
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         header
                         if isPlaceholder {
                             Text("Downloading from iCloud…")
@@ -144,12 +145,12 @@ struct ScribeNotebookView: View {
         }
         await section.renderer.release(except: notebook.id)
         pageSizes = await section.renderer.pageSizes(id: notebook.id, url: pdf)
+        // A coordinated read on iCloud Drive can wait seconds for the file
+        // provider, so it must not run on the main actor.
         let transcriptURL = section.transcriptURL(for: notebook)
-        if let data = try? FileIO.read(transcriptURL) {
-            parsed = ScribeTranscript.parse(String(decoding: data, as: UTF8.self))
-        } else {
-            parsed = nil
-        }
+        parsed = await Task.detached(priority: .userInitiated) {
+            (try? FileIO.read(transcriptURL)).map { ScribeTranscript.parse(String(decoding: $0, as: UTF8.self)) }
+        }.value
     }
 }
 
@@ -178,7 +179,7 @@ struct PageFacsimile: View {
         .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
         .task(id: "\(id)|\(version)|\(page)|\(Int(width))") {
             let backing = NSScreen.main?.backingScaleFactor ?? 2
-            image = await renderer.image(id: id, url: url, version: version, page: page, pixelWidth: width * backing)?.image
+            image = await renderer.image(id: id, url: url, version: version, page: page, width: width, backingScale: backing)?.image
         }
     }
 }
