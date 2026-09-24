@@ -60,9 +60,11 @@ public struct EditorPalette {
     }
 
     /// Attributes that make syntax characters take (almost) no space and no ink.
-    public var hiddenAttributes: [NSAttributedString.Key: Any] {
+    public var hiddenAttributes: [NSAttributedString.Key: Any] { Self.hidden }
+
+    // Immutable after creation; built once instead of on every styled line.
+    nonisolated(unsafe) private static let hidden: [NSAttributedString.Key: Any] =
         [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
-    }
 
     public var baseParagraphStyle: NSParagraphStyle {
         let p = NSMutableParagraphStyle()

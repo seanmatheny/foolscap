@@ -123,37 +123,80 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
 
     // MARK: Styling
 
-    private func style(range: NSRange, map: BlockMap) {
-        guard let storage, range.length > 0 || storage.length == 0 else { return }
+    private func style(range: NSRange, map: BlockMap) { style(ranges: [range], map: map) }
+
+    /// Style several ranges in one storage edit, with one `onStyled` at the end.
+    private func style(ranges: [NSRange], map: BlockMap) {
+        guard let storage else { return }
+        let ranges = ranges.filter { $0.length > 0 || storage.length == 0 }
+        guard !ranges.isEmpty else { return }
         isRestyling = true
         storage.beginEditing()
-        var language = ""
-        var inBlockComment = false
-        // Find the language of an enclosing fence for the first styled line.
-        if let first = map.line(at: range.location) {
-            for l in map.lines[0..<first.index].reversed() {
-                if case .fenceOpen(let lang) = l.kind { language = lang; break }
-                if case .fenceClose = l.kind { break }
+        for range in ranges {
+            var language = ""
+            var inBlockComment = false
+            var i = firstLine(endingAtOrAfter: range.location, in: map)
+            // Only code lines need the language: find the fence that opens their block.
+            if i < map.lines.count, case .fenceInside = map.lines[i].kind {
+                for l in map.lines[0..<i].reversed() {
+                    if case .fenceOpen(let lang) = l.kind { language = lang; break }
+                    if case .fenceClose = l.kind { break }
+                }
             }
-        }
-        for line in map.lines where NSIntersectionRange(line.range, range).length > 0 || (line.range.length == 0 && NSLocationInRange(line.range.location, range)) || line.range.location == range.location {
-            if line.range.location >= range.location + range.length && range.length > 0 { break }
-            styleLine(line, in: storage, language: &language, inBlockComment: &inBlockComment)
+            while i < map.lines.count {
+                let line = map.lines[i]
+                i += 1
+                if line.range.location >= range.location + range.length && range.length > 0 { break }
+                guard NSIntersectionRange(line.range, range).length > 0 || (line.range.length == 0 && NSLocationInRange(line.range.location, range))
+                        || line.range.location == range.location else { continue }
+                styleLine(line, in: storage, language: &language, inBlockComment: &inBlockComment)
+            }
         }
         storage.endEditing()
         isRestyling = false
         onStyled?()
     }
 
-    /// Re-style specific lines (used when overlay heights change).
-    func restyle(lines indices: [Int]) {
-        guard let storage else { return }
-        let map = blockMap
-        for i in indices where i < map.lines.count {
-            let l = map.lines[i]
-            style(range: NSRange(location: l.range.location, length: max(l.range.length, 1)), map: map)
+    /// Index of the first line whose range (newline included) reaches `offset`;
+    /// no earlier line can intersect a range starting there.
+    private func firstLine(endingAtOrAfter offset: Int, in map: BlockMap) -> Int {
+        var lo = 0, hi = map.lines.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            let r = map.lines[mid].range
+            if r.location + r.length < offset { lo = mid + 1 } else { hi = mid }
         }
-        _ = storage
+        return lo
+    }
+
+    /// Re-style specific lines (selection moves, overlay heights). Runs of
+    /// adjacent lines become one range, all styled in a single pass.
+    func restyle(lines indices: [Int]) {
+        let map = blockMap
+        let sorted = Set(indices).filter { $0 >= 0 && $0 < map.lines.count }.sorted()
+        guard let first = sorted.first else { return }
+        var ranges: [NSRange] = []
+        var start = first, end = first
+        func flush() {
+            // Through the last line's newline, so an empty last line is still included.
+            let a = map.lines[start].range, b = map.lines[end].range
+            ranges.append(NSRange(location: a.location, length: b.location + b.length + 1 - a.location))
+        }
+        for i in sorted.dropFirst() {
+            if i == end + 1 { end = i } else { flush(); start = i; end = i }
+        }
+        flush()
+        style(ranges: ranges, map: map)
+    }
+
+    private static let headingMarker = try! NSRegularExpression(pattern: #"^#{1,6}\s"#)
+    private static let quoteMarker = try! NSRegularExpression(pattern: #"^>\s?"#)
+    private static let listMarker = try! NSRegularExpression(pattern: #"^\s*([-*+]|\d+[.)])\s"#)
+
+    /// First match's range, or `NSNotFound` (like `range(of:options: .regularExpression)`).
+    private static func match(_ regex: NSRegularExpression, in text: String) -> NSRange {
+        regex.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length))?.range
+            ?? NSRange(location: NSNotFound, length: 0)
     }
 
     private func styleLine(_ line: ScannedLine, in storage: NSTextStorage, language: inout String, inBlockComment: inout Bool) {
@@ -166,8 +209,8 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         ps.maximumLineHeight = p.pitch
         // Overlay lines (image, URL) collapse to a hairline unless the caret is on them;
         // the reserved block height stays a whole number of ruled lines either way.
-        let isOverlayLine: Bool = { if case .imageLine = line.kind { return true }; if case .urlLine = line.kind { return true }; return false }()
-        let collapsed = isOverlayLine && forcedRevealLine != line.index
+        let isOverlay: Bool = { if case .imageLine = line.kind { return true }; if case .urlLine = line.kind { return true }; return false }()
+        let collapsed = isOverlay && forcedRevealLine != line.index
         if collapsed { ps.minimumLineHeight = 1; ps.maximumLineHeight = 1 }
         if let total = overlayHeights[line.index] {
             ps.paragraphSpacing = max(0, total - (collapsed ? 1 : p.pitch))
@@ -186,7 +229,6 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         // Syntax is dimmed on the caret's line and hidden everywhere else (Bear-style).
         // Image and URL lines are different: the caret never rests on them, so they
         // only reveal when asked from the picture's or card's badge.
-        let isOverlay: Bool = { if case .imageLine = line.kind { return true }; if case .urlLine = line.kind { return true }; return false }()
         let reveal = isOverlay ? forcedRevealLine == line.index : activeLines.contains(line.index)
         let syntaxAttrs: [NSAttributedString.Key: Any] = reveal ? [.foregroundColor: p.dimInk] : p.hiddenAttributes
         var inlineRange = NSRange(location: 0, length: text.length)
@@ -194,7 +236,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         case .heading(let level):
             base[.font] = p.headings[min(level, p.headings.count) - 1]
             storage.setAttributes(base, range: para)
-            let hashes = text.range(of: "^#{1,6}\\s", options: .regularExpression)
+            let hashes = Self.match(Self.headingMarker, in: line.text)
             if hashes.location != NSNotFound { set(syntaxAttrs, hashes) }
         case .fenceOpen(let lang):
             language = lang; inBlockComment = false
@@ -218,7 +260,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             base[.font] = p.italic; base[.foregroundColor] = p.ink.withAlphaComponent(0.8)
             ps.firstLineHeadIndent = 16; ps.headIndent = 16
             storage.setAttributes(base, range: para)
-            let marker = text.range(of: "^>\\s?", options: .regularExpression)
+            let marker = Self.match(Self.quoteMarker, in: line.text)
             if marker.location != NSNotFound {
                 set(reveal ? [.foregroundColor: p.dimInk, .font: p.body] : p.hiddenAttributes, marker)
             }
@@ -248,7 +290,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             }
         case .listItem:
             storage.setAttributes(base, range: para)
-            let bullet = text.range(of: "^\\s*([-*+]|\\d+[.)])\\s", options: .regularExpression)
+            let bullet = Self.match(Self.listMarker, in: line.text)
             if bullet.location != NSNotFound {
                 set([.foregroundColor: p.accent], bullet)
                 inlineRange = NSRange(location: bullet.length, length: text.length - bullet.length)
