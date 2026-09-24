@@ -40,6 +40,8 @@ public final class ScribeSection: NotebookSection {
     public var pendingPage: Int?
 
     @ObservationIgnored let renderer = ScribePageRenderer()
+    /// A search hit's page, being worked out off the main actor.
+    @ObservationIgnored var pageLookup: Task<Void, Never>?
     @ObservationIgnored private var engine: ScribeSyncEngine?
     @ObservationIgnored private var scheduler: ScribeScheduler?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
@@ -347,7 +349,7 @@ public final class ScribeSection: NotebookSection {
         guard let line = route.line else { return }
         // Coordinated read off the main actor: iCloud can hold it for seconds.
         let url = library.folder.url(forRelativePath: route.path)
-        Task { [weak self] in
+        pageLookup = Task { [weak self] in
             let page = await Task.detached(priority: .userInitiated) {
                 (try? FileIO.read(url)).flatMap {
                     ScribeTranscript.pageNumber(forLine: line, in: ScribeTranscript.parse(String(decoding: $0, as: UTF8.self)))

@@ -144,6 +144,7 @@ final class MemorySink: TaskSink, @unchecked Sendable {
         #expect(daily.map(\.path) == ["Daily/2026-09-24.md"])
 
         section.navigate(to: hits[0].route)
+        await section.pageLookup?.value
         #expect(section.selectedFolderID == "f1" && section.selectedNotebookID == "n1" && section.pendingPage == 2)
         #expect(section.contentsRows.map(\.id) == ["n1"])
     }

@@ -26,8 +26,11 @@ public final class NotebookLibrary {
     /// The save in progress; the next one waits for it.
     private var saveChain: Task<Void, Never>?
     private let writer = NoteWriter()
-    private var rescanTask: Task<Bool, Never>?
-    private var rescanGeneration = 0
+    /// The last scan requested; the next one waits for it.
+    private var scanChain: Task<Void, Never>?
+    /// A scan waiting for the one before it, which new requests can join.
+    private var queuedScan: (id: Int, full: Bool, task: Task<Void, Never>)?
+    private var scanID = 0
     private var changeContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     public init(folder: NotesFolder) throws {
@@ -69,7 +72,7 @@ public final class NotebookLibrary {
         generation += 1
         startWatching()
         await rescan()
-        refreshDays()
+        await refreshDays()
         notifyChanged()
     }
 
@@ -227,7 +230,7 @@ public final class NotebookLibrary {
                 lastError = "Could not save \(doc.path): \(error)"
             }
         }
-        if wrote { refreshDays(); notifyChanged() }
+        if wrote { Task { await refreshDays() }; notifyChanged() }
     }
 
     // MARK: Scanning
@@ -284,17 +287,27 @@ public final class NotebookLibrary {
     }
 
     /// Bring the index up to date with the folder. File IO and hashing run off
-    /// the main actor; the index is thread-safe.
+    /// the main actor; the index is thread-safe. Scans run one after another,
+    /// and a request joins a scan that is queued but not yet started, so a
+    /// burst of change notifications costs one extra scan, and every caller
+    /// returns with the index and day list current.
     public func rescan(full: Bool = false) async {
-        // Cancel the scan itself (not a wrapper around it), and wait for it so
-        // two scans never write the index at once.
-        while let running = rescanTask {
-            running.cancel()
-            _ = await running.value
-            if rescanTask == running { rescanTask = nil }
+        if let queued = queuedScan, queued.full || !full { return await queued.task.value }
+        let previous = scanChain
+        scanID += 1
+        let id = scanID
+        let task = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            if self.queuedScan?.id == id { self.queuedScan = nil }
+            await self.performRescan(full: full)
         }
-        rescanGeneration += 1
-        let generation = rescanGeneration
+        queuedScan = (id, full, task)
+        scanChain = task
+        await task.value
+    }
+
+    private func performRescan(full: Bool) async {
         let folder = self.folder
         let index = self.index
         let includeScribe = indexesScribe
@@ -303,7 +316,6 @@ public final class NotebookLibrary {
             let known = Dictionary(uniqueKeysWithValues: ((try? index.allNoteRecords()) ?? []).map { ($0.path, $0) })
             var seen = Set<String>()
             for entry in folder.listIndexableNotes(includingScribe: includeScribe) {
-                if Task.isCancelled { return changed }
                 let path = folder.relativePath(of: entry.url)
                 seen.insert(path)
                 guard let stat = FileIO.stat(entry.url) else { continue }
@@ -324,11 +336,8 @@ public final class NotebookLibrary {
             }
             return changed
         }
-        rescanTask = task
         let changed = await task.value
-        if rescanTask == task { rescanTask = nil }
-        guard generation == rescanGeneration, !task.isCancelled else { return }
-        refreshDays()
+        await refreshDays()
         if changed || full {
             notifyChanged()
         } else if knownTags.isEmpty {
@@ -343,13 +352,11 @@ public final class NotebookLibrary {
     }
 
     /// The day list, from a directory listing off the main actor.
-    private func refreshDays() {
+    private func refreshDays() async {
         let folder = self.folder
-        Task { [weak self] in
-            let days = await Task.detached(priority: .utility) { folder.listDailyNotes().map(\.day) }.value
-            guard let self, self.folder == folder, self.days != days else { return }
-            self.days = days
-        }
+        let days = await Task.detached(priority: .utility) { folder.listDailyNotes().map(\.day) }.value
+        guard self.folder == folder, self.days != days else { return }
+        self.days = days
     }
 }
 
