@@ -23,7 +23,7 @@ import Foundation
 
     @Test func noteLayout() {
         let note = render([pageOf("TODO: Wash the car"), []])
-        #expect(note.hasPrefix("# todo\n#scribe/work\n\n## Page 1\n\n**TODO:** Wash the car\n"))
+        #expect(note.hasPrefix("# todo\n#scribe\n\n## Page 1\n\n**TODO:** Wash the car\n"))
         #expect(note.contains("## Page 2\n\n*No handwriting recognised on this page.*"))
         #expect(note.contains("Sync ID 724f0e7f-ebdd"))
         #expect(note.contains("(2 pages, last changed "))
@@ -38,9 +38,11 @@ import Foundation
         #expect(render([pageOf("x")]) == render([pageOf("x")]))
     }
 
-    @Test func tagsFollowTheFolders() {
-        #expect(ScribeTranscript.noteTag(forPath: "Personal/book notes/Notebook 1") == "scribe/personal/book-notes")
-        #expect(ScribeTranscript.noteTag(forPath: "Loose") == "scribe")
+    @Test func nestedNotebooksCarryOnlyTheScribeTag() {
+        let ref = ScribeNotebookRef(id: "n", name: "Notebook 1", path: "Personal/book notes/Notebook 1")
+        let note = ScribeTranscript.render(notebook: ref, title: "Notebook 1", pages: [[]], modified: Date(timeIntervalSince1970: 0))
+        #expect(note.hasPrefix("# Notebook 1\n#scribe\n\n"))
+        #expect(!note.contains("#scribe/"))
     }
 
     @Test func titlesFallBackToThePathWhenNamesCollide() {

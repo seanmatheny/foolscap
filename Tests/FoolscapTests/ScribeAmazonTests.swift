@@ -216,7 +216,7 @@ struct FakeOCR: OCRRunning {
         let mdURL = folder.scribeDirectory.appendingPathComponent("Work/to_do.md")
         #expect(PDFDocument(url: pdfURL)?.pageCount == 2)
         let transcript = try String(contentsOf: mdURL, encoding: .utf8)
-        #expect(transcript.hasPrefix("# to/do\n#scribe/work\n\n## Page 1\n\n**TODO:** Wash the car\n\\#hashtag noise\n\n## Page 2\n\n*No handwriting"))
+        #expect(transcript.hasPrefix("# to/do\n#scribe\n\n## Page 1\n\n**TODO:** Wash the car\n\\#hashtag noise\n\n## Page 2\n\n*No handwriting"))
         #expect(try String(contentsOf: folder.tasksFile, encoding: .utf8).hasSuffix("- [ ] Wash the car #scribe\n  From Work/to_do, p. 1\n"))
         let state = await engine.state
         #expect(state.items["n1"]?.todos.keys.sorted() == ["wash the car"])
@@ -224,7 +224,7 @@ struct FakeOCR: OCRRunning {
 
         await library.rescan()
         #expect(try library.index.allNoteRecords().map(\.path).contains("Scribe/Work/to_do.md"))
-        #expect(try library.index.allTags().contains("scribe/work"))
+        #expect(try library.index.allTags().contains("scribe"))
         #expect(try library.index.searchNotes("wash", scope: .under("Scribe/")).count == 1)
         #expect(try library.index.tasks().map(\.source.path) == ["Tasks.md"])
 

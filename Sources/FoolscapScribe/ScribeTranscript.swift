@@ -13,6 +13,9 @@ public struct ScribeNotebookRef: Hashable, Sendable {
 /// for the viewer. The file is the source of truth for display and search.
 public enum ScribeTranscript {
     public static let rootTag = "scribe"
+    /// Bumped when the layout of the file changes, so every transcript is
+    /// rewritten on the next sync (from the OCR cache, not re-recognised).
+    public static let formatVersion = "transcript/2"
 
     /// Sanitize notebook/folder names for the file system.
     public static func sanitizeName(_ name: String) -> String {
@@ -43,20 +46,6 @@ public enum ScribeTranscript {
         return String(rendered.reversed().drop(while: { $0.isWhitespace }).reversed())
     }
 
-    static func slugifyTagPart(_ value: String) -> String {
-        let collapsed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            .replacingOccurrences(of: #"\s+"#, with: "-", options: .regularExpression)
-        let cleaned = collapsed.replacingOccurrences(of: #"[^a-z0-9_\-]"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return cleaned.isEmpty ? "untitled" : cleaned
-    }
-
-    /// `scribe/personal/book-notes` for a notebook at `Personal/book notes/X`.
-    public static func noteTag(forPath path: String) -> String {
-        let folders = path.split(separator: "/").dropLast().map { slugifyTagPart(String($0)) }
-        return ([rootTag] + folders).joined(separator: "/")
-    }
-
     /// Plain notebook names where they are unique, "Folder / Name" where they collide.
     public static func noteTitles(_ notebooks: [ScribeNotebookRef]) -> [String: String] {
         var counts: [String: Int] = [:]
@@ -78,7 +67,9 @@ public enum ScribeTranscript {
     /// Build the transcript. Identical input gives identical output, so a hash
     /// of it decides whether the file needs rewriting.
     public static func render(notebook: ScribeNotebookRef, title: String, pages: [[[TextLine]]], modified: Date) -> String {
-        var out = ["# \(escapeMarkdown(title))", "#\(noteTag(forPath: notebook.path))", ""]
+        // One flat tag: the Scribe tab browses by folder, so per-folder tags would
+        // only crowd the tag suggestions.
+        var out = ["# \(escapeMarkdown(title))", "#" + rootTag, ""]
         for (index, paragraphs) in pages.enumerated() {
             out += ["## Page \(index + 1)", ""]
             if paragraphs.isEmpty { out += ["*No handwriting recognised on this page.*", ""] }
