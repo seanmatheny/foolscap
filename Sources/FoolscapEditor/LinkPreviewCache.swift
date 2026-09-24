@@ -10,7 +10,7 @@ public final class LinkPreviewCache {
 
     private let directory: URL
     private var inFlight: [String: [(LPLinkMetadata?) -> Void]] = [:]
-    private var queue: [(URL, (LPLinkMetadata?) -> Void)] = []
+    private var queue: [URL] = []
     private var active = 0
     private let maxConcurrent = 2
     private var memory: [String: LPLinkMetadata] = [:]
@@ -48,13 +48,13 @@ public final class LinkPreviewCache {
         let k = key(url)
         if inFlight[k] != nil { inFlight[k]?.append(completion); return }
         inFlight[k] = [completion]
-        queue.append((url, { _ in }))
+        queue.append(url)
         pump()
     }
 
     private func pump() {
         while active < maxConcurrent, !queue.isEmpty {
-            let (url, _) = queue.removeFirst()
+            let url = queue.removeFirst()
             active += 1
             let provider = LPMetadataProvider()
             provider.timeout = 10
