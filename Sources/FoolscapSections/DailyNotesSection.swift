@@ -59,26 +59,27 @@ final class DailyNotesTaskProvider: TaskProvider {
     }
 
     func tasks() async throws -> [TaskItem] {
-        library.flushAll()
-        return try library.index.tasks(provider: id)
+        await library.save()
+        let index = library.index, id = self.id
+        return try await Task.detached(priority: .userInitiated) { try index.tasks(provider: id) }.value
     }
 
     func setStatus(_ status: TaskStatus, of task: TaskItem) async throws {
-        let doc = library.document(atRelativePath: task.source.path)
+        let doc = await library.loadedDocument(atRelativePath: task.source.path)
         try doc.replaceTaskMark(line: task.source.line, expectedKey: task.contentKey, with: status)
-        library.flushAll()
+        await library.save()
     }
 
     func setTitle(_ title: String, of task: TaskItem) async throws {
-        let doc = library.document(atRelativePath: task.source.path)
+        let doc = await library.loadedDocument(atRelativePath: task.source.path)
         try doc.replaceTaskTitle(line: task.source.line, expectedKey: task.contentKey, with: title)
-        library.flushAll()
+        await library.save()
     }
 
     func setNotes(_ notes: String?, of task: TaskItem) async throws {
-        let doc = library.document(atRelativePath: task.source.path)
+        let doc = await library.loadedDocument(atRelativePath: task.source.path)
         try doc.replaceTaskNotes(line: task.source.line, expectedKey: task.contentKey, with: notes)
-        library.flushAll()
+        await library.save()
     }
 }
 
@@ -86,35 +87,51 @@ struct DailyNotesPage: View {
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: DailyNotesSection
     @State private var showCalendar = false
+    /// The day's note, set from `.task` rather than fetched in `body`: opening
+    /// a new day creates a document, and that must not happen mid-render.
+    @State private var document: NoteDocument?
 
     var body: some View {
-        let document = section.library.document(forDay: section.selectedDay)
         ZStack(alignment: .topTrailing) {
-            MarkdownEditor(document: document, revealLine: section.pendingLine,
-                           tags: { [library = section.library] in (try? library.index.allTags()) ?? [] }) { section.library.scheduleSave() }
-                // Keyed on the library generation too: a folder switch or a restore replaces every document.
-                .id("\(section.selectedDay.string)/\(section.library.generation)")
-                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
-                                        removal: .opacity))
+            // The note loads in the background the first time a day is shown; the
+            // editor appears once the text is in place, so nothing typed is overwritten.
+            if let document, document.isLoaded {
+                MarkdownEditor(document: document, revealLine: section.pendingLine,
+                               tags: { [library = section.library] in library.knownTags }) { section.library.scheduleSave() }
+                    // Keyed on the library generation too: a folder switch or a restore replaces every document.
+                    .id("\(document.path)/\(section.library.generation)")
+                    .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
+                                            removal: .opacity))
+            }
             DayNavigator(section: section, showCalendar: $showCalendar)
                 .padding(.top, 8)
                 .padding(.trailing, 44)
-            if document.isDownloading {
-                Text("Downloading from iCloud…")
-                    .font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
-                    .padding(.top, 60).padding(.leading, 64)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if document.externalChangePending {
-                ExternalChangeBanner(document: document)
-                    .padding(.top, 44).padding(.trailing, 44)
-            } else if !document.conflictVersions.isEmpty {
-                ConflictBanner(document: document)
-                    .padding(.top, 44).padding(.trailing, 44)
+            if let document {
+                if document.isDownloading {
+                    Text("Downloading from iCloud…")
+                        .font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
+                        .padding(.top, 60).padding(.leading, 64)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if document.externalChangePending {
+                    ExternalChangeBanner(document: document)
+                        .padding(.top, 44).padding(.trailing, 44)
+                } else if !document.conflictVersions.isEmpty {
+                    ConflictBanner(document: document)
+                        .padding(.top, 44).padding(.trailing, 44)
+                }
             }
         }
         .animation(.easeInOut(duration: 0.25), value: section.selectedDay)
-        .onChange(of: section.selectedDay) { _, _ in section.library.flushAll() }
+        .task(id: "\(section.selectedDay.string)/\(section.library.generation)") {
+            let library = section.library
+            let doc = library.document(forDay: section.selectedDay)
+            document = doc
+            await library.save()
+            // Only the page on screen (and the Tasks file) stays open, so a folder
+            // change never re-checks every day visited this session.
+            library.releaseDocuments(except: [doc.path, NotesFolder.tasksFileName])
+        }
     }
 }
 

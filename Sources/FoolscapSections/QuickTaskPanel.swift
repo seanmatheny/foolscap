@@ -25,7 +25,7 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
     public func show(library: NotebookLibrary, theme: NotebookTheme) {
         self.library = library
         self.theme = theme
-        knownTags = (try? library.index.allTags()) ?? []
+        knownTags = library.knownTags
         let panel = self.panel ?? makePanel()
         style(panel)
         field.stringValue = ""
@@ -107,7 +107,7 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
     @objc private func submit() {
         let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let library else { dismiss(); return }
-        library.addStandaloneTask(text)
+        Task { await library.addStandaloneTask(text) }
         field.stringValue = ""
         hint.stringValue = "Added “\(text.prefix(40))” to Tasks."
         confirmTimer?.invalidate()

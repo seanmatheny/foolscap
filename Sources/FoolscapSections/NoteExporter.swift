@@ -33,14 +33,18 @@ public enum NoteExporter {
     public struct Result: Sendable { public var files: [URL] }
 
     public static func export(library: NotebookLibrary, scope: ExportScope, format: ExportFormat,
-                              includeAttachments: Bool, theme: NotebookTheme, to destination: URL) throws -> Result {
-        library.flushAll()
-        let days = selectDays(library: library, scope: scope)
-        guard !days.isEmpty else { return Result(files: []) }
-        let notes: [(day: DayKey, text: String)] = days.compactMap { day in
-            guard let data = try? FileIO.read(library.folder.url(for: day)) else { return nil }
-            return (day, String(decoding: data, as: UTF8.self))
-        }
+                              includeAttachments: Bool, theme: NotebookTheme, to destination: URL) async throws -> Result {
+        await library.save()
+        // Listing and reading the notes (one coordinated read each) happen off the
+        // main actor; only laying out a PDF needs it.
+        let folder = library.folder
+        let notes: [(day: DayKey, text: String)] = await Task.detached(priority: .userInitiated) {
+            selectDays(folder: folder, scope: scope).compactMap { day in
+                guard let data = try? FileIO.read(folder.url(for: day)) else { return nil }
+                return (day, String(decoding: data, as: UTF8.self))
+            }
+        }.value
+        guard !notes.isEmpty else { return Result(files: []) }
         if format == .textbundle {
             let dir = isDirectoryURL(destination) ? destination : destination.deletingLastPathComponent()
             var files: [URL] = []
@@ -120,8 +124,8 @@ public enum NoteExporter {
         try json.write(to: bundleURL.appendingPathComponent("info.json"), options: .atomic)
     }
 
-    static func selectDays(library: NotebookLibrary, scope: ExportScope) -> [DayKey] {
-        let all = library.folder.listDailyNotes().filter { !$0.isPlaceholder }.map(\.day)
+    nonisolated static func selectDays(folder: NotesFolder, scope: ExportScope) -> [DayKey] {
+        let all = folder.listDailyNotes().filter { !$0.isPlaceholder }.map(\.day)
         switch scope {
         case .day(let d): return all.contains(d) ? [d] : []
         case .range(let a, let b): return all.filter { $0 >= min(a, b) && $0 <= max(a, b) }

@@ -24,8 +24,7 @@ public final class SearchIndex: Sendable {
 
     /// Where the index for a given notes folder lives.
     public static func defaultPath(for folder: NotesFolder) -> String {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Foolscap", isDirectory: true)
+        let support = AppSupport.directory
         let key = FileIO.hash(Data(folder.root.path.utf8)).prefix(12)
         return support.appendingPathComponent("index-\(key).sqlite").path
     }
@@ -166,6 +165,13 @@ public final class SearchIndex: Sendable {
                     try db.execute(sql: "INSERT INTO task_tags (task_id, tag) VALUES (?,?)", arguments: [t.id, tag])
                 }
             }
+        }
+    }
+
+    /// A file was touched but its bytes are unchanged: keep the rows, refresh the stat.
+    public func updateStat(path: String, stat: FileIO.Stat) throws {
+        try db.write { db in
+            try db.execute(sql: "UPDATE notes SET mtime = ?, size = ? WHERE path = ?", arguments: [stat.mtime, stat.size, path])
         }
     }
 

@@ -265,7 +265,13 @@ final class AppModel {
         Task { await library?.rebuildIndex() }
     }
 
+    /// Synchronous, for quitting.
     func flush() { library?.flushAll() }
+
+    func save() {
+        guard let library else { return }
+        Task { await library.save() }
+    }
 }
 
 /// Phase 0 stand-in until the real sections exist.

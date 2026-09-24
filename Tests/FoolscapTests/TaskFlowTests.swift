@@ -32,9 +32,9 @@ import Foundation
         #expect(try library.index.tasks().first?.status == .inProgress)
 
         // Appending a task from the Tasks tab lands in the note under ## Tasks.
-        let doc = library.document(forDay: day)
+        let doc = await library.loadedDocument(forDay: day)
         doc.appendTask("From the tab #life")
-        library.flushAll()
+        await library.save()
         let text2 = try String(contentsOf: folder.url(for: day), encoding: .utf8)
         #expect(text2 == "# Day\n\n- [/] Ship it #work\n- [x] Old\n\n## Tasks\n- [ ] From the tab #life\n")
         #expect(try library.index.tasks().count == 3)
@@ -48,8 +48,8 @@ import Foundation
         let folder = NotesFolder(root: tmp)
         try folder.ensureLayout()
         let library = try NotebookLibrary(folder: folder)
-        library.addStandaloneTask("Buy stamps #errands")
-        library.addStandaloneTask("Renew passport")
+        await library.addStandaloneTask("Buy stamps #errands")
+        await library.addStandaloneTask("Renew passport")
         let text = try String(contentsOf: folder.tasksFile, encoding: .utf8)
         #expect(text == NotesFolder.tasksTemplate + "- [ ] Buy stamps #errands\n- [ ] Renew passport\n")
         await library.rescan(full: true)
@@ -68,9 +68,9 @@ import Foundation
         let folder = NotesFolder(root: tmp)
         try folder.ensureLayout()
         let library = try NotebookLibrary(folder: folder)
-        #expect(library.addStandaloneTask("Call Bob #scribe", notes: "From Work/todo, p. 3", skipIfPresent: true))
+        #expect(await library.addStandaloneTask("Call Bob #scribe", notes: "From Work/todo, p. 3", skipIfPresent: true))
         // Same text again (case and spacing differ): refused, file untouched.
-        #expect(!library.addStandaloneTask("call  Bob #scribe", notes: "From Work/todo, p. 4", skipIfPresent: true))
+        #expect(await !library.addStandaloneTask("call  Bob #scribe", notes: "From Work/todo, p. 4", skipIfPresent: true))
         let text = try String(contentsOf: folder.tasksFile, encoding: .utf8)
         #expect(text == NotesFolder.tasksTemplate + "- [ ] Call Bob #scribe\n  From Work/todo, p. 3\n")
         await library.rescan(full: true)
@@ -79,6 +79,6 @@ import Foundation
         #expect(tasks[0].notes == "From Work/todo, p. 3")
         #expect(tasks[0].tags == ["scribe"])
         // Without the check, duplicates are the caller's business.
-        #expect(library.addStandaloneTask("Call Bob #scribe"))
+        #expect(await library.addStandaloneTask("Call Bob #scribe"))
     }
 }

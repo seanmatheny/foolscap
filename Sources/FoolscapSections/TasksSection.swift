@@ -37,11 +37,11 @@ public final class TasksSection: NotebookSection {
 
     /// New tasks go to the standalone Tasks.md, so markdown stays the source of truth
     /// without touching a daily page.
-    func addTask(_ text: String) { library.addStandaloneTask(text) }
+    func addTask(_ text: String) { Task { await library.addStandaloneTask(text) } }
 
     func refreshKnownTags() {
         var seen = Set<String>()
-        knownTags = (aggregator.tags + ((try? library.index.allTags()) ?? [])).filter { seen.insert($0).inserted }
+        knownTags = (aggregator.tags + library.knownTags).filter { seen.insert($0).inserted }
     }
 }
 
@@ -88,7 +88,7 @@ struct TasksPage: View {
         }
         .foregroundStyle(theme.ink.color)
         .task { await section.aggregator.reload(); section.refreshKnownTags() }
-        .onChange(of: section.library.indexVersion) { _, _ in section.refreshKnownTags() }
+        .onChange(of: section.library.knownTags) { _, _ in section.refreshKnownTags() }
         .onChange(of: section.aggregator.tags) { _, _ in section.refreshKnownTags() }
     }
 

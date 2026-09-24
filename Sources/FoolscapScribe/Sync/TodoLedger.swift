@@ -51,8 +51,6 @@ public struct LibraryTaskSink: TaskSink {
     public init(library: NotebookLibrary) { self.library = library }
 
     public func add(_ todo: Todo, source: String) async -> Bool {
-        await MainActor.run {
-            library.addStandaloneTask("\(todo.text) #\(Self.tag)", notes: "From \(source), p. \(todo.page)", skipIfPresent: true)
-        }
+        await library.addStandaloneTask("\(todo.text) #\(Self.tag)", notes: "From \(source), p. \(todo.page)", skipIfPresent: true)
     }
 }

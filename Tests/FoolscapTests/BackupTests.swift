@@ -24,7 +24,7 @@ import Foundation
         try FileManager.default.createDirectory(at: scribe, withIntermediateDirectories: true)
         try "# nb\n".write(to: scribe.appendingPathComponent("nb.md"), atomically: true, encoding: .utf8)
         let library = try NotebookLibrary(folder: folder)
-        library.addStandaloneTask("Quick one #home")
+        await library.addStandaloneTask("Quick one #home")
         await library.rescan(full: true)
         try library.index.saveLinkPreview(.init(url: "https://x.test", title: "X", summary: nil, imagePath: nil, fetchedAt: 1, failures: 0))
 

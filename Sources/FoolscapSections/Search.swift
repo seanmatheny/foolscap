@@ -14,27 +14,50 @@ final class DailyNotesSearchProvider: SearchProvider {
     private let scope = SearchIndex.PathScope.notUnder(NotesFolder.scribeDirectoryName + "/")
 
     func search(_ query: String, limit: Int) async throws -> [SearchHit] {
-        library.flushAll()
+        await library.save()
+        let index = library.index, scope = self.scope
+        let (notes, tasks) = try await Task.detached(priority: .userInitiated) {
+            (try index.searchNotes(query, limit: limit, scope: scope), try index.searchTasks(query, limit: limit, scope: scope))
+        }.value
+        try Task.checkCancellation()
+        let lines = await firstLines(matching: query, inNotesAt: notes.map(\.path))
         var hits: [SearchHit] = []
-        for note in try library.index.searchNotes(query, limit: limit, scope: scope) {
-            let line = firstLine(matching: query, inNoteAt: note.path)
+        for note in notes {
             hits.append(SearchHit(sectionID: NoteParser.dailyProviderID, title: note.title,
-                                  snippet: note.snippet, route: SectionRoute(path: note.path, line: line)))
+                                  snippet: note.snippet, route: SectionRoute(path: note.path, line: lines[note.path] ?? nil)))
         }
-        for task in try library.index.searchTasks(query, limit: limit, scope: scope) {
+        for task in tasks {
             hits.append(SearchHit(sectionID: NoteParser.dailyProviderID, title: "Task · " + (task.source.day ?? ""),
                                   snippet: task.title, route: SectionRoute(path: task.source.path, line: task.source.line)))
         }
         return hits
     }
 
-    func tags() async throws -> [String] { try library.index.allTags() }
+    func tags() async throws -> [String] { library.knownTags }
 
-    /// The first line containing any query word (or tag), so the editor can jump there.
-    private func firstLine(matching query: String, inNoteAt path: String) -> Int? {
-        let url = library.folder.url(forRelativePath: path)
-        guard let data = try? FileIO.read(url) else { return nil }
-        return SearchQuery(query).firstMatchingLine(in: String(decoding: data, as: UTF8.self))
+    /// The first line containing any query word (or tag) in each note, so the
+    /// editor can jump there. Open notes are read from memory; the rest with
+    /// coordinated reads off the main actor.
+    private func firstLines(matching query: String, inNotesAt paths: [String]) async -> [String: Int?] {
+        let search = SearchQuery(query)
+        var lines: [String: Int?] = [:]
+        var unopened: [(path: String, url: URL)] = []
+        for path in paths {
+            if let doc = library.documents[path], doc.isLoaded {
+                lines[path] = search.firstMatchingLine(in: doc.text)
+            } else {
+                unopened.append((path, library.folder.url(forRelativePath: path)))
+            }
+        }
+        guard !unopened.isEmpty else { return lines }
+        let read = await Task.detached(priority: .userInitiated) {
+            unopened.map { item -> (String, Int?) in
+                guard !Task.isCancelled, let data = try? FileIO.read(item.url) else { return (item.path, nil) }
+                return (item.path, search.firstMatchingLine(in: String(decoding: data, as: UTF8.self)))
+            }
+        }.value
+        for (path, line) in read { lines[path] = line }
+        return lines
     }
 }
 

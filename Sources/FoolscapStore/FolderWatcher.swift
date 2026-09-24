@@ -10,6 +10,8 @@ public final class FolderWatcher: NSObject, NSFilePresenter, @unchecked Sendable
     private let onChange: @Sendable () -> Void
     private let queue = DispatchQueue(label: "foolscap.folderwatcher")
     private var pending: DispatchWorkItem?
+    /// Read and written on `queue`: once stopped, queued events are dropped.
+    private var active = false
     private var sources: [DispatchSourceFileSystemObject] = []
     private var started = false
 
@@ -24,6 +26,7 @@ public final class FolderWatcher: NSObject, NSFilePresenter, @unchecked Sendable
     public func start() {
         guard !started else { return }
         started = true
+        queue.sync { active = true }
         NSFileCoordinator.addFilePresenter(self)
         sources.forEach { $0.resume() }
     }
@@ -31,6 +34,9 @@ public final class FolderWatcher: NSObject, NSFilePresenter, @unchecked Sendable
     public func stop() {
         guard started else { return }
         started = false
+        // A debounced callback still pending would rescan after a restore
+        // had already begun replacing the files.
+        queue.sync { active = false; pending?.cancel(); pending = nil }
         NSFileCoordinator.removeFilePresenter(self)
         sources.forEach { $0.cancel() }
         sources.removeAll()
@@ -49,6 +55,7 @@ public final class FolderWatcher: NSObject, NSFilePresenter, @unchecked Sendable
 
     private func schedule() {
         queue.async { [self] in
+            guard active else { return }
             pending?.cancel()
             let item = DispatchWorkItem { [onChange] in onChange() }
             pending = item

@@ -29,7 +29,8 @@ public final class NoteDocument: Identifiable {
     nonisolated public var id: String { path }
     public var text: String { textStorage.string }
 
-    private var observer: NSObjectProtocol?
+    // Removed in deinit; nonisolated(unsafe) because deinit is not on the main actor.
+    nonisolated(unsafe) private var observer: NSObjectProtocol?
 
     public init(path: String, url: URL, day: DayKey?) {
         self.path = path
@@ -42,6 +43,10 @@ public final class NoteDocument: Identifiable {
         }
     }
 
+    deinit {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+
     private func didEdit() {
         isDirty = true
         editCount += 1
@@ -50,18 +55,52 @@ public final class NoteDocument: Identifiable {
 
     // MARK: Loading and saving
 
+    /// False until the file's text is in the storage (or it was found missing
+    /// and the template used). An unloaded document must not be edited.
+    public private(set) var isLoaded = false
+    private var loadTask: Task<Void, Never>?
+    /// The file's stat when we last read or wrote it, so a change notification
+    /// can skip the coordinated read of a file that did not change.
+    private(set) var knownStat: FileIO.Stat?
+    /// Bumped by every save; an async save that finishes after a newer one
+    /// started does not overwrite the newer one's bookkeeping.
+    private var saveToken = 0
+    /// Hash of a write in flight: on disk already, not yet in `lastSavedHash`.
+    private var pendingSaveHash: String?
+
+    /// Synchronous load, for tests and callers already off the hot path.
     public func load(template: String = "") {
-        if ICloudPlaceholders.isPlaceholder(url) {
+        apply(DiskRead.read(url), template: template)
+    }
+
+    /// Load off the main actor; returns once the text is in place. Concurrent
+    /// callers share one read.
+    public func loadIfNeeded(template: String = "") async {
+        if isLoaded { return }
+        if let loadTask { return await loadTask.value }
+        let url = self.url
+        let task = Task { [weak self] in
+            let read = await Task.detached(priority: .userInitiated) { DiskRead.read(url) }.value
+            guard let self, !self.isLoaded else { return }
+            self.apply(read, template: template)
+        }
+        loadTask = task
+        await task.value
+        loadTask = nil
+    }
+
+    private func apply(_ read: DiskRead, template: String) {
+        if read.isPlaceholder {
             isDownloading = true
             ICloudPlaceholders.startDownload(url)
             return
         }
         isDownloading = false
         templateText = template
-        let exists = FileManager.default.fileExists(atPath: url.path)
-        let data = (exists ? try? FileIO.read(url) : nil) ?? Data(template.utf8)
-        setText(String(decoding: data, as: UTF8.self))
-        lastSavedHash = exists ? FileIO.hash(data) : nil
+        setText(String(decoding: read.data ?? Data(template.utf8), as: UTF8.self))
+        lastSavedHash = read.data.map(FileIO.hash)
+        knownStat = read.stat
+        isLoaded = true
     }
 
     /// Replace the whole text without marking the document dirty.
@@ -75,13 +114,22 @@ public final class NoteDocument: Identifiable {
     }
 
     /// Reload from disk if the on-disk content differs. Returns true when the
-    /// text was replaced.
+    /// text was replaced. Synchronous; the library's change handler reads off
+    /// the main actor and calls `applyExternal` instead.
     @discardableResult
     public func reloadIfChanged() -> Bool {
         guard !isDownloading || !ICloudPlaceholders.isPlaceholder(url) else { return false }
-        guard let data = try? FileIO.read(url) else { return false }
+        return applyExternal(DiskRead.read(url))
+    }
+
+    /// Take what the library read from disk after a change notification.
+    /// Returns true when the text was replaced.
+    @discardableResult
+    public func applyExternal(_ read: DiskRead) -> Bool {
+        guard !read.isPlaceholder, let data = read.data else { return false }
+        knownStat = read.stat
         let hash = FileIO.hash(data)
-        guard hash != lastSavedHash else { return false }
+        guard hash != lastSavedHash, hash != pendingSaveHash else { return false }
         if isDirty {
             externalChangePending = true
             return false
@@ -89,6 +137,46 @@ public final class NoteDocument: Identifiable {
         isDownloading = false
         setText(String(decoding: data, as: UTF8.self))
         lastSavedHash = hash
+        isLoaded = true
+        return true
+    }
+
+    /// The text to write, taken on the main actor so the write itself can
+    /// happen elsewhere. Nil when there is nothing to save.
+    public func prepareSave() -> SaveSnapshot? {
+        guard isDirty, isLoaded else { return nil }
+        let data = Data(textStorage.string.utf8)
+        let hash = FileIO.hash(data)
+        if hash == lastSavedHash { isDirty = false; return nil }
+        if lastSavedHash == nil && textStorage.string == templateText { return nil }
+        saveToken += 1
+        pendingSaveHash = hash
+        return SaveSnapshot(path: path, url: url, day: day, data: data, hash: hash, token: saveToken, editCount: editCount)
+    }
+
+    /// Record a finished write. Edits made while it was in flight keep the
+    /// document dirty.
+    public func finishSave(_ snapshot: SaveSnapshot, stat: FileIO.Stat?) {
+        guard snapshot.token == saveToken else { return }
+        pendingSaveHash = nil
+        lastSavedHash = snapshot.hash
+        knownStat = stat
+        externalChangePending = false
+        if editCount == snapshot.editCount { isDirty = false }
+    }
+
+    public func failSave(_ snapshot: SaveSnapshot) {
+        if snapshot.token == saveToken { pendingSaveHash = nil }
+    }
+
+    /// Write to disk if there are unsaved changes whose bytes differ from the
+    /// last write. Returns true when a write happened. Synchronous: the
+    /// library's async `save()` is the everyday path.
+    @discardableResult
+    public func save(presenter: NSFilePresenter? = nil) throws -> Bool {
+        guard let snapshot = prepareSave() else { return false }
+        do { try FileIO.write(snapshot.data, to: url, presenter: presenter) } catch { failSave(snapshot); throw error }
+        finishSave(snapshot, stat: FileIO.stat(url))
         return true
     }
 
@@ -98,6 +186,11 @@ public final class NoteDocument: Identifiable {
     /// devices edited the same file).
     public func checkConflicts() {
         conflictVersions = NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []
+    }
+
+    /// Conflict versions looked up off the main actor.
+    public func setConflicts(_ versions: [NSFileVersion]) {
+        if versions.map(\.url) != conflictVersions.map(\.url) { conflictVersions = versions }
     }
 
     public enum ConflictResolution { case keepMine, takeTheirs, keepBoth }
@@ -167,22 +260,8 @@ public final class NoteDocument: Identifiable {
     /// still holds the expected task (by content key); if the line moved, find
     /// a unique line with the same key.
     public func replaceTaskMark(line: Int, expectedKey: String, with status: TaskStatus) throws {
-        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
-        func matches(_ l: ScannedLine) -> Bool {
-            guard let p = TaskLineParser.parse(l.text) else { return false }
-            return TaskItem.contentKey(for: p.title) == expectedKey
-        }
-        var target: ScannedLine?
-        if line < map.lines.count, matches(map.lines[line]) {
-            target = map.lines[line]
-        } else {
-            let candidates = map.lines.filter(matches)
-            guard candidates.count == 1 else { throw TaskWriteError.moved }
-            target = candidates[0]
-        }
-        guard let t = target, let replaced = TaskLineParser.replacingStatus(in: t.text, with: status) else {
-            throw TaskWriteError.moved
-        }
+        let t = try locateTask(line: line, expectedKey: expectedKey)
+        guard let replaced = TaskLineParser.replacingStatus(in: t.text, with: status) else { throw TaskWriteError.moved }
         textStorage.replaceCharacters(in: t.range, with: replaced)
     }
 
@@ -272,4 +351,29 @@ public final class NoteDocument: Identifiable {
         }
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: text)
     }
+}
+
+/// What a coordinated read found on disk, gathered off the main actor.
+public struct DiskRead: Sendable {
+    public var isPlaceholder = false
+    public var data: Data?
+    public var stat: FileIO.Stat?
+
+    /// A missing or unreadable file gives `data == nil`.
+    public static func read(_ url: URL, presenter: NSFilePresenter? = nil) -> DiskRead {
+        if ICloudPlaceholders.isPlaceholder(url) { return DiskRead(isPlaceholder: true) }
+        guard FileManager.default.fileExists(atPath: url.path) else { return DiskRead() }
+        return DiskRead(data: try? FileIO.read(url, presenter: presenter), stat: FileIO.stat(url))
+    }
+}
+
+/// A document's text as it is being written, detached from the document.
+public struct SaveSnapshot: Sendable {
+    public let path: String
+    public let url: URL
+    public let day: DayKey?
+    public let data: Data
+    public let hash: String
+    let token: Int
+    let editCount: Int
 }

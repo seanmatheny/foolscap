@@ -111,11 +111,24 @@ public enum BackupArchive {
         public var preferencesPlist: Data?
     }
 
-    /// Read just the manifest, for a confirmation dialog.
+    /// Read just the manifest, for a confirmation dialog: one member out of
+    /// the archive, not the whole notebook unpacked.
     public static func manifest(of zip: URL) throws -> BackupManifest {
-        let contents = try extract(zip)
-        try? FileManager.default.removeItem(at: contents.root)
-        return contents.manifest
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-p", zip.path, manifestName]
+        let outPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        // unzip exits non-zero when the member is missing or the file is not a zip.
+        guard process.terminationStatus == 0, !data.isEmpty else { throw BackupError.notABackup }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        do { return try decoder.decode(BackupManifest.self, from: data) }
+        catch { throw BackupError.unreadable(error.localizedDescription) }
     }
 
     /// Unpack an archive into a temporary directory and validate it.
@@ -281,10 +294,7 @@ public final class BackupManager {
     private let defaults: UserDefaults
     private var timer: Timer?
 
-    public static var defaultSupportDirectory: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Foolscap", isDirectory: true)
-    }
+    public static var defaultSupportDirectory: URL { AppSupport.directory }
 
     public static var defaultFolder: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Foolscap Backups", isDirectory: true)
@@ -345,7 +355,7 @@ public final class BackupManager {
         phase = "Backing up…"
         lastError = nil
         defer { isRunning = false; phase = nil }
-        library.flushAll()
+        await library.save()
         let notes = library.folder
         let index = library.index
         let support = supportDirectory

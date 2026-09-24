@@ -17,10 +17,17 @@ public final class NotebookLibrary {
     /// editors keyed on it rebuild instead of keeping a stale text storage.
     public private(set) var generation = 0
     public private(set) var lastError: String?
+    /// Every tag in the index, most used first; refreshed off the main actor
+    /// whenever the index changes, so completion never queries SQLite on a keystroke.
+    public private(set) var knownTags: [String] = []
 
     private var watcher: FolderWatcher?
     private var saveTask: Task<Void, Never>?
-    private var rescanTask: Task<Void, Never>?
+    /// The save in progress; the next one waits for it.
+    private var saveChain: Task<Void, Never>?
+    private let writer = NoteWriter()
+    private var rescanTask: Task<Bool, Never>?
+    private var rescanGeneration = 0
     private var changeContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     public init(folder: NotesFolder) throws {
@@ -86,44 +93,67 @@ public final class NotebookLibrary {
     private func notifyChanged() {
         indexVersion += 1
         for c in changeContinuations.values { c.yield() }
+        refreshTags()
+    }
+
+    private func refreshTags() {
+        let index = self.index
+        let version = indexVersion
+        Task { [weak self] in
+            let tags = await Task.detached(priority: .utility) { (try? index.allTags()) ?? [] }.value
+            guard let self, self.indexVersion == version, self.knownTags != tags else { return }
+            self.knownTags = tags
+        }
     }
 
     // MARK: Documents
 
+    /// The document for a day, loading in the background if it is new: show it
+    /// once `isLoaded` (or `isDownloading`) is set.
     public func document(forDay day: DayKey) -> NoteDocument {
         let url = folder.url(for: day)
         let path = folder.relativePath(of: url)
         if let d = documents[path] { return d }
         let d = NoteDocument(path: path, url: url, day: day)
-        d.load(template: "# \(day.longTitle)\n\n")
         documents[path] = d
+        Task { await d.loadIfNeeded(template: Self.template(for: day)) }
         return d
     }
 
-    public func document(atRelativePath path: String) -> NoteDocument {
-        if let d = documents[path] { return d }
-        let url = folder.url(forRelativePath: path)
-        let d = NoteDocument(path: path, url: url, day: folder.day(forRelativePath: path))
-        d.load(template: path == NotesFolder.tasksFileName ? NotesFolder.tasksTemplate : "")
-        documents[path] = d
+    /// The document for a day with its text in place.
+    public func loadedDocument(forDay day: DayKey) async -> NoteDocument {
+        let d = document(forDay: day)
+        await d.loadIfNeeded(template: Self.template(for: day))
         return d
     }
 
-    /// The standalone tasks file (created on first use).
-    public var tasksDocument: NoteDocument { document(atRelativePath: NotesFolder.tasksFileName) }
+    /// Any note by relative path, with its text in place (for task write-backs).
+    public func loadedDocument(atRelativePath path: String) async -> NoteDocument {
+        let d: NoteDocument
+        if let existing = documents[path] {
+            d = existing
+        } else {
+            d = NoteDocument(path: path, url: folder.url(forRelativePath: path), day: folder.day(forRelativePath: path))
+            documents[path] = d
+        }
+        await d.loadIfNeeded(template: path == NotesFolder.tasksFileName ? NotesFolder.tasksTemplate : (d.day.map(Self.template) ?? ""))
+        return d
+    }
+
+    private static func template(for day: DayKey) -> String { "# \(day.longTitle)\n\n" }
 
     /// Add a task to the Tasks file and save. With `skipIfPresent`, a task whose
     /// content key already appears in the file is not added again (the Scribe
     /// sync relies on this after its own state is lost). Returns whether a line
     /// was written.
     @discardableResult
-    public func addStandaloneTask(_ text: String, notes: String? = nil, skipIfPresent: Bool = false) -> Bool {
+    public func addStandaloneTask(_ text: String, notes: String? = nil, skipIfPresent: Bool = false) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        let doc = tasksDocument
+        let doc = await loadedDocument(atRelativePath: NotesFolder.tasksFileName)
         if skipIfPresent, doc.containsTask(withKey: TaskItem.contentKey(for: trimmed)) { return false }
         doc.appendTaskLine(trimmed, notes: notes)
-        flushAll()
+        await save()
         return true
     }
 
@@ -134,9 +164,10 @@ public final class NotebookLibrary {
         didSet { if oldValue != indexesScribe { Task { await rescan() } } }
     }
 
-    /// Drop documents that are saved and not the given ones, to bound memory.
+    /// Drop documents that are saved and not the given ones, to bound memory and
+    /// the work each folder change does.
     public func releaseDocuments(except keep: Set<String>) {
-        for (path, doc) in documents where !keep.contains(path) && !doc.isDirty {
+        for (path, doc) in documents where !keep.contains(path) && !doc.isDirty && doc.isLoaded {
             documents[path] = nil
         }
     }
@@ -149,39 +180,75 @@ public final class NotebookLibrary {
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
-            self?.flushAll()
+            await self?.save()
         }
     }
 
+    /// Write and index every dirty document off the main actor. Saves run one
+    /// after another, so the index sees them in order.
+    public func save() async {
+        saveTask?.cancel()
+        let previous = saveChain
+        let task = Task { [weak self] in
+            await previous?.value
+            await self?.performSave()
+        }
+        saveChain = task
+        await task.value
+    }
+
+    private func performSave() async {
+        let pending = documents.values.compactMap { doc in doc.prepareSave().map { (doc, $0) } }
+        guard !pending.isEmpty else { return }
+        let outcomes = await writer.write(pending.map(\.1), presenter: watcher, index: index)
+        finish(pending, outcomes)
+    }
+
+    /// Synchronous save, for app termination, folder switches and restores:
+    /// waits for any write in progress, then writes on the calling thread.
     public func flushAll() {
         saveTask?.cancel()
-        var changed: [NoteDocument] = []
-        for doc in documents.values where doc.isDirty {
-            do {
-                if try doc.save() { changed.append(doc) }
-            } catch {
-                lastError = "Could not save \(doc.path): \(error.localizedDescription)"
-            }
-        }
-        for doc in changed { indexDocument(doc) }
-        if !changed.isEmpty { refreshDays(); notifyChanged() }
+        let pending = documents.values.compactMap { doc in doc.prepareSave().map { (doc, $0) } }
+        guard !pending.isEmpty else { return }
+        finish(pending, writer.writeNow(pending.map(\.1), presenter: watcher, index: index))
     }
 
-    private func indexDocument(_ doc: NoteDocument) {
-        guard let stat = FileIO.stat(doc.url) else { return }
-        do {
-            try index.index(path: doc.path, day: doc.day, text: doc.text, stat: stat, hash: doc.lastSavedHash ?? "")
-        } catch {
-            lastError = "Index error: \(error.localizedDescription)"
+    private func finish(_ pending: [(NoteDocument, SaveSnapshot)], _ outcomes: [NoteWriter.Outcome]) {
+        var wrote = false
+        for ((doc, snapshot), outcome) in zip(pending, outcomes) {
+            switch outcome {
+            case .written(let stat, let indexError):
+                doc.finishSave(snapshot, stat: stat)
+                wrote = true
+                if let indexError { lastError = "Index error: \(indexError)" }
+            case .failed(let error):
+                doc.failSave(snapshot)
+                lastError = "Could not save \(doc.path): \(error)"
+            }
         }
+        if wrote { refreshDays(); notifyChanged() }
     }
 
     // MARK: Scanning
 
+    /// Something changed in the folder. Every open document is checked off the
+    /// main actor (a stat first, a coordinated read only when it moved), then
+    /// the index catches up.
     private func externalChange() async {
-        for doc in documents.values {
-            doc.reloadIfChanged()
-            doc.checkConflicts()
+        let docs = Array(documents.values)
+        let targets = docs.map { (url: $0.url, known: $0.knownStat, loaded: $0.isLoaded || $0.isDownloading) }
+        let presenter = watcher
+        let checks = await Task.detached(priority: .utility) {
+            targets.map { t -> (DiskRead?, ConflictVersions) in
+                let conflicts = ConflictVersions(NSFileVersion.unresolvedConflictVersionsOfItem(at: t.url) ?? [])
+                guard t.loaded else { return (nil, conflicts) }
+                if let known = t.known, FileIO.stat(t.url) == known { return (nil, conflicts) }
+                return (DiskRead.read(t.url, presenter: presenter), conflicts)
+            }
+        }.value
+        for (doc, check) in zip(docs, checks) {
+            if let read = check.0 { doc.applyExternal(read) }
+            doc.setConflicts(check.1.versions)
         }
         await rescan()
     }
@@ -218,7 +285,15 @@ public final class NotebookLibrary {
     /// Bring the index up to date with the folder. File IO and hashing run off
     /// the main actor; the index is thread-safe.
     public func rescan(full: Bool = false) async {
-        rescanTask?.cancel()
+        // Cancel the scan itself (not a wrapper around it), and wait for it so
+        // two scans never write the index at once.
+        while let running = rescanTask {
+            running.cancel()
+            _ = await running.value
+            if rescanTask == running { rescanTask = nil }
+        }
+        rescanGeneration += 1
+        let generation = rescanGeneration
         let folder = self.folder
         let index = self.index
         let includeScribe = indexesScribe
@@ -236,7 +311,7 @@ public final class NotebookLibrary {
                 let hash = FileIO.hash(data)
                 if !full, let k = known[path], k.hash == hash {
                     // Touched but identical: refresh the stat only.
-                    try? index.index(path: path, day: entry.day, text: String(decoding: data, as: UTF8.self), stat: stat, hash: hash)
+                    try? index.updateStat(path: path, stat: stat)
                     continue
                 }
                 try? index.index(path: path, day: entry.day, text: String(decoding: data, as: UTF8.self), stat: stat, hash: hash)
@@ -248,18 +323,73 @@ public final class NotebookLibrary {
             }
             return changed
         }
-        rescanTask = Task { _ = await task.value }
+        rescanTask = task
         let changed = await task.value
+        if rescanTask == task { rescanTask = nil }
+        guard generation == rescanGeneration, !task.isCancelled else { return }
         refreshDays()
         if changed || full { notifyChanged() }
     }
 
     public func rebuildIndex() async {
-        try? index.removeAll()
+        let index = self.index
+        await Task.detached(priority: .userInitiated) { try? index.removeAll() }.value
         await rescan(full: true)
     }
 
+    /// The day list, from a directory listing off the main actor.
     private func refreshDays() {
-        days = folder.listDailyNotes().map(\.day)
+        let folder = self.folder
+        Task { [weak self] in
+            let days = await Task.detached(priority: .utility) { folder.listDailyNotes().map(\.day) }.value
+            guard let self, self.folder == folder, self.days != days else { return }
+            self.days = days
+        }
     }
+}
+
+/// Writes and indexes documents on one serial queue, in the order asked, so an
+/// async save and a later synchronous flush can never land out of order.
+final class NoteWriter: Sendable {
+    enum Outcome: Sendable {
+        case written(FileIO.Stat?, indexError: String?)
+        case failed(String)
+    }
+
+    private let queue = DispatchQueue(label: "foolscap.writer", qos: .userInitiated)
+
+    func write(_ snapshots: [SaveSnapshot], presenter: FolderWatcher?, index: SearchIndex) async -> [Outcome] {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: Self.perform(snapshots, presenter: presenter, index: index)) }
+        }
+    }
+
+    func writeNow(_ snapshots: [SaveSnapshot], presenter: FolderWatcher?, index: SearchIndex) -> [Outcome] {
+        queue.sync { Self.perform(snapshots, presenter: presenter, index: index) }
+    }
+
+    private static func perform(_ snapshots: [SaveSnapshot], presenter: FolderWatcher?, index: SearchIndex) -> [Outcome] {
+        snapshots.map { s in
+            do {
+                try FileIO.write(s.data, to: s.url, presenter: presenter)
+            } catch {
+                return .failed(error.localizedDescription)
+            }
+            let stat = FileIO.stat(s.url)
+            guard let stat else { return .written(nil, indexError: nil) }
+            do {
+                try index.index(path: s.path, day: s.day, text: String(decoding: s.data, as: UTF8.self), stat: stat, hash: s.hash)
+                return .written(stat, indexError: nil)
+            } catch {
+                return .written(stat, indexError: error.localizedDescription)
+            }
+        }
+    }
+}
+
+/// NSFileVersion is not Sendable; these are only read on the main actor after
+/// being looked up elsewhere.
+struct ConflictVersions: @unchecked Sendable {
+    let versions: [NSFileVersion]
+    init(_ versions: [NSFileVersion]) { self.versions = versions }
 }

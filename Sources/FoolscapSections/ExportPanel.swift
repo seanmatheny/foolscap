@@ -88,14 +88,17 @@ public struct ExportPanel: View {
         panel.message = single ? "Save the exported note." : "Choose a folder for the exported notes."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         busy = true
-        do {
-            let result = try NoteExporter.export(library: library, scope: scope, format: format,
-                                                 includeAttachments: includeAttachments, theme: theme, to: url)
-            message = result.files.isEmpty ? "No notes in that range." : "Exported \(result.files.count) file\(result.files.count == 1 ? "" : "s")."
-            if let first = result.files.first { NSWorkspace.shared.activateFileViewerSelecting([first]) }
-        } catch {
-            message = "Export failed: \(error.localizedDescription)"
+        message = "Exporting…"
+        Task {
+            do {
+                let result = try await NoteExporter.export(library: library, scope: scope, format: format,
+                                                           includeAttachments: includeAttachments, theme: theme, to: url)
+                message = result.files.isEmpty ? "No notes in that range." : "Exported \(result.files.count) file\(result.files.count == 1 ? "" : "s")."
+                if let first = result.files.first { NSWorkspace.shared.activateFileViewerSelecting([first]) }
+            } catch {
+                message = "Export failed: \(error.localizedDescription)"
+            }
+            busy = false
         }
-        busy = false
     }
 }

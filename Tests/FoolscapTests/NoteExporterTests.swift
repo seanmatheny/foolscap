@@ -21,7 +21,7 @@ import Foundation
         let out = tmp.appendingPathComponent("out", isDirectory: true)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
 
-        let md = try NoteExporter.export(library: library, scope: .all, format: .markdown, includeAttachments: true,
+        let md = try await NoteExporter.export(library: library, scope: .all, format: .markdown, includeAttachments: true,
                                          theme: .classicBlack, to: out)
         #expect(md.files.count == 2)
         let mdText = try String(contentsOf: md.files[0], encoding: .utf8)
@@ -29,12 +29,12 @@ import Foundation
         #expect(mdText.contains("\n---\n"))
         #expect(FileManager.default.fileExists(atPath: out.appendingPathComponent("Attachments/pic.png").path))
 
-        let html = try NoteExporter.export(library: library, scope: .day(d2), format: .html, includeAttachments: false,
+        let html = try await NoteExporter.export(library: library, scope: .day(d2), format: .html, includeAttachments: false,
                                            theme: .classicBlack, to: out.appendingPathComponent("two.html"))
         let htmlText = try String(contentsOf: html.files[0], encoding: .utf8)
         #expect(htmlText.contains("<h1>Two</h1>"))
 
-        let tb = try NoteExporter.export(library: library, scope: .day(d1), format: .textbundle, includeAttachments: true,
+        let tb = try await NoteExporter.export(library: library, scope: .day(d1), format: .textbundle, includeAttachments: true,
                                          theme: .classicBlack, to: out.appendingPathComponent("one.textbundle"))
         #expect(tb.files.count == 1)
         let tbText = try String(contentsOf: tb.files[0].appendingPathComponent("text.md"), encoding: .utf8)
@@ -42,11 +42,11 @@ import Foundation
         #expect(FileManager.default.fileExists(atPath: tb.files[0].appendingPathComponent("assets/pic.png").path))
         let info = try JSONSerialization.jsonObject(with: Data(contentsOf: tb.files[0].appendingPathComponent("info.json"))) as? [String: Any]
         #expect(info?["type"] as? String == "net.daringfireball.markdown")
-        let tbAll = try NoteExporter.export(library: library, scope: .all, format: .textbundle, includeAttachments: true,
+        let tbAll = try await NoteExporter.export(library: library, scope: .all, format: .textbundle, includeAttachments: true,
                                             theme: .classicBlack, to: out)
         #expect(tbAll.files.map(\.lastPathComponent) == ["2026-09-20.textbundle", "2026-09-21.textbundle"])
 
-        let pdf = try NoteExporter.export(library: library, scope: .range(d1, d2), format: .pdf, includeAttachments: false,
+        let pdf = try await NoteExporter.export(library: library, scope: .range(d1, d2), format: .pdf, includeAttachments: false,
                                           theme: .classicBlack, to: out)
         let pdfData = try Data(contentsOf: pdf.files[0])
         #expect(pdfData.starts(with: Array("%PDF".utf8)))

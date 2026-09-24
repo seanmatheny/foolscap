@@ -7,12 +7,14 @@ import FoolscapSections
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Set once the model exists: a synchronous save for quitting, an async one otherwise.
     static var flush: (() -> Void)?
+    static var save: (() -> Void)?
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         AppDelegate.flush?()
         return .terminateNow
     }
-    func applicationDidResignActive(_ notification: Notification) { AppDelegate.flush?() }
+    func applicationDidResignActive(_ notification: Notification) { AppDelegate.save?() }
     func applicationDidFinishLaunching(_ notification: Notification) {
         if CommandLine.arguments.contains("--prefs") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -45,7 +47,7 @@ struct FoolscapApp: App {
         WindowGroup("Foolscap") {
             RootView()
                 .environment(model)
-                .onAppear { AppDelegate.flush = { model.flush() } }
+                .onAppear { AppDelegate.flush = { model.flush() }; AppDelegate.save = { model.save() } }
                 .environment(\.notebookTheme, model.theme)
                 .environment(\.notebookTabEdge, model.tabEdge)
                 .environment(\.showsElasticBand, model.elasticBand)
@@ -94,7 +96,7 @@ struct FoolscapApp: App {
             }
             CommandMenu("Debug") {
                 Button("Rebuild Index") { model.rebuildIndex() }
-                Button("Save Now") { model.flush() }
+                Button("Save Now") { model.save() }
             }
         }
 
@@ -143,6 +145,6 @@ struct PreferencesRoot: View {
                         backup: model.backup,
                         chooseFolder: { model.changeNotesFolder(to: $0) },
                         moveToFolder: { model.moveNotesFolder(to: $0) })
-            .onAppear { AppDelegate.flush = { model.flush() } }
+            .onAppear { AppDelegate.flush = { model.flush() }; AppDelegate.save = { model.save() } }
     }
 }

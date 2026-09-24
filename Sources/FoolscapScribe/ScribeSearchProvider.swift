@@ -6,24 +6,29 @@ import FoolscapStore
 /// by the Daily Notes provider (they share the index), so none are repeated here.
 @MainActor
 final class ScribeSearchProvider: SearchProvider {
-    static let sectionID = "scribe"
     let library: NotebookLibrary
     private let scope = SearchIndex.PathScope.under(NotesFolder.scribeDirectoryName + "/")
 
     init(library: NotebookLibrary) { self.library = library }
 
+    /// The query and the transcript reads (to find each hit's line) run off the
+    /// main actor: a coordinated read on iCloud Drive can take seconds.
     func search(_ query: String, limit: Int) async throws -> [SearchHit] {
-        try library.index.searchNotes(query, limit: limit, scope: scope).map { note in
-            let url = library.folder.url(forRelativePath: note.path)
-            let text = (try? FileIO.read(url)).map { String(decoding: $0, as: UTF8.self) }
-            let line = text.flatMap { SearchQuery(query).firstMatchingLine(in: $0) }
-            return SearchHit(sectionID: Self.sectionID, title: "Scribe · " + note.title,
-                             snippet: Self.cleanSnippet(note.snippet), route: SectionRoute(path: note.path, line: line))
-        }
+        let index = library.index, folder = library.folder, scope = self.scope, sectionID = ScribeSection.sectionID
+        return try await Task.detached(priority: .userInitiated) {
+            let search = SearchQuery(query)
+            return try index.searchNotes(query, limit: limit, scope: scope).map { note in
+                try Task.checkCancellation()
+                let text = (try? FileIO.read(folder.url(forRelativePath: note.path))).map { String(decoding: $0, as: UTF8.self) }
+                return SearchHit(sectionID: sectionID, title: "Scribe · " + note.title,
+                                 snippet: Self.cleanSnippet(note.snippet),
+                                 route: SectionRoute(path: note.path, line: text.flatMap(search.firstMatchingLine)))
+            }
+        }.value
     }
 
     /// FTS snippets carry the transcript's markdown escapes and `**TODO:**`.
-    static func cleanSnippet(_ snippet: String) -> String {
+    nonisolated static func cleanSnippet(_ snippet: String) -> String {
         snippet.replacingOccurrences(of: "**", with: "")
             .replacingOccurrences(of: #"\\(.)"#, with: "$1", options: .regularExpression)
     }
