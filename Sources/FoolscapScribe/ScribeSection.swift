@@ -47,26 +47,34 @@ public final class ScribeSection: NotebookSection {
     public static let defaultSyncMinutes = 30
     public static let defaultLanguages = ["en-US"]
 
+    /// Folders the user has closed in the contents column, by Amazon id.
+    public private(set) var collapsedFolderIDs: Set<String>
+    static let collapsedFoldersKey = "scribeCollapsedFolders"
+
     @ObservationIgnored private let stateURL: URL
     @ObservationIgnored private let cacheDirectory: URL
+    @ObservationIgnored private let defaults: UserDefaults
 
-    public init(library: NotebookLibrary, stateURL: URL = ScribePaths.stateURL, cacheDirectory: URL = ScribePaths.ocrDirectory) {
+    public init(library: NotebookLibrary, stateURL: URL = ScribePaths.stateURL, cacheDirectory: URL = ScribePaths.ocrDirectory,
+                defaults: UserDefaults = .standard) {
         self.library = library
         self.stateURL = stateURL
         self.cacheDirectory = cacheDirectory
+        self.defaults = defaults
         state = ScribeState.load(from: stateURL)
+        collapsedFolderIDs = Set(defaults.stringArray(forKey: Self.collapsedFoldersKey) ?? [])
         selectDefaultsIfNeeded()
     }
 
     // MARK: Settings
 
     public var syncMinutes: Int {
-        let v = UserDefaults.standard.integer(forKey: "scribeSyncMinutes")
+        let v = defaults.integer(forKey: "scribeSyncMinutes")
         return v > 0 ? v : Self.defaultSyncMinutes
     }
 
     public var languages: [String] {
-        let raw = UserDefaults.standard.string(forKey: "scribeLanguages") ?? ""
+        let raw = defaults.string(forKey: "scribeLanguages") ?? ""
         let list = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         return list.isEmpty ? Self.defaultLanguages : list
     }
@@ -169,30 +177,78 @@ public final class ScribeSection: NotebookSection {
         return tabs
     }
 
-    /// Notebooks in the selected sub-tab, grouped by nested folder ("" = directly inside).
-    public var contents: [(group: String, notebooks: [ScribeItem])] {
+    /// One line of the contents column: a folder with its disclosure state, or a notebook.
+    public struct ContentsRow: Identifiable, Equatable, Sendable {
+        public var item: ScribeItem
+        public var depth: Int
+        public var isExpanded: Bool
+        public var notebookCount: Int
+        public var id: String { item.id }
+    }
+
+    /// The contents column as an outline: inside each folder its notebooks come
+    /// first, then its subfolders, each expanded unless collapsed. The "Notebooks"
+    /// sub-tab lists only the loose notebooks.
+    public var contentsRows: [ContentsRow] { rows(respectingCollapse: true) }
+
+    /// Notebooks the column currently shows, in order.
+    public var visibleNotebooks: [ScribeItem] { contentsRows.map(\.item).filter { !$0.isFolder } }
+
+    /// Every notebook under the selected sub-tab, collapsed or not, in outline order.
+    var treeNotebooks: [ScribeItem] { rows(respectingCollapse: false).map(\.item).filter { !$0.isFolder } }
+
+    private func rows(respectingCollapse: Bool) -> [ContentsRow] {
         guard let folderID = selectedFolderID else { return [] }
-        var out: [(String, [ScribeItem])] = []
-        func walk(_ parent: String?, label: String) {
+        var rows: [ContentsRow] = []
+        func walk(_ parent: String?, depth: Int, includeFolders: Bool) {
             let children = state.children(of: parent)
-            let direct = children.filter { !$0.isFolder }
-            if !direct.isEmpty { out.append((label, direct)) }
+            for notebook in children where !notebook.isFolder {
+                rows.append(ContentsRow(item: notebook, depth: depth, isExpanded: false, notebookCount: 0))
+            }
+            guard includeFolders else { return }
             for folder in children where folder.isFolder {
-                walk(folder.id, label: label.isEmpty ? folder.name : label + " / " + folder.name)
+                let expanded = !respectingCollapse || !collapsedFolderIDs.contains(folder.id)
+                rows.append(ContentsRow(item: folder, depth: depth, isExpanded: expanded,
+                                        notebookCount: state.notebooks(under: folder.id).count))
+                if expanded { walk(folder.id, depth: depth + 1, includeFolders: true) }
             }
         }
-        walk(folderID == Self.looseFolderID ? nil : folderID, label: "")
-        if folderID == Self.looseFolderID { out = out.filter { $0.0.isEmpty } }
-        return out
+        if folderID == Self.looseFolderID {
+            walk(nil, depth: 0, includeFolders: false)
+        } else {
+            walk(folderID, depth: 0, includeFolders: true)
+        }
+        return rows
     }
 
     public var selectedNotebook: ScribeItem? { selectedNotebookID.flatMap { state.items[$0] } }
 
+    public func toggle(folder id: String) {
+        if collapsedFolderIDs.contains(id) { collapsedFolderIDs.remove(id) } else { collapsedFolderIDs.insert(id) }
+        saveCollapsedFolders()
+    }
+
+    /// Expand every folder above a notebook so its row is on screen.
+    public func reveal(notebook id: String) {
+        guard var current = state.items[id] else { return }
+        var changed = false
+        while let parentID = current.parentID, let parent = state.items[parentID] {
+            if collapsedFolderIDs.remove(parentID) != nil { changed = true }
+            current = parent
+        }
+        if changed { saveCollapsedFolders() }
+    }
+
+    private func saveCollapsedFolders() {
+        defaults.set(Array(collapsedFolderIDs).sorted(), forKey: Self.collapsedFoldersKey)
+    }
+
     public func select(folder id: String) {
         guard id != selectedFolderID else { return }
         selectedFolderID = id
-        selectedNotebookID = contents.first?.notebooks.first?.id
+        selectedNotebookID = nil
         pendingPage = nil
+        selectDefaultsIfNeeded()
     }
 
     public func select(notebook id: String) {
@@ -200,14 +256,22 @@ public final class ScribeSection: NotebookSection {
         pendingPage = nil
     }
 
+    /// Keep a valid sub-tab and notebook selected: the first visible notebook,
+    /// or the first in the tree with its folders opened.
     func selectDefaultsIfNeeded() {
         let tabs = folderTabs
         if selectedFolderID == nil || !tabs.contains(where: { $0.id == selectedFolderID }) {
             selectedFolderID = tabs.first?.id
         }
-        let visible = contents.flatMap(\.notebooks)
-        if selectedNotebookID == nil || !visible.contains(where: { $0.id == selectedNotebookID }) {
-            selectedNotebookID = visible.first?.id
+        let all = treeNotebooks
+        if let selected = selectedNotebookID, all.contains(where: { $0.id == selected }) { return }
+        if let first = visibleNotebooks.first {
+            selectedNotebookID = first.id
+        } else if let first = all.first {
+            selectedNotebookID = first.id
+            reveal(notebook: first.id)
+        } else {
+            selectedNotebookID = nil
         }
     }
 
@@ -231,6 +295,7 @@ public final class ScribeSection: NotebookSection {
         guard let item = state.item(atTranscriptPath: route.path) else { return }
         selectedFolderID = topFolder(of: item)
         selectedNotebookID = item.id
+        reveal(notebook: item.id)
         pendingPage = nil
         if let line = route.line, let data = try? FileIO.read(library.folder.url(forRelativePath: route.path)) {
             let parsed = ScribeTranscript.parse(String(decoding: data, as: UTF8.self))

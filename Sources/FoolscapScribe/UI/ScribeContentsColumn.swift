@@ -2,31 +2,29 @@ import SwiftUI
 import FoolscapCore
 import FoolscapUI
 
-/// The notebooks in the selected Kindle folder, nested folders as headings,
-/// with the sync status underneath.
+/// The notebooks in the selected Kindle folder as an outline: nested folders
+/// fold open and closed, with the sync status underneath. Names truncate past
+/// about five levels; the tooltip carries the full path.
 struct ScribeContentsColumn: View {
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: ScribeSection
-    static let width: CGFloat = 200
+    static let width: CGFloat = 220
+    static let indent: CGFloat = 14
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(section.contents.enumerated()), id: \.offset) { _, group in
-                        if !group.group.isEmpty {
-                            Text(group.group.uppercased())
-                                .font(.system(size: 10, weight: .semibold, design: .serif))
-                                .tracking(0.8)
-                                .foregroundStyle(theme.dimInk.color)
-                                .padding(.leading, 10).padding(.top, 10).padding(.bottom, 2)
-                        }
-                        ForEach(group.notebooks) { notebook in
-                            row(notebook)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(section.contentsRows) { row in
+                        if row.item.isFolder {
+                            folderRow(row)
+                        } else {
+                            notebookRow(row)
                         }
                     }
                 }
                 .padding(.vertical, 6)
+                .animation(.easeOut(duration: 0.15), value: section.collapsedFolderIDs)
             }
             Spacer(minLength: 0)
             SyncStatusLine(section: section)
@@ -35,7 +33,32 @@ struct ScribeContentsColumn: View {
         .frame(width: Self.width)
     }
 
-    private func row(_ notebook: ScribeItem) -> some View {
+    private func folderRow(_ row: ScribeSection.ContentsRow) -> some View {
+        Button { section.toggle(folder: row.item.id) } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .rotationEffect(.degrees(row.isExpanded ? 90 : 0))
+                    .frame(width: 10)
+                Text(row.item.name.uppercased())
+                    .font(.system(size: 10, weight: .semibold, design: .serif))
+                    .tracking(0.8)
+                    .lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 4)
+                Text("\(row.notebookCount)").font(.system(size: 10, design: .serif))
+            }
+            .foregroundStyle(theme.dimInk.color)
+            .padding(.leading, 10 + Self.indent * CGFloat(row.depth)).padding(.trailing, 14)
+            .padding(.top, 8).padding(.bottom, 3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(row.item.path)
+    }
+
+    private func notebookRow(_ row: ScribeSection.ContentsRow) -> some View {
+        let notebook = row.item
         let selected = notebook.id == section.selectedNotebookID
         return Button { section.select(notebook: notebook.id) } label: {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -44,18 +67,21 @@ struct ScribeContentsColumn: View {
                     .foregroundStyle(selected ? theme.accent.color : theme.dimInk.color)
                 Text(notebook.name)
                     .font(.system(size: 13, weight: selected ? .semibold : .regular, design: .serif))
-                    .lineLimit(1)
+                    .lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 4)
                 if let pages = notebook.totalPages {
                     Text("\(pages)").font(.system(size: 10.5, design: .serif)).foregroundStyle(theme.dimInk.color)
                 }
             }
-            .padding(.horizontal, 10).padding(.vertical, 5)
+            .padding(.leading, 10 + Self.indent * CGFloat(row.depth)).padding(.trailing, 10)
+            .padding(.vertical, 5)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 6).fill(selected ? theme.accent.color.opacity(0.16) : .clear).padding(.horizontal, 4))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.top, 2)
+        .help(notebook.path)
     }
 }
 

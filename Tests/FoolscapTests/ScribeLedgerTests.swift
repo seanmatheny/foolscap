@@ -145,6 +145,67 @@ final class MemorySink: TaskSink, @unchecked Sendable {
 
         section.navigate(to: hits[0].route)
         #expect(section.selectedFolderID == "f1" && section.selectedNotebookID == "n1" && section.pendingPage == 2)
-        #expect(section.contents.map(\.group) == [""] && section.contents[0].notebooks.map(\.id) == ["n1"])
+        #expect(section.contentsRows.map(\.id) == ["n1"])
+    }
+
+    @Test func nestedFoldersFoldAsAnOutline() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-scribe-outline-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp.appendingPathComponent("Notes"))
+        try folder.ensureLayout()
+        let library = try NotebookLibrary(folder: folder)
+        let suite = "foolscap-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        // Work → n1, sub1 → [n2, sub2 → [sub3 → n3]]; Personal → subA → n4; loose n0.
+        var state = ScribeState()
+        func add(_ id: String, _ name: String, _ path: String, folder: Bool, parent: String?, order: Int) {
+            state.items[id] = ScribeItem(id: id, name: name, path: path, isFolder: folder, parentID: parent, order: order)
+        }
+        add("f1", "Work", "Work", folder: true, parent: nil, order: 0)
+        add("n1", "Daily", "Work/Daily", folder: false, parent: "f1", order: 0)
+        add("f2", "sub1", "Work/sub1", folder: true, parent: "f1", order: 1)
+        add("n2", "Notebook 1", "Work/sub1/Notebook 1", folder: false, parent: "f2", order: 0)
+        add("f3", "sub2", "Work/sub1/sub2", folder: true, parent: "f2", order: 1)
+        add("f4", "sub3", "Work/sub1/sub2/sub3", folder: true, parent: "f3", order: 0)
+        add("n3", "Deep", "Work/sub1/sub2/sub3/Deep", folder: false, parent: "f4", order: 0)
+        add("f5", "Personal", "Personal", folder: true, parent: nil, order: 1)
+        add("f6", "subA", "Personal/subA", folder: true, parent: "f5", order: 0)
+        add("n4", "Journal", "Personal/subA/Journal", folder: false, parent: "f6", order: 0)
+        add("n0", "Loose", "Loose", folder: false, parent: nil, order: 2)
+        let stateURL = tmp.appendingPathComponent("state.json")
+        try state.save(to: stateURL)
+
+        let section = ScribeSection(library: library, stateURL: stateURL, defaults: defaults)
+        #expect(section.folderTabs.map(\.name) == ["Work", "Personal", "Notebooks"])
+        let rows = section.contentsRows
+        #expect(rows.map { ($0.id, $0.depth) }.map { "\($0.0)@\($0.1)" } == ["n1@0", "f2@0", "n2@1", "f3@1", "f4@2", "n3@3"])
+        #expect(rows.filter(\.item.isFolder).map(\.notebookCount) == [2, 1, 1])
+        #expect(rows.filter { $0.item.isFolder }.allSatisfy { $0.isExpanded })
+        #expect(section.selectedNotebookID == "n1")
+
+        // Collapsing hides the subtree, keeps the count, and is remembered.
+        section.toggle(folder: "f3")
+        #expect(section.contentsRows.map(\.id) == ["n1", "f2", "n2", "f3"])
+        #expect(section.contentsRows.last?.isExpanded == false && section.contentsRows.last?.notebookCount == 1)
+        #expect(defaults.stringArray(forKey: "scribeCollapsedFolders") == ["f3"])
+        #expect(ScribeSection(library: library, stateURL: stateURL, defaults: defaults).collapsedFolderIDs == ["f3"])
+
+        // A search hit inside the collapsed chain opens it.
+        section.toggle(folder: "f2")
+        section.navigate(to: SectionRoute(path: "Scribe/Work/sub1/sub2/sub3/Deep.md"))
+        #expect(section.selectedNotebookID == "n3" && section.collapsedFolderIDs.isEmpty)
+        #expect(section.contentsRows.map(\.id).contains("n3"))
+
+        // A sub-tab whose only notebooks sit in a collapsed folder opens it to select one.
+        section.toggle(folder: "f6")
+        section.select(folder: "f5")
+        #expect(section.selectedNotebookID == "n4" && !section.collapsedFolderIDs.contains("f6"))
+        #expect(section.contentsRows.map(\.id) == ["f6", "n4"])
+
+        // The Notebooks sub-tab lists only loose notebooks.
+        section.select(folder: ScribeSection.looseFolderID)
+        #expect(section.contentsRows.map(\.id) == ["n0"] && section.selectedNotebookID == "n0")
     }
 }
