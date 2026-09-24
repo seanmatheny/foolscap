@@ -39,7 +39,6 @@ public struct MarkdownEditor: NSViewRepresentable {
         scroll.documentView = textView
         scroll.contentView.postsBoundsChangedNotifications = true
         context.coordinator.textView = textView
-        context.coordinator.scrollView = scroll
         DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         return scroll
     }
@@ -78,7 +77,6 @@ public struct MarkdownEditor: NSViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, NSTextViewDelegate {
         var textView: MarkdownTextView?
-        var scrollView: NSScrollView?
         var revealedLine: Int?
         let onEdit: () -> Void
         init(onEdit: @escaping () -> Void) { self.onEdit = onEdit }

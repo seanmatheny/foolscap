@@ -28,6 +28,9 @@ public final class MarkdownTextView: NSTextView {
     /// The last word accepted (or cancelled) from the completion list, so the
     /// list does not pop straight back up over it.
     private var lastCompletion: (location: Int, word: String)?
+    /// Tags fetched by `offerTagCompletion`, reused by the `completions` call
+    /// that `complete(nil)` makes straight away (one lookup per keystroke).
+    private var offeredTags: [String]?
 
     public init(document: NoteDocument, palette: EditorPalette) {
         self.palette = palette
@@ -96,7 +99,7 @@ public final class MarkdownTextView: NSTextView {
         }
         let typed = ns.substring(with: NSRange(location: charRange.location + 1, length: charRange.length - 1))
         index.pointee = 0
-        return TagCompletion.matches(for: typed, in: knownTags()).map { "#" + $0 }
+        return TagCompletion.matches(for: typed, in: offeredTags ?? knownTags()).map { "#" + $0 }
     }
 
     public override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange, movement: Int, isFinal flag: Bool) {
@@ -122,11 +125,23 @@ public final class MarkdownTextView: NSTextView {
         let word = (string as NSString).substring(with: partial.range)
         if let last = lastCompletion, last.location == partial.range.location, last.word == word { return }
         // `complete` beeps when it has nothing to offer: only call it when it does.
-        guard !TagCompletion.matches(for: partial.text, in: knownTags()).isEmpty else { return }
+        let tags = knownTags()
+        guard !TagCompletion.matches(for: partial.text, in: tags).isEmpty else { return }
+        offeredTags = tags
+        defer { offeredTags = nil }
         complete(nil)
     }
 
     // MARK: Overlays
+
+    /// An overlay's size changed or it went away (e.g. its image finished decoding).
+    func refreshOverlays() { overlaysChanged() }
+
+    /// Printing (PDF export) draws synchronously: images still decoding would be blank.
+    public override func beginDocument() {
+        overlays.finishDecodingNow()
+        super.beginDocument()
+    }
 
     private func overlaysChanged() {
         guard !syncingOverlays else { return }
@@ -137,10 +152,10 @@ public final class MarkdownTextView: NSTextView {
             let after = styler.overlayHeights
             let changed = Set(before.keys).union(after.keys).filter { before[$0] != after[$0] }
             if !changed.isEmpty { styler.restyle(lines: Array(changed)) }
+            needsDisplay = true
         }
+        // layout() redraws the backdrops if the text under them moved.
         needsLayout = true
-        // Ruling and code backdrops are ours, not TextKit's: redraw everything.
-        needsDisplay = true
     }
 
     public override func layout() {
@@ -149,7 +164,13 @@ public final class MarkdownTextView: NSTextView {
             // Width changed: reserve new heights on the next turn of the run loop.
             DispatchQueue.main.async { [weak self] in self?.overlaysChanged() }
         }
-        needsDisplay = true
+        // Ruling and code backdrops are ours, not TextKit's: redraw them when they moved.
+        let visible = decorations(in: visibleRect)
+        if visible != laidOutDecorations || bounds.size != laidOutSize {
+            laidOutDecorations = visible
+            laidOutSize = bounds.size
+            needsDisplay = true
+        }
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
@@ -272,6 +293,7 @@ public final class MarkdownTextView: NSTextView {
                               .underlineColor: palette.accent.withAlphaComponent(0.5), .cursor: NSCursor.pointingHand]
         typingAttributes = palette.baseAttributes
         textContainerInset = NSSize(width: EditorMetrics.leftInset, height: palette.pitch * EditorMetrics.topLines)
+        measuredBaseline = nil
         needsDisplay = true
     }
 
@@ -319,27 +341,97 @@ public final class MarkdownTextView: NSTextView {
 
     public override func draw(_ dirtyRect: NSRect) {
         drawRuling(in: dirtyRect)
-        drawCodeBlocks(in: dirtyRect)
-        drawQuoteBars(in: dirtyRect)
+        let visible = decorations(in: dirtyRect)
+        drawCodeBlocks(visible)
+        drawQuoteBars(visible)
         super.draw(dirtyRect)
     }
 
-    private func drawQuoteBars(in rect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+    // MARK: Code backdrops and quote bars
+
+    struct Decoration: Equatable {
+        enum Kind: Equatable {
+            /// `language` is nil when the fence line lies outside the measured text.
+            case code(language: String?)
+            case quote
+        }
+        var kind: Kind
+        /// The block's layout fragments, in view coordinates.
+        var rect: NSRect
+    }
+
+    /// The backdrops visible at the last layout pass: layout() redraws only when they change.
+    private var laidOutDecorations: [Decoration] = []
+    private var laidOutSize: NSSize = .zero
+
+    /// Code blocks and quotes whose text lies under `rect`. Only the characters
+    /// under the rect (plus a margin) are measured, so drawing never lays out the
+    /// rest of the document; a block that runs on past them is extended beyond it.
+    func decorations(in rect: NSRect) -> [Decoration] {
+        guard let tlm = textLayoutManager, let cm = tlm.textContentManager else { return [] }
         let lines = styler.blockMap.lines
-        var i = 0
-        while i < lines.count {
-            guard lines[i].kind == .quote else { i += 1; continue }
-            var j = i
-            while j + 1 < lines.count, lines[j + 1].kind == .quote { j += 1 }
-            let range = NSRange(location: lines[i].range.location,
-                                length: lines[j].range.location + lines[j].range.length - lines[i].range.location)
-            if let r = fragmentRect(for: range), r.intersects(rect) {
-                let bar = NSRect(x: textContainerInset.width + 2, y: r.minY + 3, width: 3, height: r.height - 6)
-                ctx.setFillColor(palette.accent.withAlphaComponent(0.55).cgColor)
-                ctx.addPath(NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).cgPath); ctx.fillPath()
+        guard !lines.isEmpty else { return [] }
+        let doc = tlm.documentRange
+        let pitch = palette.pitch
+        let margin = pitch * 2
+        // Character span under the rect, looked up in the existing layout (no layout forced).
+        let top = CGPoint(x: 0, y: max(0, rect.minY - margin - textContainerInset.height))
+        let bottom = CGPoint(x: 0, y: rect.maxY + margin - textContainerInset.height)
+        let first = tlm.textLayoutFragment(for: top).map { cm.offset(from: doc.location, to: $0.rangeInElement.location) } ?? 0
+        let last = tlm.textLayoutFragment(for: bottom).map { cm.offset(from: doc.location, to: $0.rangeInElement.endLocation) }
+            ?? cm.offset(from: doc.location, to: doc.endLocation)
+        guard first <= last else { return [] }
+
+        var out: [Decoration] = []
+        func add(from i: Int, to j: Int, code: String?) {
+            let start = lines[i].range.location, end = lines[j].range.location + lines[j].range.length
+            guard end >= first, start <= last else { return }
+            let clipStart = max(start, first), clipEnd = min(end, last)
+            guard var r = fragmentRect(for: NSRange(location: clipStart, length: clipEnd - clipStart)) else { return }
+            if start < first { r.origin.y -= pitch; r.size.height += pitch }
+            if end > last { r.size.height += pitch }
+            guard r.intersects(rect) else { return }
+            if let code {
+                out.append(Decoration(kind: .code(language: start < first ? nil : code), rect: r))
+            } else {
+                out.append(Decoration(kind: .quote, rect: r))
             }
-            i = j + 1
+        }
+        // Back up to the start of a block that begins above the measured span.
+        var i = styler.blockMap.line(at: first)?.index ?? 0
+        backUp: while i > 0 {
+            switch lines[i].kind {
+            case .fenceInside, .fenceClose: i -= 1
+            case .quote where lines[i - 1].kind == .quote: i -= 1
+            default: break backUp
+            }
+        }
+        while i < lines.count, lines[i].range.location <= last {
+            switch lines[i].kind {
+            case .fenceOpen(let language):
+                var j = i
+                while j + 1 < lines.count, lines[j].kind != .fenceClose { j += 1 }
+                add(from: i, to: j, code: language)
+                i = j + 1
+            case .quote:
+                var j = i
+                while j + 1 < lines.count, lines[j + 1].kind == .quote { j += 1 }
+                add(from: i, to: j, code: nil)
+                i = j + 1
+            default:
+                i += 1
+            }
+        }
+        return out
+    }
+
+    private func drawQuoteBars(_ decorations: [Decoration]) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        for d in decorations where d.kind == .quote {
+            let r = d.rect
+            let bar = NSRect(x: textContainerInset.width + 2, y: r.minY + 3, width: 3, height: r.height - 6)
+            ctx.setFillColor(palette.accent.withAlphaComponent(0.55).cgColor)
+            ctx.addPath(NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).cgPath); ctx.fillPath()
         }
     }
 
@@ -377,33 +469,25 @@ public final class MarkdownTextView: NSTextView {
         return rect
     }
 
-    private func drawCodeBlocks(in rect: NSRect) {
+    private func drawCodeBlocks(_ decorations: [Decoration]) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let lines = styler.blockMap.lines
-        var i = 0
-        while i < lines.count {
-            guard case .fenceOpen(let language) = lines[i].kind else { i += 1; continue }
-            var j = i
-            while j + 1 < lines.count, lines[j].kind != .fenceClose { j += 1 }
-            let range = NSRange(location: lines[i].range.location,
-                                length: lines[j].range.location + lines[j].range.length - lines[i].range.location)
-            if let r = fragmentRect(for: range), r.intersects(rect) {
-                let block = NSRect(x: textContainerInset.width - 10, y: r.minY - 2,
-                                   width: bounds.width - textContainerInset.width * 2 + 20, height: r.height + 4)
-                let path = NSBezierPath(roundedRect: block, xRadius: 5, yRadius: 5)
-                ctx.setFillColor(palette.codeBlockBackground.cgColor)
-                ctx.addPath(path.cgPath); ctx.fillPath()
-                ctx.setStrokeColor(palette.dimInk.withAlphaComponent(0.18).cgColor); ctx.setLineWidth(0.5)
-                ctx.addPath(path.cgPath); ctx.strokePath()
-                if !language.isEmpty {
-                    let label = NSAttributedString(string: language, attributes: [
-                        .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
-                        .foregroundColor: palette.dimInk.withAlphaComponent(0.6)])
-                    let size = label.size()
-                    label.draw(at: NSPoint(x: block.maxX - size.width - 8, y: block.minY + 5))
-                }
+        for d in decorations {
+            guard case .code(let language) = d.kind else { continue }
+            let r = d.rect
+            let block = NSRect(x: textContainerInset.width - 10, y: r.minY - 2,
+                               width: bounds.width - textContainerInset.width * 2 + 20, height: r.height + 4)
+            let path = NSBezierPath(roundedRect: block, xRadius: 5, yRadius: 5)
+            ctx.setFillColor(palette.codeBlockBackground.cgColor)
+            ctx.addPath(path.cgPath); ctx.fillPath()
+            ctx.setStrokeColor(palette.dimInk.withAlphaComponent(0.18).cgColor); ctx.setLineWidth(0.5)
+            ctx.addPath(path.cgPath); ctx.strokePath()
+            if let language, !language.isEmpty {
+                let label = NSAttributedString(string: language, attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+                    .foregroundColor: palette.dimInk.withAlphaComponent(0.6)])
+                let size = label.size()
+                label.draw(at: NSPoint(x: block.maxX - size.width - 8, y: block.minY + 5))
             }
-            i = j + 1
         }
     }
 
