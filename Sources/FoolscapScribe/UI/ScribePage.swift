@@ -12,7 +12,7 @@ struct ScribePage: View {
 
     var body: some View {
         Group {
-            if section.state.notebooks.isEmpty {
+            if !section.tree.hasNotebooks {
                 emptyState
             } else {
                 VStack(spacing: 0) {

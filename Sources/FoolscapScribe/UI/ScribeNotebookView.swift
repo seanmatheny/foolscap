@@ -11,6 +11,8 @@ struct ScribeNotebookView: View {
     @Bindable var section: ScribeSection
     let notebook: ScribeItem
     @State private var parsed: ScribeTranscript.Parsed?
+    /// The parsed pages by number, so each page block finds its own directly.
+    @State private var transcriptPages: [Int: ScribeTranscript.Page] = [:]
     @State private var pageSizes: [CGSize] = []
     @State private var isPlaceholder = false
     @State private var copied = false
@@ -89,7 +91,7 @@ struct ScribeNotebookView: View {
 
     private func pageBlock(index: Int, size: CGSize, width: CGFloat) -> some View {
         let number = index + 1
-        let page = parsed?.pages.first { $0.number == number }
+        let page = transcriptPages[number]
         return VStack(alignment: .leading, spacing: pitch / 2) {
             Text("PAGE \(number)")
                 .font(.system(size: 10 * scale, weight: .semibold, design: .serif)).tracking(1)
@@ -137,25 +139,35 @@ struct ScribeNotebookView: View {
 
     private func load() async {
         let pdf = pdfURL
+        let version = self.version
         if ICloudPlaceholders.isPlaceholder(pdf) {
             isPlaceholder = true
             ICloudPlaceholders.startDownload(pdf)
-        } else {
-            isPlaceholder = false
+            // Nothing in the task id changes when the download lands, so wait
+            // for it here; leaving the notebook cancels the wait.
+            while ICloudPlaceholders.isPlaceholder(pdf) {
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
+            }
         }
+        isPlaceholder = false
         await section.renderer.release(except: notebook.id)
-        pageSizes = await section.renderer.pageSizes(id: notebook.id, url: pdf)
+        pageSizes = await section.renderer.pageSizes(id: notebook.id, url: pdf, version: version)
         // A coordinated read on iCloud Drive can wait seconds for the file
         // provider, so it must not run on the main actor.
         let transcriptURL = section.transcriptURL(for: notebook)
-        parsed = await Task.detached(priority: .userInitiated) {
+        let read = await Task.detached(priority: .userInitiated) {
             (try? FileIO.read(transcriptURL)).map { ScribeTranscript.parse(String(decoding: $0, as: UTF8.self)) }
         }.value
+        parsed = read
+        transcriptPages = Dictionary((read?.pages ?? []).map { ($0.number, $0) }, uniquingKeysWith: { first, _ in first })
     }
 }
 
 /// The page image, drawn once the cell is on screen; its space is reserved
-/// from the PDF's page size so the stack does not jump.
+/// from the PDF's page size so the stack does not jump. The bitmap is drawn at
+/// the width rounded up to a 50 pt step and scaled down to fit, so resizing the
+/// window does not draw and cache a bitmap at every width it passes through.
 struct PageFacsimile: View {
     let renderer: ScribePageRenderer
     let id: String
@@ -165,6 +177,9 @@ struct PageFacsimile: View {
     let width: CGFloat
     let aspect: CGFloat
     @State private var image: NSImage?
+    static let widthStep: CGFloat = 50
+
+    private var renderWidth: CGFloat { (width / Self.widthStep).rounded(.up) * Self.widthStep }
 
     var body: some View {
         ZStack {
@@ -177,9 +192,9 @@ struct PageFacsimile: View {
         .clipShape(RoundedRectangle(cornerRadius: 2))
         .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.black.opacity(0.18), lineWidth: 0.5))
         .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
-        .task(id: "\(id)|\(version)|\(page)|\(Int(width))") {
+        .task(id: "\(id)|\(version)|\(page)|\(Int(renderWidth))") {
             let backing = NSScreen.main?.backingScaleFactor ?? 2
-            image = await renderer.image(id: id, url: url, version: version, page: page, width: width, backingScale: backing)?.image
+            image = await renderer.image(id: id, url: url, version: version, page: page, width: renderWidth, backingScale: backing)?.image
         }
     }
 }

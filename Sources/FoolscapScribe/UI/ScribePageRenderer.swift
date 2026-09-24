@@ -11,7 +11,9 @@ struct RenderedPage: @unchecked Sendable {
 /// at a time. PDFKit is not safe to use from several threads at once, so all
 /// drawing is serialised here; the cache is bounded by memory cost.
 actor ScribePageRenderer {
-    private var documents: [String: PDFDocument] = [:]
+    /// Open documents by notebook id, with the version they were opened at: a
+    /// sync that rebuilds the PDF changes the version, and the file is reopened.
+    private var documents: [String: (version: String, document: PDFDocument)] = [:]
     private let cache: NSCache<NSString, RenderedPageBox> = {
         let c = NSCache<NSString, RenderedPageBox>()
         c.totalCostLimit = 256 * 1024 * 1024
@@ -23,16 +25,16 @@ actor ScribePageRenderer {
         init(_ page: RenderedPage) { self.page = page }
     }
 
-    private func document(id: String, url: URL) -> PDFDocument? {
-        if let d = documents[id] { return d }
+    private func document(id: String, url: URL, version: String) -> PDFDocument? {
+        if let open = documents[id], open.version == version { return open.document }
         guard let d = PDFDocument(url: url) else { return nil }
-        documents[id] = d
+        documents[id] = (version, d)
         return d
     }
 
     /// Media-box sizes in points, so the view can reserve space before drawing.
-    func pageSizes(id: String, url: URL) -> [CGSize] {
-        guard let doc = document(id: id, url: url) else { return [] }
+    func pageSizes(id: String, url: URL, version: String) -> [CGSize] {
+        guard let doc = document(id: id, url: url, version: version) else { return [] }
         return (0..<doc.pageCount).compactMap { doc.page(at: $0)?.bounds(for: .mediaBox).size }
     }
 
@@ -46,7 +48,7 @@ actor ScribePageRenderer {
         // Requests queue up here; one whose page has scrolled away or whose
         // notebook was closed is dropped rather than drawn.
         guard !Task.isCancelled else { return nil }
-        guard let doc = document(id: id, url: url), let page = doc.page(at: index) else { return nil }
+        guard let doc = document(id: id, url: url, version: version), let page = doc.page(at: index) else { return nil }
         let bounds = page.bounds(for: .mediaBox)
         guard bounds.width > 0, bounds.height > 0 else { return nil }
         let scale = pixelWidth / bounds.width

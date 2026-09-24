@@ -30,6 +30,8 @@ public final class ScribeSection: NotebookSection {
     public let account = ScribeAccount()
     public let status = ScribeSyncStatus()
     public private(set) var state: ScribeState
+    /// `state`'s tree, indexed whenever the state is replaced.
+    public private(set) var tree: ScribeTree
     /// The top-level Kindle folder shown in the sub-tab row (`looseFolderID` for
     /// notebooks outside any folder).
     public var selectedFolderID: String?
@@ -42,6 +44,9 @@ public final class ScribeSection: NotebookSection {
     @ObservationIgnored private var scheduler: ScribeScheduler?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
+    /// Bumped by every pass and by stop and sign-out, so a pass that was
+    /// cancelled or superseded leaves status and state alone when it returns.
+    @ObservationIgnored private var passID = 0
     @ObservationIgnored private lazy var provider = ScribeSearchProvider(library: library)
 
     public static let defaultSyncMinutes = 30
@@ -61,7 +66,9 @@ public final class ScribeSection: NotebookSection {
         self.stateURL = stateURL
         self.cacheDirectory = cacheDirectory
         self.defaults = defaults
-        state = ScribeState.load(from: stateURL)
+        let loaded = ScribeState.load(from: stateURL)
+        state = loaded
+        tree = ScribeTree(loaded)
         collapsedFolderIDs = Set(defaults.stringArray(forKey: Self.collapsedFoldersKey) ?? [])
         selectDefaultsIfNeeded()
     }
@@ -81,7 +88,7 @@ public final class ScribeSection: NotebookSection {
 
     /// Called by the settings pane after the interval changes.
     public func settingsChanged() {
-        if scheduler != nil { scheduler?.start(minutes: syncMinutes) }
+        scheduler?.start(minutes: syncMinutes)
     }
 
     // MARK: Lifecycle
@@ -94,14 +101,15 @@ public final class ScribeSection: NotebookSection {
         let ocr: any OCRRunning = helper.map { ProcessOCRRunner(helperURL: $0) } ?? MissingOCRRunner()
         engine = ScribeSyncEngine(client: AmazonScribeClient(), ocr: ocr, cache: OCRCache(directory: cacheDirectory),
                                   stateURL: stateURL, sink: LibraryTaskSink(library: library))
-        let scheduler = ScribeScheduler { [weak self] in await self?.performSync() }
+        let scheduler = ScribeScheduler { [weak self] in await self?.runSync() }
         scheduler.start(minutes: syncMinutes)
         self.scheduler = scheduler
         account.refresh()
         if account.isSignedIn {
             startupTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(3))
-                await self?.performSync()
+                guard !Task.isCancelled else { return }
+                self?.syncNow()
             }
         } else {
             status.needsSignIn = true
@@ -111,9 +119,7 @@ public final class ScribeSection: NotebookSection {
     public func stop() {
         scheduler?.stop()
         scheduler = nil
-        startupTask?.cancel()
-        syncTask?.cancel()
-        syncTask = nil
+        cancelSync()
         engine = nil
         Task { await renderer.releaseAll() }
     }
@@ -126,54 +132,95 @@ public final class ScribeSection: NotebookSection {
     }
 
     public func signOut() {
-        syncTask?.cancel()
+        cancelSync()
         account.signOut()
         status.needsSignIn = true
     }
 
-    public func syncNow() {
-        guard syncTask == nil else { return }
-        syncTask = Task { [weak self] in
-            await self?.performSync()
-        }
-    }
+    public func syncNow() { startSync() }
 
     /// One pass, awaited (the scheduler needs to know when it finished).
-    func performSync() async {
-        guard let engine, !status.isRunning else { return }
+    func runSync() async { await startSync().value }
+
+    /// Every pass, from launch, the schedule or Sync Now, runs as `syncTask`, so
+    /// stopping or signing out can cancel it; asking while one runs joins it.
+    @discardableResult
+    private func startSync() -> Task<Void, Never> {
+        if let syncTask { return syncTask }
+        passID += 1
+        let pass = passID
+        let task = Task { [weak self] in
+            await self?.performSync(pass: pass)
+            if let self, self.passID == pass { self.syncTask = nil }
+        }
+        syncTask = task
+        return task
+    }
+
+    /// Cancel the pending and running passes. A cancelled pass may take a moment
+    /// to unwind; `passID` keeps it from reporting anything when it does.
+    private func cancelSync() {
+        startupTask?.cancel()
+        startupTask = nil
+        syncTask?.cancel()
+        syncTask = nil
+        passID += 1
+        status.isRunning = false
+        status.phase = nil
+    }
+
+    private func performSync(pass: Int) async {
+        guard let engine else { return }
         guard account.isSignedIn else { status.needsSignIn = true; return }
         status.isRunning = true
         status.lastError = nil
-        let statusRef = status
-        defer { status.isRunning = false; status.phase = nil; syncTask = nil }
-        do {
-            let report = try await engine.syncOnce(notesRoot: library.folder.root, languages: languages) { message in
-                Task { @MainActor in statusRef.phase = message }
+        defer {
+            if passID == pass { status.isRunning = false; status.phase = nil }
+        }
+        // Progress hops to the main actor and can land after the pass has ended;
+        // only a pass still running shows it.
+        let progress: @Sendable (String) -> Void = { [weak self] message in
+            Task { @MainActor in
+                guard let self, self.passID == pass, self.status.isRunning else { return }
+                self.status.phase = message
             }
-            state = await engine.state
+        }
+        do {
+            let report = try await engine.syncOnce(notesRoot: library.folder.root, languages: languages, progress: progress)
+            let newState = await engine.state
+            guard passID == pass else { return }
+            apply(newState)
             status.lastRun = Date()
             status.lastReport = report
             status.needsSignIn = false
             if !report.errors.isEmpty { status.lastError = report.errors.joined(separator: "\n") }
-            await library.rescan()
+            if report.changedFiles { await library.rescan() }
             selectDefaultsIfNeeded()
         } catch ScribeClientError.signedOut {
+            guard passID == pass else { return }
             account.markSignedOut()
             status.needsSignIn = true
             status.lastError = "Amazon asked for a fresh sign-in."
         } catch is CancellationError {
             // Stopped: nothing to report.
         } catch {
+            guard passID == pass else { return }
             status.lastError = "\(error)"
         }
+    }
+
+    private func apply(_ newState: ScribeState) {
+        if newState.items != state.items { tree = ScribeTree(newState) }
+        state = newState
     }
 
     // MARK: Selection
 
     /// The sub-tab row: every top-level folder, plus "Notebooks" for loose ones.
     public var folderTabs: [(id: String, name: String)] {
-        var tabs = state.rootItems.filter(\.isFolder).map { (id: $0.id, name: $0.name) }
-        if state.rootItems.contains(where: { !$0.isFolder }) { tabs.append((id: Self.looseFolderID, name: "Notebooks")) }
+        let roots = tree.children(of: nil)
+        var tabs = roots.filter(\.isFolder).map { (id: $0.id, name: $0.name) }
+        if roots.contains(where: { !$0.isFolder }) { tabs.append((id: Self.looseFolderID, name: "Notebooks")) }
         return tabs
     }
 
@@ -201,7 +248,7 @@ public final class ScribeSection: NotebookSection {
         guard let folderID = selectedFolderID else { return [] }
         var rows: [ContentsRow] = []
         func walk(_ parent: String?, depth: Int, includeFolders: Bool) {
-            let children = state.children(of: parent)
+            let children = tree.children(of: parent)
             for notebook in children where !notebook.isFolder {
                 rows.append(ContentsRow(item: notebook, depth: depth, isExpanded: false, notebookCount: 0))
             }
@@ -209,7 +256,7 @@ public final class ScribeSection: NotebookSection {
             for folder in children where folder.isFolder {
                 let expanded = !respectingCollapse || !collapsedFolderIDs.contains(folder.id)
                 rows.append(ContentsRow(item: folder, depth: depth, isExpanded: expanded,
-                                        notebookCount: state.notebooks(under: folder.id).count))
+                                        notebookCount: tree.notebookCounts[folder.id] ?? 0))
                 if expanded { walk(folder.id, depth: depth + 1, includeFolders: true) }
             }
         }

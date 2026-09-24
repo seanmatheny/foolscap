@@ -29,8 +29,16 @@ public struct ScribeItem: Codable, Equatable, Sendable, Identifiable {
     public var contentHash: String?
     /// SHA-256 of the PDF bytes, for the viewer's render cache.
     public var pdfHash: String?
-    /// Whether the transcript has been written for the current content.
+    /// What the transcript was last written from (`ScribeSyncEngine.transcriptKey`:
+    /// content, languages, OCR engine, path and title). Older states stored the
+    /// bare content hash, which simply mismatches once.
     public var transcribedHash: String?
+    /// When the page images were last fetched (epoch seconds, local clock),
+    /// whether or not the PDF was rebuilt.
+    public var lastFetch: Int?
+    /// Fetches in a row since the last edit or rebuild that returned the page
+    /// images already on disk; paces the recheck of recently edited notebooks.
+    public var unchangedFetches: Int?
     public var todos: [String: TodoRecord]
 
     public init(id: String, name: String, path: String, isFolder: Bool, parentID: String?, order: Int = 0) {
@@ -83,7 +91,12 @@ public struct ScribeState: Codable, Equatable, Sendable {
     public var rootItems: [ScribeItem] { children(of: nil) }
 
     public func children(of parentID: String?) -> [ScribeItem] {
-        items.values.filter { $0.parentID == parentID }.sorted { ($0.isFolder ? 0 : 1, $0.order, $0.path) < ($1.isFolder ? 0 : 1, $1.order, $1.path) }
+        items.values.filter { $0.parentID == parentID }.sorted(by: Self.siblingOrder)
+    }
+
+    /// Folders first, then Amazon's order.
+    static func siblingOrder(_ a: ScribeItem, _ b: ScribeItem) -> Bool {
+        (a.isFolder ? 0 : 1, a.order, a.path) < (b.isFolder ? 0 : 1, b.order, b.path)
     }
 
     /// Every notebook under a folder, any depth.
@@ -98,6 +111,33 @@ public struct ScribeState: Codable, Equatable, Sendable {
     public func item(atTranscriptPath relativePath: String) -> ScribeItem? {
         items.values.first { $0.transcriptRelativePath == relativePath }
     }
+}
+
+/// The state's tree indexed once, when the state changes, so the views need
+/// not filter and sort every item for each folder on every render.
+public struct ScribeTree: Equatable, Sendable {
+    /// Children of each parent id (nil for the top level), in sibling order.
+    public private(set) var children: [String?: [ScribeItem]] = [:]
+    /// Notebooks under each folder, any depth.
+    public private(set) var notebookCounts: [String: Int] = [:]
+    public private(set) var hasNotebooks = false
+
+    public init(_ state: ScribeState = ScribeState()) {
+        let children = Dictionary(grouping: state.items.values, by: \.parentID).mapValues { $0.sorted(by: ScribeState.siblingOrder) }
+        var counts: [String: Int] = [:]
+        func count(_ folderID: String) -> Int {
+            if let known = counts[folderID] { return known }
+            let n = (children[folderID] ?? []).reduce(0) { $0 + ($1.isFolder ? count($1.id) : 1) }
+            counts[folderID] = n
+            return n
+        }
+        for item in state.items.values where item.isFolder { _ = count(item.id) }
+        self.children = children
+        notebookCounts = counts
+        hasNotebooks = state.items.values.contains { !$0.isFolder }
+    }
+
+    public func children(of parentID: String?) -> [ScribeItem] { children[parentID] ?? [] }
 }
 
 /// Where the Scribe section keeps its state and OCR cache.

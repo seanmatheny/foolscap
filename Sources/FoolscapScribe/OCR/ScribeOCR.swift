@@ -89,9 +89,16 @@ public struct ProcessOCRRunner: OCRRunning {
     public func recognise(pdf: URL, languages: [String]) async throws -> OCRResult {
         guard FileManager.default.isExecutableFile(atPath: helperURL.path) else { throw OCRError.helperMissing }
         let helper = helperURL, timeout = self.timeout
-        let (output, errorText, status) = try await Task.detached(priority: .utility) {
-            try Self.run(helper: helper, pdf: pdf, languages: languages, timeout: timeout)
-        }.value
+        let handle = HelperHandle()
+        // The helper runs on a detached thread, which cancellation does not reach:
+        // cancelling the sync terminates the process instead.
+        let (output, errorText, status) = try await withTaskCancellationHandler {
+            try await Task.detached(priority: .utility) {
+                try Self.run(helper: helper, pdf: pdf, languages: languages, timeout: timeout, handle: handle)
+            }.value
+        } onCancel: {
+            handle.cancel()
+        }
         if let payload = try? JSONDecoder().decode(HelperError.self, from: output), let error = payload.error {
             throw OCRError.helperFailed(error.message)
         }
@@ -103,14 +110,15 @@ public struct ProcessOCRRunner: OCRRunning {
     }
 
     /// Synchronous: runs on a background thread, blocking until the helper exits.
-    private static func run(helper: URL, pdf: URL, languages: [String], timeout: TimeInterval) throws -> (Data, String, Int32) {
+    private static func run(helper: URL, pdf: URL, languages: [String], timeout: TimeInterval,
+                            handle: HelperHandle) throws -> (Data, String, Int32) {
         let process = Process()
         process.executableURL = helper
         process.arguments = [pdf.path, "--languages", languages.joined(separator: ",")]
         let stdout = Pipe(), stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
-        try process.run()
+        try handle.launch(process)
         // Drain both pipes on other threads: the helper blocks once a pipe buffer fills.
         let group = DispatchGroup()
         nonisolated(unsafe) var out = Data()
@@ -126,8 +134,34 @@ public struct ProcessOCRRunner: OCRRunning {
         process.waitUntilExit()
         watchdog.cancel()
         group.wait()
+        if handle.isCancelled { throw CancellationError() }
         if killed { throw OCRError.timedOut }
         return (out, String(decoding: err, as: UTF8.self), process.terminationStatus)
+    }
+
+    /// The helper process, shared with the cancellation handler. A cancel that
+    /// arrives before launch stops the launch; one after terminates the helper.
+    private final class HelperHandle: @unchecked Sendable {
+        private let lock = NSLock()
+        private var process: Process?
+        private var cancelled = false
+
+        var isCancelled: Bool { lock.withLock { cancelled } }
+
+        func launch(_ process: Process) throws {
+            try lock.withLock {
+                if cancelled { throw CancellationError() }
+                try process.run()
+                self.process = process
+            }
+        }
+
+        func cancel() {
+            lock.withLock {
+                cancelled = true
+                if let process, process.isRunning { process.terminate() }
+            }
+        }
     }
 
     private struct HelperError: Decodable {
