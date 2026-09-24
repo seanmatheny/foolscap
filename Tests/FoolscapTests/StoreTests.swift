@@ -190,7 +190,7 @@ import Foundation
         #expect(folder.listIndexableNotes().isEmpty)
         #expect(folder.listIndexableNotes(includingScribe: true).count == 1)
 
-        let library = try NotebookLibrary(folder: folder)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
         await library.rescan(full: true)
         #expect(try library.index.allNoteRecords().isEmpty)
         library.indexesScribe = true

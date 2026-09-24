@@ -33,10 +33,15 @@ public final class NotebookLibrary {
     private var scanID = 0
     private var changeContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
-    public init(folder: NotesFolder) throws {
+    /// Where each folder's index lives: Application Support, or a temporary
+    /// file in tests so they leave nothing behind.
+    private let indexPath: (NotesFolder) -> String
+
+    public init(folder: NotesFolder, indexPath: @escaping (NotesFolder) -> String = SearchIndex.defaultPath(for:)) throws {
         self.folder = folder
+        self.indexPath = indexPath
         try folder.ensureLayout()
-        index = try SearchIndex(path: SearchIndex.defaultPath(for: folder))
+        index = try SearchIndex(path: indexPath(folder))
         startWatching()
         Task { await rescan() }
     }
@@ -47,7 +52,7 @@ public final class NotebookLibrary {
         watcher?.stop()
         try newFolder.ensureLayout()
         folder = newFolder
-        index = try SearchIndex(path: SearchIndex.defaultPath(for: newFolder))
+        index = try SearchIndex(path: indexPath(newFolder))
         documents.removeAll()
         knownTags = []
         generation += 1

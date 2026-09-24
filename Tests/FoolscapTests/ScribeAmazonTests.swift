@@ -196,7 +196,7 @@ struct FakeOCR: OCRRunning {
         defer { try? FileManager.default.removeItem(at: tmp) }
         let folder = NotesFolder(root: tmp.appendingPathComponent("Notes"))
         try folder.ensureLayout()
-        let library = try NotebookLibrary(folder: folder)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
         library.indexesScribe = true
 
         let client = FakeScribeClient()

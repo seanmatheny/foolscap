@@ -23,7 +23,7 @@ import Foundation
         let scribe = folder.scribeDirectory.appendingPathComponent("Work", isDirectory: true)
         try FileManager.default.createDirectory(at: scribe, withIntermediateDirectories: true)
         try "# nb\n".write(to: scribe.appendingPathComponent("nb.md"), atomically: true, encoding: .utf8)
-        let library = try NotebookLibrary(folder: folder)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
         await library.addStandaloneTask("Quick one #home")
         await library.rescan(full: true)
         try library.index.saveLinkPreview(.init(url: "https://x.test", title: "X", summary: nil, imagePath: nil, fetchedAt: 1, failures: 0))
@@ -71,11 +71,12 @@ import Foundation
         #expect(try String(contentsOf: target.url(for: day), encoding: .utf8) == "# Day\n\n- [ ] !! Ship it #work\n")
         #expect(!fm.fileExists(atPath: target.url(for: DayKey("2026-01-01")!).path))
         #expect(fm.fileExists(atPath: target.tasksFile.path))
-        let targetIndex = try SearchIndex(path: SearchIndex.defaultPath(for: target))
+        let targetIndexPath = TestIndex.path(for: target)
+        let targetIndex = try SearchIndex(path: targetIndexPath)
         try targetIndex.restore(fromFileAt: contents.indexFile!.path)
         #expect(try targetIndex.linkPreview(for: "https://x.test")?.title == "X")
         #expect(try targetIndex.tasks().count == 2)
-        try? fm.removeItem(atPath: SearchIndex.defaultPath(for: target))
+        try? fm.removeItem(atPath: targetIndexPath)
     }
 
     @Test func managerBacksUpAndRestoresInPlace() async throws {
@@ -83,7 +84,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: folder.root) }
         let day = DayKey("2026-09-21")!
         try "# Before\n".write(to: folder.url(for: day), atomically: true, encoding: .utf8)
-        let library = try NotebookLibrary(folder: folder)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
         await library.rescan(full: true)
         let support = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-msupport-\(UUID().uuidString)")
         let backups = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-backups-\(UUID().uuidString)")
@@ -114,6 +115,5 @@ import Foundation
         _ = await manager.backUpToFolder()
         _ = await manager.backUpToFolder()
         #expect(try FileManager.default.contentsOfDirectory(atPath: backups.path).filter { $0.hasSuffix(".zip") }.count <= 2)
-        try? FileManager.default.removeItem(atPath: SearchIndex.defaultPath(for: folder))
     }
 }

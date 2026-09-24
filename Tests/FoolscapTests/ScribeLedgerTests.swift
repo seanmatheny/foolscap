@@ -89,7 +89,7 @@ final class MemorySink: TaskSink, @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: tmp) }
         let folder = NotesFolder(root: tmp)
         try folder.ensureLayout()
-        let library = try NotebookLibrary(folder: folder)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
         let sink = LibraryTaskSink(library: library)
         #expect(await sink.add(Todo("Wash the car", page: 2), source: "Work/todo"))
         #expect(!(await sink.add(Todo("wash the car", page: 5), source: "Work/todo")))
@@ -107,7 +107,7 @@ final class MemorySink: TaskSink, @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: tmp) }
         let folder = NotesFolder(root: tmp.appendingPathComponent("Notes"))
         try folder.ensureLayout()
-        let library = try NotebookLibrary(folder: folder)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
         library.indexesScribe = true
         // A daily note and a transcript that both mention the budget.
         let day = DayKey("2026-09-24")!
@@ -154,7 +154,7 @@ final class MemorySink: TaskSink, @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: tmp) }
         let folder = NotesFolder(root: tmp.appendingPathComponent("Notes"))
         try folder.ensureLayout()
-        let library = try NotebookLibrary(folder: folder)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
         let suite = "foolscap-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }

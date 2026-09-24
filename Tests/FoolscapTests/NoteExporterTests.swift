@@ -16,7 +16,7 @@ import Foundation
         try Data([0x89, 0x50, 0x4E, 0x47]).write(to: img)
         try "# One\n\n- [ ] A task #t\n\n![pic](../Attachments/2026-09-20/pic.png)\n".write(to: folder.url(for: d1), atomically: true, encoding: .utf8)
         try "# Two\n\nSecond day.\n".write(to: folder.url(for: d2), atomically: true, encoding: .utf8)
-        let library = try NotebookLibrary(folder: folder)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
 
         let out = tmp.appendingPathComponent("out", isDirectory: true)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)

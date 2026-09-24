@@ -4,7 +4,7 @@
 #   make app-debug   debug build
 #   make run         build (debug) and launch
 #   make test        run the test suite
-#   make install     copy Foolscap.app to ~/Applications
+#   make install     release build, installed to /Applications (the copy in daily use)
 #   make icon        regenerate Icon/Foolscap.icns from Tools/make-icon.swift
 #   make textures    regenerate the texture tiles from Tools/make-textures.swift
 #   make xcode       open the package in Xcode
@@ -71,10 +71,9 @@ test:
 	$(SWIFT) test $(SWIFT_FLAGS)
 
 install: app
-	mkdir -p ~/Applications
-	rm -rf ~/Applications/$(BUNDLE_NAME)
-	cp -R $(BUNDLE_NAME) ~/Applications/
-	@echo "✅  Installed to ~/Applications/$(BUNDLE_NAME)"
+	rm -rf /Applications/$(BUNDLE_NAME)
+	cp -R $(BUNDLE_NAME) /Applications/
+	@echo "✅  Installed to /Applications/$(BUNDLE_NAME)"
 
 icon:
 	$(SWIFT) Tools/make-icon.swift Icon/Foolscap.iconset

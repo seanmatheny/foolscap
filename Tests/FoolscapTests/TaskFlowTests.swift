@@ -14,7 +14,7 @@ import Foundation
         let day = DayKey("2026-09-20")!
         try "# Day\n\n- [ ] Ship it #work\n- [x] Old\n".write(to: folder.url(for: day), atomically: true, encoding: .utf8)
 
-        let library = try NotebookLibrary(folder: folder)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
         await library.rescan(full: true)
         let provider = DailyNotesTaskProvider(library: library)
         let tasks = try await provider.tasks()
@@ -47,7 +47,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: tmp) }
         let folder = NotesFolder(root: tmp)
         try folder.ensureLayout()
-        let library = try NotebookLibrary(folder: folder)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
         await library.addStandaloneTask("Buy stamps #errands")
         await library.addStandaloneTask("Renew passport")
         let text = try String(contentsOf: folder.tasksFile, encoding: .utf8)
@@ -67,7 +67,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: tmp) }
         let folder = NotesFolder(root: tmp)
         try folder.ensureLayout()
-        let library = try NotebookLibrary(folder: folder)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
         #expect(await library.addStandaloneTask("Call Bob #scribe", notes: "From Work/todo, p. 3", skipIfPresent: true))
         // Same text again (case and spacing differ): refused, file untouched.
         #expect(await !library.addStandaloneTask("call  Bob #scribe", notes: "From Work/todo, p. 4", skipIfPresent: true))
