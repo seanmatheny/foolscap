@@ -230,6 +230,12 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
                 set([.font: p.mono, .foregroundColor: status == .notStarted ? p.dimInk : p.accent], prefix)
                 let titleStart = prefix.location + prefix.length
                 let title = NSRange(location: titleStart, length: text.length - titleStart)
+                // The priority marker (`!`, `!!`, `!!!`) shows in its light's colour.
+                if let marker = TaskLineParser.priorityRange(in: parsed.title), let color = p.priorityColors[TaskLineParser.priority(in: parsed.title)] {
+                    var titleOffset = titleStart
+                    while titleOffset < text.length, text.character(at: titleOffset) == 0x20 || text.character(at: titleOffset) == 0x09 { titleOffset += 1 }
+                    set([.foregroundColor: color, .font: p.bold], NSRange(location: titleOffset + marker.location, length: marker.length))
+                }
                 if status == .completed {
                     set([.foregroundColor: p.dimInk, .strikethroughStyle: NSUnderlineStyle.single.rawValue,
                          .strikethroughColor: p.dimInk], title)

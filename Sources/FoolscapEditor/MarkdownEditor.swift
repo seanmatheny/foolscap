@@ -8,12 +8,15 @@ import FoolscapUI
 public struct MarkdownEditor: NSViewRepresentable {
     let document: NoteDocument
     let revealLine: Int?
+    /// Known tags, most used first, for `#` completion while typing.
+    let tags: () -> [String]
     let onEdit: () -> Void
     @Environment(\.notebookTheme) private var theme
 
-    public init(document: NoteDocument, revealLine: Int? = nil, onEdit: @escaping () -> Void) {
+    public init(document: NoteDocument, revealLine: Int? = nil, tags: @escaping () -> [String] = { [] }, onEdit: @escaping () -> Void) {
         self.document = document
         self.revealLine = revealLine
+        self.tags = tags
         self.onEdit = onEdit
     }
 
@@ -22,6 +25,7 @@ public struct MarkdownEditor: NSViewRepresentable {
     public func makeNSView(context: Context) -> NSScrollView {
         let palette = EditorPalette(theme: theme)
         let textView = MarkdownTextView(document: document, palette: palette)
+        textView.knownTags = tags
         textView.delegate = context.coordinator
 
         let scroll = NSScrollView()
@@ -43,7 +47,9 @@ public struct MarkdownEditor: NSViewRepresentable {
     public func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView else { return }
         let palette = EditorPalette(theme: theme)
-        if palette.body != textView.palette.body || palette.ink != textView.palette.ink || palette.ruling != textView.palette.ruling {
+        textView.knownTags = tags
+        if palette.body != textView.palette.body || palette.ink != textView.palette.ink || palette.ruling != textView.palette.ruling
+            || palette.showMarginRule != textView.palette.showMarginRule {
             textView.palette = palette
             textView.applyPalette()
             textView.restyleAll()

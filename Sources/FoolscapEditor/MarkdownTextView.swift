@@ -21,6 +21,13 @@ public final class MarkdownTextView: NSTextView {
     private var syncingOverlays = false
     /// Distance from a line fragment's top to the baseline, measured from layout.
     private var measuredBaseline: CGFloat?
+    /// Known tags for `#` completion, most used first (set by the editor wrapper).
+    var knownTags: () -> [String] = { [] }
+    private var completionScheduled = false
+    private var insertingCompletion = false
+    /// The last word accepted (or cancelled) from the completion list, so the
+    /// list does not pop straight back up over it.
+    private var lastCompletion: (location: Int, word: String)?
 
     public init(document: NoteDocument, palette: EditorPalette) {
         self.palette = palette
@@ -69,6 +76,54 @@ public final class MarkdownTextView: NSTextView {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         if ranges.count == 1, ranges[0].rangeValue.length == 0 { lastCaret = ranges[0].rangeValue.location }
         styler.selectionChanged()
+    }
+
+    // MARK: Tag completion
+
+    /// The system completion list, fed with known tags while a `#tag` is being
+    /// typed. It opens by itself after the first character following the `#`;
+    /// Return or Tab accepts, Escape closes, typing on keeps narrowing it.
+    public override var rangeForUserCompletion: NSRange {
+        if let partial = TagCompletion.partial(in: string, caret: selectedRange().location) { return partial.range }
+        return super.rangeForUserCompletion
+    }
+
+    public override func completions(forPartialWordRange charRange: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String]? {
+        let ns = string as NSString
+        guard charRange.length > 0, charRange.location + charRange.length <= ns.length,
+              ns.character(at: charRange.location) == 0x23 /* # */ else {
+            return super.completions(forPartialWordRange: charRange, indexOfSelectedItem: index)
+        }
+        let typed = ns.substring(with: NSRange(location: charRange.location + 1, length: charRange.length - 1))
+        index.pointee = 0
+        return TagCompletion.matches(for: typed, in: knownTags()).map { "#" + $0 }
+    }
+
+    public override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange, movement: Int, isFinal flag: Bool) {
+        insertingCompletion = true
+        super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
+        insertingCompletion = false
+        if flag { lastCompletion = (charRange.location, word) }
+    }
+
+    public override func didChangeText() {
+        super.didChangeText()
+        guard !insertingCompletion, !completionScheduled else { return }
+        completionScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.completionScheduled = false
+            self?.offerTagCompletion()
+        }
+    }
+
+    private func offerTagCompletion() {
+        guard window?.firstResponder === self, selectedRange().length == 0, !hasMarkedText(),
+              let partial = TagCompletion.partial(in: string, caret: selectedRange().location), !partial.text.isEmpty else { return }
+        let word = (string as NSString).substring(with: partial.range)
+        if let last = lastCompletion, last.location == partial.range.location, last.word == word { return }
+        // `complete` beeps when it has nothing to offer: only call it when it does.
+        guard !TagCompletion.matches(for: partial.text, in: knownTags()).isEmpty else { return }
+        complete(nil)
     }
 
     // MARK: Overlays

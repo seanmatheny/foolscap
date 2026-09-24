@@ -21,6 +21,15 @@ public struct RGBA: Codable, Hashable, Sendable {
 
 public enum Ruling: String, Codable, CaseIterable, Sendable {
     case lined, dotted, grid, blank
+
+    public var title: String {
+        switch self {
+        case .blank: return "None"
+        case .lined: return "Lined"
+        case .dotted: return "Dot grid"
+        case .grid: return "Graph"
+        }
+    }
 }
 
 /// How a texture tile combines with the colour beneath it.
@@ -59,6 +68,9 @@ public struct CoverMaterial: Codable, Hashable, Sendable {
         self.baseColor = baseColor; self.textureTile = textureTile; self.grainOpacity = grainOpacity
         self.blend = blend; self.stitchColor = stitchColor
     }
+
+    /// The elastic band (optional, see Settings) is the leather's own colour, darkened.
+    public var bandColor: RGBA { RGBA(baseColor.r * 0.5, baseColor.g * 0.5, baseColor.b * 0.5, 1) }
 }
 
 public struct PageStyle: Codable, Hashable, Sendable {
@@ -67,15 +79,16 @@ public struct PageStyle: Codable, Hashable, Sendable {
     public var textureOpacity: Double
     /// How the paper grain combines with the paper colour (`screen` shows on black).
     public var textureBlend: TextureBlend
-    /// Ruling is off in every built-in theme; kept so a theme could opt in.
+    /// Ruling is off in every built-in theme; the Settings ruling preference
+    /// switches it on (see `NotebookTheme.ruled`) using the theme's colours below.
     public var ruling: Ruling
     public var ruleColor: RGBA
     public var marginRule: Bool
     public var marginRuleColor: RGBA
 
     public init(paperColor: RGBA, textureTile: String, textureOpacity: Double, textureBlend: TextureBlend = .softLight,
-                ruling: Ruling = .blank, ruleColor: RGBA = .hex(0x000000, alpha: 0), marginRule: Bool = false,
-                marginRuleColor: RGBA = .hex(0x000000, alpha: 0)) {
+                ruling: Ruling = .blank, ruleColor: RGBA = .hex(0xB9C6D8, alpha: 0.7), marginRule: Bool = false,
+                marginRuleColor: RGBA = .hex(0xE0A2A2, alpha: 0.8)) {
         self.paperColor = paperColor; self.textureTile = textureTile; self.textureOpacity = textureOpacity
         self.textureBlend = textureBlend; self.ruling = ruling; self.ruleColor = ruleColor
         self.marginRule = marginRule; self.marginRuleColor = marginRuleColor
@@ -131,6 +144,14 @@ public struct NotebookTheme: Codable, Identifiable, Hashable, Sendable {
         t.type.mono.size *= factor
         return t
     }
+
+    /// The same theme with the paper ruled (ruling preference, independent of theme).
+    public func ruled(_ ruling: Ruling, marginRule: Bool) -> NotebookTheme {
+        var t = self
+        t.page.ruling = ruling
+        t.page.marginRule = marginRule
+        return t
+    }
 }
 
 // MARK: - Built-in themes
@@ -161,7 +182,8 @@ extension NotebookTheme {
         id: "oxblood", name: "Oxblood",
         cover: CoverMaterial(baseColor: .hex(0x5A1F22), textureTile: "leather", grainOpacity: 0.2,
                              stitchColor: .hex(0xC9A66B)),
-        page: PageStyle(paperColor: .hex(0xFBF5E6), textureTile: "paper", textureOpacity: 0.55),
+        page: PageStyle(paperColor: .hex(0xFBF5E6), textureTile: "paper", textureOpacity: 0.55,
+                        ruleColor: .hex(0x9A8E7A, alpha: 0.55), marginRuleColor: .hex(0xC9868A, alpha: 0.75)),
         type: Typography(body: FontSpec(family: "Georgia", size: 15, design: .serif),
                          heading: FontSpec(family: "Georgia", size: 22, design: .serif, bold: true),
                          mono: FontSpec(family: "SF Mono", size: 13, design: .mono),
@@ -175,7 +197,8 @@ extension NotebookTheme {
         id: "kraft", name: "Kraft",
         cover: CoverMaterial(baseColor: .hex(0xB98F5E), textureTile: "kraft", grainOpacity: 0.7, blend: .multiply,
                              stitchColor: .hex(0x6B4F2A)),
-        page: PageStyle(paperColor: .hex(0xF4EFE3), textureTile: "paper", textureOpacity: 0.7),
+        page: PageStyle(paperColor: .hex(0xF4EFE3), textureTile: "paper", textureOpacity: 0.7,
+                        ruleColor: .hex(0xA9C1B6, alpha: 0.6), marginRuleColor: .hex(0xD59A8C, alpha: 0.8)),
         type: Typography(body: FontSpec(family: "Avenir Next", size: 14.5, design: .sans),
                          heading: FontSpec(family: "Avenir Next", size: 21, design: .sans, bold: true),
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
@@ -189,7 +212,8 @@ extension NotebookTheme {
         id: "midnight", name: "Midnight",
         cover: CoverMaterial(baseColor: .hex(0x8A8178), textureTile: "leather", grainOpacity: 0.16,
                              stitchColor: .hex(0x4A443F)),
-        page: PageStyle(paperColor: .hex(0x000000), textureTile: "paper", textureOpacity: 0.07, textureBlend: .screen),
+        page: PageStyle(paperColor: .hex(0x000000), textureTile: "paper", textureOpacity: 0.07, textureBlend: .screen,
+                        ruleColor: .hex(0xFFFFFF, alpha: 0.10), marginRuleColor: .hex(0xC97C7C, alpha: 0.5)),
         type: Typography(body: FontSpec(family: "Charter", size: 15, design: .serif),
                          heading: FontSpec(family: "Charter", size: 22, design: .serif, bold: true),
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),

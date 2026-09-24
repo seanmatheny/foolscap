@@ -37,6 +37,7 @@ struct FoolscapApp: App {
             PreferencesRoot()
                 .environment(model)
                 .environment(\.notebookTheme, model.theme)
+                .environment(\.notebookTabEdge, model.tabEdge)
         }
     }
 
@@ -46,6 +47,8 @@ struct FoolscapApp: App {
                 .environment(model)
                 .onAppear { AppDelegate.flush = { model.flush() } }
                 .environment(\.notebookTheme, model.theme)
+                .environment(\.notebookTabEdge, model.tabEdge)
+                .environment(\.showsElasticBand, model.elasticBand)
                 .frame(minWidth: 820, minHeight: 560)
         }
         .windowResizability(.contentMinSize)
@@ -53,6 +56,9 @@ struct FoolscapApp: App {
         .commands {
             CommandGroup(after: .importExport) {
                 Button("Export Notes…") { model.showExport = true }.keyboardShortcut("e", modifiers: [.command, .shift])
+                Divider()
+                Button("Back Up Now…") { if let b = model.backup { BackupCommands.backUpNow(b) } }.disabled(model.backup == nil)
+                Button("Restore from Backup…") { if let b = model.backup { BackupCommands.restore(b) } }.disabled(model.backup == nil)
             }
             CommandGroup(after: .textEditing) {
                 Button("Find in Note…") { FindCommands.perform(.showFindInterface) }.keyboardShortcut("f")
@@ -134,6 +140,7 @@ struct PreferencesRoot: View {
         @Bindable var model = model
         PreferencesView(themeID: $model.themeID, notesFolderPath: model.notesFolderPath,
                         tabsSummary: model.tabsSummary, sectionPanes: model.sectionSettingsPanes,
+                        backup: model.backup,
                         chooseFolder: { model.changeNotesFolder(to: $0) },
                         moveToFolder: { model.moveNotesFolder(to: $0) })
             .onAppear { AppDelegate.flush = { model.flush() } }

@@ -51,6 +51,35 @@ public enum TaskLineParser {
         return ns.replacingCharacters(in: NSRange(location: parsed.markOffset, length: 1), with: String(status.mark))
     }
 
+    // MARK: Priority
+
+    /// `!`, `!!` or `!!!` at the very start of the title, followed by a space or the end.
+    private static let priorityRegex = try! NSRegularExpression(pattern: #"^(!{1,3})(?:[ \t]+|$)"#)
+
+    public static func priority(in title: String) -> TaskPriority {
+        let ns = title as NSString
+        guard let m = priorityRegex.firstMatch(in: title, range: NSRange(location: 0, length: ns.length)) else { return .none }
+        return TaskPriority(marker: ns.substring(with: m.range(at: 1)))
+    }
+
+    public static func stripPriority(from title: String) -> String {
+        let ns = title as NSString
+        let out = priorityRegex.stringByReplacingMatches(in: title, range: NSRange(location: 0, length: ns.length), withTemplate: "")
+        return out.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// The title with its marker replaced (or removed for `.none`).
+    public static func settingPriority(_ priority: TaskPriority, in title: String) -> String {
+        let rest = stripPriority(from: title)
+        return priority == .none ? rest : priority.marker + " " + rest
+    }
+
+    /// The UTF-16 range of the marker inside a title, for styling.
+    public static func priorityRange(in title: String) -> NSRange? {
+        let ns = title as NSString
+        return priorityRegex.firstMatch(in: title, range: NSRange(location: 0, length: ns.length))?.range(at: 1)
+    }
+
     private static func stripInlineCode(_ s: String) -> String {
         var out = ""; var inCode = false
         for ch in s {

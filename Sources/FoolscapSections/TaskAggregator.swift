@@ -49,8 +49,19 @@ public final class TaskAggregator {
         tags = counts.keys.sorted { (counts[$0]!, $1) > (counts[$1]!, $0) }
     }
 
+    /// Tasks in one status section, highest priority first, otherwise in note order.
     public func tasks(status: TaskStatus, tag: String?) -> [TaskItem] {
-        tasks.filter { $0.status == status && (tag == nil || $0.tags.contains(tag!)) }
+        tasks.enumerated()
+            .filter { $0.element.status == status && (tag == nil || $0.element.tags.contains(tag!)) }
+            .sorted { a, b in
+                a.element.priority != b.element.priority ? a.element.priority > b.element.priority : a.offset < b.offset
+            }
+            .map(\.element)
+    }
+
+    public func setPriority(_ priority: TaskPriority, of task: TaskItem) {
+        guard task.priority != priority else { return }
+        rename(task, to: TaskLineParser.settingPriority(priority, in: task.title))
     }
 
     public func rename(_ task: TaskItem, to title: String) {

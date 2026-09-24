@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Carbon.HIToolbox
 import FoolscapCore
+import FoolscapStore
 import FoolscapUI
 
 /// A section's own settings, shown under its heading in Preferences.
@@ -20,18 +21,26 @@ public struct PreferencesView: View {
     let sectionPanes: [SectionSettingsPane]
     let chooseFolder: (URL) -> Void
     let moveToFolder: (URL) -> Void
+    let backup: BackupManager?
     @AppStorage("textScale") private var textScale = 1.0
     @AppStorage("openingAnimation") private var openingAnimation = true
+    @AppStorage(PreferenceKeys.ruling) private var ruling = Ruling.blank.rawValue
+    @AppStorage(PreferenceKeys.marginRule) private var marginRule = false
+    @AppStorage(PreferenceKeys.elasticBand) private var elasticBand = false
+    @AppStorage(PreferenceKeys.tabEdge) private var tabEdge = TabEdge.left.rawValue
     @AppStorage("exportFormat") private var exportFormat = "markdown"
     @AppStorage("exportIncludeAttachments") private var exportAttachments = true
     @AppStorage("scribeEnabled") private var scribeEnabled = false
+    @AppStorage(BackupManager.intervalKey) private var backupInterval = BackupInterval.off.rawValue
+    @AppStorage(BackupManager.keepKey) private var backupKeep = 10
 
     public init(themeID: Binding<String>, notesFolderPath: String, tabsSummary: String, sectionPanes: [SectionSettingsPane],
-                chooseFolder: @escaping (URL) -> Void, moveToFolder: @escaping (URL) -> Void) {
+                backup: BackupManager? = nil, chooseFolder: @escaping (URL) -> Void, moveToFolder: @escaping (URL) -> Void) {
         self._themeID = themeID
         self.notesFolderPath = notesFolderPath
         self.tabsSummary = tabsSummary
         self.sectionPanes = sectionPanes
+        self.backup = backup
         self.chooseFolder = chooseFolder
         self.moveToFolder = moveToFolder
     }
@@ -55,6 +64,18 @@ public struct PreferencesView: View {
                 }
                 Text("Also ⌘+ and ⌘− in the View menu. Line height scales with the text.")
                     .font(.caption).foregroundStyle(.secondary)
+                Picker("Ruling", selection: $ruling) {
+                    ForEach([Ruling.blank, .lined, .dotted, .grid], id: \.self) { Text($0.title).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                Toggle("Red margin line", isOn: $marginRule)
+                Text("Rules follow the text size and take their colour from the theme.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("Index tabs", selection: $tabEdge) {
+                    ForEach(TabEdge.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                Toggle("Elastic band around the cover", isOn: $elasticBand)
                 Toggle("Open the cover when the app starts", isOn: $openingAnimation)
             }
             Section("Shortcuts") {
@@ -107,10 +128,70 @@ public struct PreferencesView: View {
                 }
                 Toggle("Include attachments with Markdown exports", isOn: $exportAttachments)
             }
+            if let backup {
+                Section("Backup") {
+                    BackupSettings(backup: backup, interval: $backupInterval, keep: $backupKeep)
+                }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 560)
-        .frame(minHeight: 520)
+        .frame(minHeight: 520, idealHeight: 820)
+    }
+}
+
+/// Settings keys the app mirrors into the theme and the chrome environment.
+public enum PreferenceKeys {
+    public static let ruling = "ruling"
+    public static let marginRule = "marginRule"
+    public static let elasticBand = "elasticBand"
+    public static let tabEdge = "tabEdge"
+}
+
+/// The Backup section of Settings: schedule, folder, one-off backup and restore.
+struct BackupSettings: View {
+    let backup: BackupManager
+    @Binding var interval: String
+    @Binding var keep: Int
+
+    var body: some View {
+        Picker("Back up automatically", selection: $interval) {
+            ForEach(BackupInterval.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
+        }
+        .onChange(of: interval) { _, _ in backup.checkSchedule() }
+        if interval != BackupInterval.off.rawValue {
+            Stepper("Keep the last \(keep) backup\(keep == 1 ? "" : "s")", value: $keep, in: 1...100)
+            Text("A due backup runs shortly after Foolscap is next opened, and then once the interval has passed again while it stays open.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        LabeledContent("Backup folder") {
+            HStack {
+                Text(backup.folder.path).truncationMode(.middle).lineLimit(1).foregroundStyle(.secondary)
+                Button("Choose…") { BackupCommands.chooseFolder(backup) }
+            }
+        }
+        LabeledContent("Last backup") {
+            HStack {
+                Text(backup.lastBackup.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short) } ?? "Never")
+                    .foregroundStyle(.secondary)
+                if let file = backup.lastFile, FileManager.default.fileExists(atPath: file.path) {
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+                }
+            }
+        }
+        HStack {
+            Button(backup.isRunning ? (backup.phase ?? "Working…") : "Back Up Now…") { BackupCommands.backUpNow(backup) }
+                .disabled(backup.isRunning)
+            Button("Restore from Backup…") { BackupCommands.restore(backup) }
+                .disabled(backup.isRunning)
+        }
+        if let error = backup.lastError {
+            Text(error).font(.caption).foregroundStyle(.red)
+        } else if let message = backup.lastMessage {
+            Text(message).font(.caption).foregroundStyle(.secondary)
+        }
+        Text("One zip file holds everything: notes and attachments, Tasks.md, Scribe notebooks and transcripts, the search index, Scribe sync state and these settings. Restoring replaces all of it; the current notebook is backed up to the folder above first.")
+            .font(.caption).foregroundStyle(.secondary)
     }
 }
 

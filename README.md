@@ -36,17 +36,24 @@ Tasks are ordinary markdown checkboxes, with the Obsidian convention for
   between sections or click its checkbox; double-click (or the pencil) opens an
   editor for its one-line text and its notes; the tag button or the context menu
   adds `#tags`. Every change is written back into the note. `+` adds a task to
-  today's note.
+  `Tasks.md`.
+- Priority: a task can start with `!`, `!!` or `!!!` (low, medium, high), the
+  Reminders convention. The Tasks tab shows it as a blue, amber or red light
+  before the title (click it, or use the context menu, to change it) and lists
+  higher priorities first. The marker is coloured in the editor too.
 - Tags: `#tag` anywhere in a note is highlighted and indexed, but shown nowhere
-  else. In search, type `#` for a list of tags; `#tag` in a query is a strict
-  filter (a tag being typed filters by prefix).
+  else. While typing `#…` in a note, a task field or the quick-task panel, the
+  tags you already use are offered as you type (Return or Tab completes). In
+  search, type `#` for a list of tags; `#tag` in a query is a strict filter (a
+  tag being typed filters by prefix).
 - Search: ⌘⇧F searches all notes and tasks (SQLite FTS5); ⌘F finds in the page.
 - Quick task: ⌃⌥Space from any app (configurable in Settings) opens a small
   panel; Return adds the task to the Tasks tab. Tasks added this way, or with
   the tab's `+`, live in `Tasks.md` at the notebook root rather than in a day.
 - Text size: ⌘+ / ⌘− / ⌘0, or the slider in Settings. Ruling and line height
   scale with the text.
-- Tabs: ⌘D Daily Notes, ⌘T Tasks. ⌘⇧T is today, ⌘[ / ⌘] flip days.
+- Tabs: ⌘D Daily Notes, ⌘T Tasks. ⌘⇧T is today, ⌘[ / ⌘] flip days. Tabs are
+  all the same length and sit on the left of the page by default.
 - On launch the closed cover, embossed with the jester, swings open (Settings can
   turn this off; Reduce Motion skips it).
 - Full screen (green button or ⌃⌘F): the notebook fills the display with square
@@ -56,7 +63,16 @@ Tasks are ordinary markdown checkboxes, with the Obsidian convention for
   HTML or PDF.
 - Themes: Classic Black, Oxblood, Kraft and Midnight (Foolscap ▸ Settings…).
   Midnight is the dark one: pale leather around true-black paper with white ink.
-  Pages carry paper texture only, no ruling.
+  Independently of the theme, Settings can rule the paper (lined, dot grid or
+  graph, with an optional red margin line), put the index tabs on the left or the
+  right of the page (the spine moves to the other side), and add the elastic
+  closure band in the leather's colour.
+- Backup: File ▸ Back Up Now… writes one zip holding the whole notebook folder
+  (notes, attachments, Tasks.md, Scribe files), the search index, Scribe sync
+  state and the app's settings. Settings ▸ Backup schedules automatic backups
+  (daily, weekly or monthly, run when the app is next opened) into a folder of
+  your choice, keeping the newest few. File ▸ Restore from Backup… puts a backup
+  back in place of everything, after saving a safety copy of the current state.
 - iCloud Drive: the notebook folder can live in iCloud Drive; placeholder files
   are downloaded on demand and conflicting copies get a Keep mine / Take theirs /
   Keep both banner.

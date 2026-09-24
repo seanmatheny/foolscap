@@ -25,6 +25,8 @@ public final class TasksSection: NotebookSection {
     let library: NotebookLibrary
     let openNote: (SectionRoute) -> Void
     var selectedTag: String?
+    /// Every tag known anywhere, task tags (most used) first, then note-only tags.
+    private(set) var knownTags: [String] = []
 
     public init(library: NotebookLibrary, openNote: @escaping (SectionRoute) -> Void) {
         self.library = library
@@ -36,6 +38,11 @@ public final class TasksSection: NotebookSection {
     /// New tasks go to the standalone Tasks.md, so markdown stays the source of truth
     /// without touching a daily page.
     func addTask(_ text: String) { library.addStandaloneTask(text) }
+
+    func refreshKnownTags() {
+        var seen = Set<String>()
+        knownTags = (aggregator.tags + ((try? library.index.allTags()) ?? [])).filter { seen.insert($0).inserted }
+    }
 }
 
 struct TasksPage: View {
@@ -51,7 +58,8 @@ struct TasksPage: View {
         GeometryReader { geo in
             ScrollView {
                 ZStack(alignment: .topLeading) {
-                    Color.clear.frame(minHeight: geo.size.height)
+                    RulingView(pitch: pitch, topInset: pitch * 2 - 4, marginX: 58)
+                        .frame(minHeight: geo.size.height)
                     VStack(alignment: .leading, spacing: 0) {
                         header
                         CategoryStrip(tags: section.aggregator.tags, selected: $section.selectedTag)
@@ -60,14 +68,15 @@ struct TasksPage: View {
                         ForEach(TaskStatus.allCases, id: \.self) { status in
                             TaskSectionView(status: status,
                                             tasks: section.aggregator.tasks(status: status, tag: section.selectedTag),
-                                            allTags: section.aggregator.tags,
+                                            allTags: section.knownTags,
                                             pitch: pitch,
                                             onMove: { section.aggregator.move($0, to: status) },
                                             onToggle: { section.aggregator.move($0, to: $0.status.next) },
                                             onOpen: { section.openNote(SectionRoute(path: $0.source.path, line: $0.source.line)) },
                                             onRename: { section.aggregator.rename($0, to: $1) },
                                             onUpdate: { section.aggregator.update($0, title: $1, notes: $2) },
-                                            onAddTag: { section.aggregator.addTag($1, to: $0) })
+                                            onAddTag: { section.aggregator.addTag($1, to: $0) },
+                                            onSetPriority: { section.aggregator.setPriority($1, of: $0) })
                         }
                         Spacer(minLength: pitch * 2)
                     }
@@ -78,7 +87,9 @@ struct TasksPage: View {
             }
         }
         .foregroundStyle(theme.ink.color)
-        .task { await section.aggregator.reload() }
+        .task { await section.aggregator.reload(); section.refreshKnownTags() }
+        .onChange(of: section.library.indexVersion) { _, _ in section.refreshKnownTags() }
+        .onChange(of: section.aggregator.tags) { _, _ in section.refreshKnownTags() }
     }
 
     private var header: some View {
@@ -101,6 +112,10 @@ struct TasksPage: View {
                         TextField("Task, with #category", text: $newTaskText)
                             .paperField().frame(width: 320)
                             .onSubmit { submit() }
+                            .completesTags(in: $newTaskText, known: section.knownTags)
+                        TagCompletionRow(text: $newTaskText, known: section.knownTags)
+                        Text("Start with !, !! or !!! for low, medium or high priority.")
+                            .font(.caption).foregroundStyle(theme.dimInk.color)
                     }
                 }
             }
@@ -156,6 +171,7 @@ struct TaskSectionView: View {
     let onRename: (TaskItem, String) -> Void
     let onUpdate: (TaskItem, String, String?) -> Void
     let onAddTag: (TaskItem, String) -> Void
+    let onSetPriority: (TaskItem, TaskPriority) -> Void
     @State private var targeted = false
     private var scale: CGFloat { theme.type.body.size / 15 }
     @AppStorage private var folded: Bool
@@ -165,10 +181,10 @@ struct TaskSectionView: View {
     init(status: TaskStatus, tasks: [TaskItem], allTags: [String], pitch: CGFloat,
          onMove: @escaping (TaskItem) -> Void, onToggle: @escaping (TaskItem) -> Void, onOpen: @escaping (TaskItem) -> Void,
          onRename: @escaping (TaskItem, String) -> Void, onUpdate: @escaping (TaskItem, String, String?) -> Void,
-         onAddTag: @escaping (TaskItem, String) -> Void) {
+         onAddTag: @escaping (TaskItem, String) -> Void, onSetPriority: @escaping (TaskItem, TaskPriority) -> Void) {
         self.status = status; self.tasks = tasks; self.allTags = allTags; self.pitch = pitch
         self.onMove = onMove; self.onToggle = onToggle; self.onOpen = onOpen
-        self.onRename = onRename; self.onUpdate = onUpdate; self.onAddTag = onAddTag
+        self.onRename = onRename; self.onUpdate = onUpdate; self.onAddTag = onAddTag; self.onSetPriority = onSetPriority
         _folded = AppStorage(wrappedValue: false, "fold." + status.rawValue)
     }
 
@@ -205,7 +221,8 @@ struct TaskSectionView: View {
                 ForEach(visibleTasks) { task in
                     TaskRow(task: task, pitch: pitch, allTags: allTags,
                             onToggle: { onToggle(task) }, onOpen: { onOpen(task) },
-                            onUpdate: { onUpdate(task, $0, $1) }, onAddTag: { onAddTag(task, $0) })
+                            onUpdate: { onUpdate(task, $0, $1) }, onAddTag: { onAddTag(task, $0) },
+                            onSetPriority: { onSetPriority(task, $0) })
                         .draggable(task) {
                             Text(task.displayTitle).font(.system(size: 14, design: .serif))
                                 .padding(6).background(theme.page.paperColor.color).cornerRadius(4)
@@ -250,6 +267,7 @@ struct TaskRow: View {
     let onOpen: () -> Void
     let onUpdate: (String, String?) -> Void
     let onAddTag: (String) -> Void
+    let onSetPriority: (TaskPriority) -> Void
     @State private var hovering = false
     @State private var editing = false
     @State private var askTag = false
@@ -265,6 +283,8 @@ struct TaskRow: View {
             }
             .buttonStyle(.plain)
             .disabled(task.isReadOnly)
+            PriorityLight(priority: task.priority, visible: hovering || task.priority != .none, onSet: onSetPriority)
+                .disabled(task.isReadOnly)
             Text(task.displayTitle)
                 .font(.system(size: 14.5 * scale, design: .serif))
                 .strikethrough(task.status == .completed, color: theme.dimInk.color)
@@ -313,9 +333,7 @@ struct TaskRow: View {
                 }
                 .buttonStyle(.plain)
                 .help("Open in the daily note")
-            } else if !task.isReadOnly {
-                Text("Tasks").font(.system(size: 11 * scale, design: .serif)).foregroundStyle(theme.dimInk.color.opacity(0.7))
-            } else {
+            } else if task.isReadOnly {
                 Text(task.source.path).font(.system(size: 11 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
             }
         }
@@ -332,6 +350,13 @@ struct TaskRow: View {
                     }
                     Divider()
                     Button("New Tag…") { askTag = true }
+                }
+                Menu("Priority") {
+                    ForEach(TaskPriority.allCases, id: \.self) { p in
+                        Button { onSetPriority(p) } label: {
+                            if p == task.priority { Label(p.title, systemImage: "checkmark") } else { Text(p.title) }
+                        }
+                    }
                 }
                 Button("Mark \(task.status.next.title)") { onToggle() }
                 Divider()
@@ -375,6 +400,8 @@ struct TaskEditPopover: View {
                     .paperField()
                     .focused($titleFocused)
                     .onSubmit { onSave(title, notes) }
+                    .completesTags(in: $title, known: allTags)
+                TagCompletionRow(text: $title, known: allTags)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Notes and links").font(.caption).foregroundStyle(theme.dimInk.color)
                     TextEditor(text: $notes)
@@ -385,20 +412,8 @@ struct TaskEditPopover: View {
                         .background(RoundedRectangle(cornerRadius: 6).fill(theme.ink.color.opacity(0.06)))
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.ink.color.opacity(0.15), lineWidth: 0.5))
                 }
-                if !allTags.isEmpty {
-                    HStack(spacing: 6) {
-                        Text("Tags:").font(.caption).foregroundStyle(theme.dimInk.color)
-                        ForEach(allTags.prefix(6), id: \.self) { tag in
-                            Button("#" + tag) { if !title.contains("#" + tag) { title += " #" + tag } }
-                                .buttonStyle(.plain).font(.system(size: 11, design: .serif))
-                                .foregroundStyle(theme.accent.color)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Capsule().fill(theme.accent.color.opacity(0.12)))
-                        }
-                    }
-                }
                 HStack {
-                    Text("Saved into the daily note.").font(.caption).foregroundStyle(theme.dimInk.color)
+                    Text(task.source.day == nil ? "Saved into Tasks.md." : "Saved into the daily note.").font(.caption).foregroundStyle(theme.dimInk.color)
                     Spacer()
                     Button("Save") { onSave(title, notes) }
                         .keyboardShortcut(.defaultAction)
@@ -423,23 +438,113 @@ struct TagPopover: View {
     var body: some View {
         PaperPopover {
             VStack(alignment: .leading, spacing: 8) {
-                TextField("New tag", text: $newTag)
+                TextField("Tag", text: $newTag)
                     .font(.system(size: 13, design: .serif))
                     .paperField().frame(width: 200)
                     .focused($focused)
-                    .onSubmit { onPick(newTag) }
-                let choices = allTags.filter { !existing.contains($0) }
+                    .onSubmit { onPick(choices.first ?? newTag) }
+                    .onKeyPress(.tab) {
+                        guard let first = choices.first, first != typed else { return .ignored }
+                        newTag = first; return .handled
+                    }
                 if !choices.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(choices.prefix(8), id: \.self) { tag in
+                        ForEach(choices, id: \.self) { tag in
                             Button("#" + tag) { onPick(tag) }
                                 .buttonStyle(.plain).font(.system(size: 12.5, design: .serif))
                                 .foregroundStyle(theme.accent.color)
                         }
                     }
+                } else if !typed.isEmpty {
+                    Text("New tag #\(typed)").font(.system(size: 11, design: .serif)).foregroundStyle(theme.dimInk.color)
                 }
             }
         }
         .onAppear { focused = true }
+    }
+
+    /// What has been typed, as a tag: no `#`, lowercased.
+    private var typed: String {
+        newTag.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased()
+    }
+
+    /// Known tags starting with what was typed (all of them before typing), minus the task's own.
+    private var choices: [String] {
+        let t = typed
+        return allTags.filter { !existing.contains($0) && (t.isEmpty || $0.hasPrefix(t)) }.prefix(8).map { $0 }
+    }
+}
+
+/// The priority "light" before a task: a coloured dot that opens a menu.
+struct PriorityLight: View {
+    @Environment(\.notebookTheme) private var theme
+    let priority: TaskPriority
+    let visible: Bool
+    let onSet: (TaskPriority) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(TaskPriority.allCases, id: \.self) { p in
+                Button { onSet(p) } label: {
+                    if p == priority { Label(p.title, systemImage: "checkmark") } else { Text(p.title) }
+                }
+            }
+        } label: {
+            ZStack {
+                if let color = priority.color {
+                    Circle().fill(color.color)
+                    Circle().fill(LinearGradient(colors: [.white.opacity(0.55), .clear], startPoint: .top, endPoint: .center))
+                    Circle().stroke(Color.black.opacity(0.25), lineWidth: 0.5)
+                } else {
+                    Circle().stroke(theme.dimInk.color.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [1.5, 1.5]))
+                }
+            }
+            .frame(width: 9, height: 9)
+            .frame(width: 14, height: 14)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .opacity(visible ? 1 : 0)
+        .help(priority == .none ? "Set a priority" : "\(priority.title) priority")
+    }
+}
+
+/// Chips for the `#tag` being typed at the end of a field; click one to complete it.
+struct TagCompletionRow: View {
+    @Environment(\.notebookTheme) private var theme
+    @Binding var text: String
+    let known: [String]
+
+    var body: some View {
+        if let partial = TagCompletion.partial(in: text) {
+            let matches = TagCompletion.matches(for: partial.text, in: known)
+            if !matches.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(matches, id: \.self) { tag in
+                        Button("#" + tag) { text = TagCompletion.completing(text, partial: partial, with: tag) }
+                            .buttonStyle(.plain).font(.system(size: 11, design: .serif))
+                            .foregroundStyle(theme.accent.color)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Capsule().fill(theme.accent.color.opacity(0.12)))
+                    }
+                    Text("⇥").font(.system(size: 10)).foregroundStyle(theme.dimInk.color)
+                }
+            }
+        }
+    }
+}
+
+extension View {
+    /// Tab completes the `#tag` being typed at the end of the field with the best match.
+    func completesTags(in text: Binding<String>, known: [String]) -> some View {
+        onKeyPress(.tab) {
+            guard let partial = TagCompletion.partial(in: text.wrappedValue),
+                  let first = TagCompletion.matches(for: partial.text, in: known).first else { return .ignored }
+            text.wrappedValue = TagCompletion.completing(text.wrappedValue, partial: partial, with: first)
+            return .handled
+        }
     }
 }

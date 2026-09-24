@@ -23,6 +23,8 @@ public struct EditorPalette {
     public var tagBackground: NSColor
     public var selection: NSColor
     public var highlighter: [TaskStatus: NSColor]
+    /// Colours of the `!` priority markers on task lines.
+    public var priorityColors: [TaskPriority: NSColor]
     /// Line pitch: every body line is exactly this tall so text sits on the ruling.
     public var pitch: CGFloat
     public var isDark: Bool
@@ -52,6 +54,7 @@ public struct EditorPalette {
         tagBackground = theme.accent.nsColor.withAlphaComponent(0.14)
         selection = theme.accent.nsColor.withAlphaComponent(theme.isDark ? 0.35 : 0.22)
         highlighter = theme.highlighter.mapValues { $0.nsColor }
+        priorityColors = Dictionary(uniqueKeysWithValues: TaskPriority.allCases.compactMap { p in p.color.map { (p, $0.nsColor) } })
         pitch = theme.linePitch
         isDark = theme.isDark
     }

@@ -1,5 +1,9 @@
 # Foolscap — notes for Claude
 
+- Always ask Sean before running tests, launching the app or taking screenshots,
+  so he can finish what he is typing and hand over the machine. Building is fine
+  to do unprompted; stop at the build step unless he has said in the current
+  request that Claude may go straight on into testing and verification.
 - Build with `make app-debug` / `make test`, never bare `swift`: `swift` on PATH is
   python-swiftclient. The Makefile uses Xcode's toolchain (`DEVELOPER_DIR`) when
   its licence is accepted, else the Command Line Tools plus Xcode's macro plugins.
@@ -16,10 +20,16 @@
   tasks through `TaskProvider`. Third-party sections should depend only on
   FoolscapCore (and FoolscapStore for files/index); `FoolscapScribe` is first-party
   and also uses FoolscapUI chrome.
-- Launch flags for verification: `--day YYYY-MM-DD`, `--search q`, `--export`,
-  `--prefs`, `--scribe`; `Tools/window-shot.sh Foolscap out.png all` captures
-  every window. Synthetic mouse events are ignored (no Accessibility grant), so
-  hover and drag behaviour can only be checked by the user.
+- Launch flags for verification: `--day=YYYY-MM-DD`, `--search=q`, `--export`,
+  `--prefs` (`--prefs-bottom` also scrolls Settings to its end), `--scribe`,
+  `--type=text` (types into the focused editor after 2s, e.g. to show tag
+  completion), `--backup=file.zip` and `--restore=file.zip` (no confirmation).
+  Always use the `flag=value` form with `open Foolscap.app --args …`: a bare
+  value argument (a date, a path, any word) makes AppKit treat the launch as
+  "open these files" and the main window never appears; `Tools/winlist.swift`
+  then lists no Foolscap window. `Tools/window-shot.sh Foolscap out.png all`
+  captures every window. Synthetic mouse events are ignored (no Accessibility
+  grant), so hover and drag behaviour can only be checked by the user.
 - TextKit 2 gotchas: never read `layoutManager` on the text view (it downgrades
   to TextKit 1) and never override `textContainerOrigin` (layout stops drawing).
   Use `textContainerInset` and `textLayoutManager.usageBoundsForTextContainer`.
@@ -57,8 +67,30 @@
 - Screenshots do reflect the menu bar's visible state (an explicit hide blanks the
   strip), but `NSMenu.menuBarVisible()` and the Window Server's 'Menubar' window
   do not: both report the same thing whether or not the titles are drawn.
-- Themes have no ruling and no elastic band by design (Sean found them distracting);
-  `Ruling` stays in the model for a future opt-in. Midnight is the OLED-black theme.
+- Themes ship with no ruling and no elastic band; both are Settings options
+  (`ruling`, `marginRule`, `elasticBand` defaults) applied on top of the theme in
+  `AppModel.theme` via `NotebookTheme.ruled`, with rule colours per theme. Midnight
+  is the OLED-black theme.
+- Index tabs default to the left of the page (`tabEdge` default, `TabEdge` in the
+  environment): the whole cover mirrors, so the spine, its crease, the page's inner
+  shadow, the tab shapes and the opening-animation hinge all read `notebookTabEdge`.
+  Every tab is as long as the longest label.
+- Task priority is `!`/`!!`/`!!!` at the start of the task text (`TaskPriority`,
+  `TaskLineParser.priority`). It stays inside `TaskItem.title` so files round-trip,
+  but `contentKey` strips it: changing priority keeps the task's identity.
+- Tag completion (`TagCompletion` in Core) drives NSTextView's own completion list
+  in the editor (`rangeForUserCompletion` spans the `#`, `complete(nil)` is called
+  from `didChangeText` only when there are matches, since it beeps otherwise), the
+  quick-task panel's field editor (candidates trimmed to whatever word range AppKit
+  picked) and `TagCompletionRow` chips in the SwiftUI task fields.
+- Backups (`FoolscapStore/Backup.swift`) are zips made with `/usr/bin/ditto`:
+  `manifest.json`, `Notebook/`, `Index/index.sqlite` (SQLite online backup API),
+  `Support/` (Application Support/Foolscap minus indexes) and `Preferences.plist`.
+  Restoring goes through `NotebookLibrary.suspendForRestore`/`resumeAfterRestore`,
+  which bumps `generation` so editors keyed on it drop their stale text storage.
+  URL enumerators return `/private/var` paths while `resolvingSymlinksInPath`
+  strips `/private`, so the tree walkers use the path-based enumerator's relative
+  paths instead of prefix arithmetic.
 - The app icon is a flat jester silhouette from `Tools/make-icon.swift` (`make icon`);
   pieces are filled one by one because compound paths cancel where they overlap.
 - The launch animation (`CoverOpeningOverlay`) is a SwiftUI `rotation3DEffect`

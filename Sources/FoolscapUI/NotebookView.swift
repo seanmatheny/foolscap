@@ -8,12 +8,36 @@ public struct NotebookTabItem: Identifiable, Hashable {
     public init(id: String, appearance: TabAppearance) { self.id = id; self.appearance = appearance }
 }
 
+/// Which side of the page the index tabs stick out of. The spine is on the
+/// other side, so `.left` shows the notebook from the other cover.
+public enum TabEdge: String, CaseIterable, Sendable {
+    case left, right
+
+    public var title: String { self == .left ? "Left" : "Right" }
+}
+
+private struct TabEdgeKey: EnvironmentKey { static let defaultValue: TabEdge = .left }
+private struct ElasticBandKey: EnvironmentKey { static let defaultValue = false }
+
+public extension EnvironmentValues {
+    /// Set by the app from Settings; every piece of chrome reads it.
+    var notebookTabEdge: TabEdge {
+        get { self[TabEdgeKey.self] }
+        set { self[TabEdgeKey.self] = newValue }
+    }
+    /// Whether the elastic closure band is drawn over the cover.
+    var showsElasticBand: Bool {
+        get { self[ElasticBandKey.self] }
+        set { self[ElasticBandKey.self] = newValue }
+    }
+}
+
 /// Cover geometry shared by the views below.
 enum NotebookMetrics {
     static let spineRadius: CGFloat = 6      // the bound edge is nearly square
     static let edgeRadius: CGFloat = 16      // the opening edge is rounded
     static let topMargin: CGFloat = 30       // leather above the page; hosts the traffic lights
-    static let sideMargin: CGFloat = 50      // leather to the right of the page: hosts the index tabs
+    static let sideMargin: CGFloat = 50      // leather beside the page on the tab side: hosts the index tabs
     static let bottomMargin: CGFloat = 20
     static let spineMargin: CGFloat = 30
 }
@@ -23,6 +47,8 @@ enum NotebookMetrics {
 /// drawn outside the cover and the tabs.
 public struct NotebookView<Page: View>: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.notebookTabEdge) private var tabEdge
+    @Environment(\.showsElasticBand) private var showsBand
     let tabs: [NotebookTabItem]
     @Binding var selection: String
     let page: (String) -> Page
@@ -33,18 +59,26 @@ public struct NotebookView<Page: View>: View {
 
     public var body: some View {
         let windowState = WindowState.shared
+        let tabsLeft = tabEdge == .left
         CoverBlock {
-            ZStack(alignment: .topTrailing) {
+            ZStack(alignment: tabsLeft ? .topLeading : .topTrailing) {
                 PageView { page(selection) }
-                    .shadow(color: .black.opacity(0.35), radius: 3, x: 2, y: 0)
-                    // Index tabs are glued to the page edge, behind it, sticking out to the right.
-                    .background(alignment: .topTrailing) {
+                    .shadow(color: .black.opacity(0.35), radius: 3, x: tabsLeft ? -2 : 2, y: 0)
+                    // Index tabs are glued to the page edge, behind it, sticking out sideways.
+                    .background(alignment: tabsLeft ? .topLeading : .topTrailing) {
                         IndexTabsView(tabs: tabs, selection: $selection)
                             .padding(.top, 22)
-                            .offset(x: PaperTab.width)
+                            .offset(x: tabsLeft ? -PaperTab.width : PaperTab.width)
                     }
-                    .padding(EdgeInsets(top: NotebookMetrics.topMargin, leading: NotebookMetrics.spineMargin,
-                                        bottom: NotebookMetrics.bottomMargin, trailing: NotebookMetrics.sideMargin))
+                    .padding(EdgeInsets(top: NotebookMetrics.topMargin,
+                                        leading: tabsLeft ? NotebookMetrics.sideMargin : NotebookMetrics.spineMargin,
+                                        bottom: NotebookMetrics.bottomMargin,
+                                        trailing: tabsLeft ? NotebookMetrics.spineMargin : NotebookMetrics.sideMargin))
+                // The band wraps the cover beyond the tabs, so it never crosses the page.
+                if showsBand {
+                    ElasticBandView()
+                        .padding(tabsLeft ? .leading : .trailing, 6)
+                }
                 // Leather band above the page: reveals the traffic lights and drags the window.
                 TrafficLightHoverZone()
                     .frame(height: NotebookMetrics.topMargin)
@@ -55,28 +89,32 @@ public struct NotebookView<Page: View>: View {
             // the page stays below it.
             .padding(.top, windowState.fullScreenTopInset)
         }
-        .background(NotebookWindowChrome(shapeVersion: selection, coverColor: theme.cover.baseColor.nsColor))
+        .background(NotebookWindowChrome(shapeVersion: "\(selection)-\(tabEdge.rawValue)", coverColor: theme.cover.baseColor.nsColor))
         .ignoresSafeArea()
     }
 }
 
 /// The cover outline: nearly square on the spine, rounded on the opening edge.
 /// Square all round while full screen, where the window fills the display.
+/// `spineOnRight` mirrors it for the tabs-on-the-left layout.
 struct CoverShape: Shape {
     var square = false
+    var spineOnRight = false
     func path(in r: CGRect) -> Path {
         if square { return Path(r) }
         let s = NotebookMetrics.spineRadius, e = NotebookMetrics.edgeRadius
+        // Radii per corner: top-left, top-right, bottom-right, bottom-left.
+        let (tl, tr, br, bl) = spineOnRight ? (e, s, s, e) : (s, e, e, s)
         var p = Path()
-        p.move(to: CGPoint(x: r.minX + s, y: r.minY))
-        p.addLine(to: CGPoint(x: r.maxX - e, y: r.minY))
-        p.addArc(center: CGPoint(x: r.maxX - e, y: r.minY + e), radius: e, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
-        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - e))
-        p.addArc(center: CGPoint(x: r.maxX - e, y: r.maxY - e), radius: e, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
-        p.addLine(to: CGPoint(x: r.minX + s, y: r.maxY))
-        p.addArc(center: CGPoint(x: r.minX + s, y: r.maxY - s), radius: s, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
-        p.addLine(to: CGPoint(x: r.minX, y: r.minY + s))
-        p.addArc(center: CGPoint(x: r.minX + s, y: r.minY + s), radius: s, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        p.move(to: CGPoint(x: r.minX + tl, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX - tr, y: r.minY))
+        p.addArc(center: CGPoint(x: r.maxX - tr, y: r.minY + tr), radius: tr, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - br))
+        p.addArc(center: CGPoint(x: r.maxX - br, y: r.maxY - br), radius: br, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+        p.addLine(to: CGPoint(x: r.minX + bl, y: r.maxY))
+        p.addArc(center: CGPoint(x: r.minX + bl, y: r.maxY - bl), radius: bl, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+        p.addLine(to: CGPoint(x: r.minX, y: r.minY + tl))
+        p.addArc(center: CGPoint(x: r.minX + tl, y: r.minY + tl), radius: tl, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
         p.closeSubpath()
         return p
     }
@@ -85,58 +123,82 @@ struct CoverShape: Shape {
 /// The leather cover with stitching and a spine highlight.
 struct CoverBlock<Content: View>: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.notebookTabEdge) private var tabEdge
     @ViewBuilder let content: Content
 
     var body: some View {
         let square = WindowState.shared.isFullScreen
+        let mirrored = tabEdge == .left
+        let shape = CoverShape(square: square, spineOnRight: mirrored)
         ZStack {
-            CoverShape(square: square).fill(theme.cover.baseColor.color)
+            shape.fill(theme.cover.baseColor.color)
             TextureOverlay(tile: theme.cover.textureTile, opacity: theme.cover.grainOpacity, blend: theme.cover.blend)
             // Light from the top-left, and a worn sheen along the edges.
-            CoverShape(square: square).fill(LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.22)],
-                                                           startPoint: .topLeading, endPoint: .bottomTrailing))
+            shape.fill(LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.22)],
+                                      startPoint: .topLeading, endPoint: .bottomTrailing))
             // Spine: the crease where the cover folds.
             LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0),
                                    .init(color: .black.opacity(0.12), location: 0.5),
                                    .init(color: .clear, location: 1)],
-                           startPoint: .leading, endPoint: .trailing)
+                           startPoint: mirrored ? .trailing : .leading, endPoint: mirrored ? .leading : .trailing)
                 .frame(width: 26)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
             // Stitching just inside the edge.
-            CoverShape(square: square)
+            shape
                 .inset(by: 7)
                 .stroke(theme.cover.stitchColor.color.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
             // Edge highlight so the cover reads as thick.
-            CoverShape(square: square).stroke(Color.white.opacity(0.10), lineWidth: 1)
+            shape.stroke(Color.white.opacity(0.10), lineWidth: 1)
             content
         }
-        .clipShape(CoverShape(square: square))
+        .clipShape(shape)
     }
 }
 
 extension CoverShape: InsettableShape {
-    func inset(by amount: CGFloat) -> some InsettableShape { InsetCover(amount: amount, square: square) }
+    func inset(by amount: CGFloat) -> some InsettableShape { InsetCover(amount: amount, square: square, spineOnRight: spineOnRight) }
 }
 
 struct InsetCover: InsettableShape {
     var amount: CGFloat
     var square = false
-    func path(in rect: CGRect) -> Path { CoverShape(square: square).path(in: rect.insetBy(dx: amount, dy: amount)) }
-    func inset(by extra: CGFloat) -> InsetCover { InsetCover(amount: amount + extra, square: square) }
+    var spineOnRight = false
+    func path(in rect: CGRect) -> Path { CoverShape(square: square, spineOnRight: spineOnRight).path(in: rect.insetBy(dx: amount, dy: amount)) }
+    func inset(by extra: CGFloat) -> InsetCover { InsetCover(amount: amount + extra, square: square, spineOnRight: spineOnRight) }
+}
+
+/// The elastic closure band, in the leather's own colour, darkened.
+struct ElasticBandView: View {
+    @Environment(\.notebookTheme) private var theme
+    var body: some View {
+        Rectangle()
+            .fill(theme.cover.bandColor.color)
+            // A rounded elastic: lit on one edge, shaded on the other, with a fine
+            // highlight so it separates from dark leather.
+            .overlay(LinearGradient(colors: [.white.opacity(0.24), .clear, .black.opacity(0.35)], startPoint: .leading, endPoint: .trailing))
+            .overlay(Rectangle().stroke(Color.white.opacity(0.14), lineWidth: 0.5))
+            .frame(width: 11)
+            .shadow(color: .black.opacity(0.5), radius: 3, x: 1, y: 0)
+            .allowsHitTesting(false)
+    }
 }
 
 struct IndexTabsView: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.notebookTabEdge) private var tabEdge
     let tabs: [NotebookTabItem]
     @Binding var selection: String
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 10) {
+        // Every tab is as long as the longest label, so the row reads as one set.
+        let length = tabs.map { PaperTab.length(for: $0.appearance) }.max() ?? PaperTab.length(for: TabAppearance(label: "Tasks"))
+        VStack(alignment: tabEdge == .left ? .leading : .trailing, spacing: 10) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
                 PaperTab(appearance: tab.appearance,
                          color: theme.tabColor(at: tab.appearance.colorIndex ?? index),
                          isSelected: tab.id == selection,
-                         index: index)
+                         index: index,
+                         length: length)
                     .onTapGesture { selection = tab.id }
                     .accessibilityAddTraits(.isButton)
                     .accessibilityLabel(tab.appearance.label)

@@ -13,6 +13,9 @@ public final class NotebookLibrary {
     public private(set) var days: [DayKey] = []
     /// Bumped whenever the index changed (rescan, save).
     public private(set) var indexVersion = 0
+    /// Bumped when every open document was thrown away (folder switch, restore):
+    /// editors keyed on it rebuild instead of keeping a stale text storage.
+    public private(set) var generation = 0
     public private(set) var lastError: String?
 
     private var watcher: FolderWatcher?
@@ -36,8 +39,30 @@ public final class NotebookLibrary {
         folder = newFolder
         index = try SearchIndex(path: SearchIndex.defaultPath(for: newFolder))
         documents.removeAll()
+        generation += 1
         startWatching()
         Task { await rescan() }
+    }
+
+    // MARK: Restore
+
+    /// Before a backup is unpacked over the folder: save everything, stop
+    /// reacting to file changes and forget the open documents.
+    public func suspendForRestore() {
+        flushAll()
+        watcher?.stop()
+        watcher = nil
+        documents.removeAll()
+    }
+
+    /// After the files (and index) were replaced: watch again, make every
+    /// editor reload, and reconcile the index with what is now on disk.
+    public func resumeAfterRestore() async {
+        generation += 1
+        startWatching()
+        await rescan()
+        refreshDays()
+        notifyChanged()
     }
 
     private func startWatching() {
@@ -175,25 +200,17 @@ public final class NotebookLibrary {
     }
 
     /// Synchronous copy with read-back verification (runs off the main actor).
+    /// Covers the note directories and the root-level files such as Tasks.md.
     nonisolated private static func copyNotebookFiles(from source: NotesFolder, to target: NotesFolder) throws {
         let fm = FileManager.default
-        for sub in ["Daily", "Attachments", "Scribe"] {
-            let from = source.root.appendingPathComponent(sub, isDirectory: true).resolvingSymlinksInPath()
-            let to = target.root.appendingPathComponent(sub, isDirectory: true)
-            guard let items = fm.enumerator(at: from, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
-            for case let raw as URL in items {
-                let file = raw.resolvingSymlinksInPath()
-                guard (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
-                      !file.lastPathComponent.hasSuffix(".icloud"), file.path.hasPrefix(from.path) else { continue }
-                let rel = file.path.dropFirst(from.path.count + 1)
-                let dest = to.appendingPathComponent(String(rel))
-                try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let data = try FileIO.read(file)
-                if let existing = try? FileIO.read(dest), FileIO.hash(existing) == FileIO.hash(data) { continue }
-                try FileIO.write(data, to: dest)
-                guard let back = try? FileIO.read(dest), FileIO.hash(back) == FileIO.hash(data) else {
-                    throw CocoaError(.fileWriteUnknown)
-                }
+        for (file, rel) in NotesFolder.notebookFiles(under: source.root) {
+            let dest = target.root.appendingPathComponent(rel)
+            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try FileIO.read(file)
+            if let existing = try? FileIO.read(dest), FileIO.hash(existing) == FileIO.hash(data) { continue }
+            try FileIO.write(data, to: dest)
+            guard let back = try? FileIO.read(dest), FileIO.hash(back) == FileIO.hash(data) else {
+                throw CocoaError(.fileWriteUnknown)
             }
         }
     }

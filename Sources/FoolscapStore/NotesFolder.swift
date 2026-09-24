@@ -71,6 +71,39 @@ public struct NotesFolder: Hashable, Sendable {
         }
     }
 
+    /// The directories and root-level files that make up a notebook.
+    public static let layoutDirectories = ["Daily", "Attachments", scribeDirectoryName]
+
+    /// Every regular file that belongs to the notebook under `root`, with its
+    /// path relative to the root: the layout directories at any depth plus
+    /// root-level files (Tasks.md). Hidden files and iCloud placeholders are skipped.
+    public static func notebookFiles(under root: URL) -> [(url: URL, relativePath: String)] {
+        let fm = FileManager.default
+        var out: [(URL, String)] = []
+        guard let top = try? fm.contentsOfDirectory(atPath: root.path) else { return [] }
+        for name in top where !name.hasPrefix(".") {
+            let item = root.appendingPathComponent(name)
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: item.path, isDirectory: &isDirectory) else { continue }
+            if isDirectory.boolValue {
+                // Relative paths from the path-based enumerator sidestep /private/var symlink games.
+                guard layoutDirectories.contains(name), let items = fm.enumerator(atPath: item.path) else { continue }
+                while let rel = items.nextObject() as? String {
+                    let leaf = (rel as NSString).lastPathComponent
+                    if leaf.hasPrefix(".") {
+                        if items.fileAttributes?[.type] as? FileAttributeType == .typeDirectory { items.skipDescendants() }
+                        continue
+                    }
+                    guard items.fileAttributes?[.type] as? FileAttributeType == .typeRegular else { continue }
+                    out.append((item.appendingPathComponent(rel), name + "/" + rel))
+                }
+            } else {
+                out.append((item, name))
+            }
+        }
+        return out.sorted { $0.1 < $1.1 }
+    }
+
     /// The default location: iCloud Drive when it exists, else ~/Documents.
     public static var defaultRoot: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser

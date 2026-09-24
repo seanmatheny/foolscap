@@ -44,18 +44,21 @@ public struct JesterShape: Shape {
 /// The closed front cover: leather, stitching, and a blind-embossed jester and wordmark.
 struct ClosedCoverFace: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.notebookTabEdge) private var tabEdge
 
     var body: some View {
+        let mirrored = tabEdge == .left
+        let shape = CoverShape(spineOnRight: mirrored)
         ZStack {
-            CoverShape().fill(theme.cover.baseColor.color)
+            shape.fill(theme.cover.baseColor.color)
             TextureOverlay(tile: theme.cover.textureTile, opacity: theme.cover.grainOpacity, blend: theme.cover.blend)
-            CoverShape().fill(LinearGradient(colors: [.white.opacity(0.12), .clear, .black.opacity(0.25)],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+            shape.fill(LinearGradient(colors: [.white.opacity(0.12), .clear, .black.opacity(0.25)],
+                                      startPoint: .topLeading, endPoint: .bottomTrailing))
             LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0), .init(color: .clear, location: 1)],
-                           startPoint: .leading, endPoint: .trailing)
+                           startPoint: mirrored ? .trailing : .leading, endPoint: mirrored ? .leading : .trailing)
                 .frame(width: 40)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            CoverShape().inset(by: 7)
+                .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
+            shape.inset(by: 7)
                 .stroke(theme.cover.stitchColor.color.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
             VStack(spacing: 18) {
                 Embossed { JesterShape().aspectRatio(1, contentMode: .fit) }
@@ -65,7 +68,7 @@ struct ClosedCoverFace: View {
             }
             .offset(y: -10)
         }
-        .clipShape(CoverShape())
+        .clipShape(shape)
     }
 }
 
@@ -85,30 +88,36 @@ struct Embossed<Content: View>: View {
 /// Plays once at launch: the closed cover swings open around the spine.
 public struct CoverOpeningOverlay: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.notebookTabEdge) private var tabEdge
     @AppStorage("openingAnimation") private var enabled = true
     @State private var angle: Double = 0
     @State private var done = false
 
     public init() {}
 
-    private var progress: Double { min(1, max(0, -angle / 165)) }
+    private var progress: Double { min(1, max(0, abs(angle) / 165)) }
 
     public var body: some View {
         if !done {
+            // The hinge is the spine: on the right when the tabs are on the left.
+            let spineOnRight = tabEdge == .left
             ZStack {
                 // The page darkens under the lifting cover, then brightens as it clears.
                 Color.black.opacity(0.35 * (1 - progress) * (progress < 0.5 ? 1 : (1 - (progress - 0.5) * 2)))
                     .allowsHitTesting(false)
                 ClosedCoverFace()
-                    .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), anchor: .leading, anchorZ: 0, perspective: 0.45)
-                    .shadow(color: .black.opacity(0.5 * (1 - progress)), radius: 30, x: 24, y: 0)
+                    .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0),
+                                      anchor: spineOnRight ? .trailing : .leading, anchorZ: 0, perspective: 0.45)
+                    .shadow(color: .black.opacity(0.5 * (1 - progress)), radius: 30, x: spineOnRight ? -24 : 24, y: 0)
             }
             .ignoresSafeArea()
             .onAppear {
                 guard enabled, !reduceMotion, !CommandLine.arguments.contains("--no-opening") else { done = true; return }
                 // FOOLSCAP_SLOW_OPEN stretches the swing for screenshots.
                 let slow = ProcessInfo.processInfo.environment["FOOLSCAP_SLOW_OPEN"] != nil ? 4.0 : 1.0
-                withAnimation(.timingCurve(0.55, 0.0, 0.25, 1.0, duration: 1.15 * slow).delay(0.35 * slow)) { angle = -165 }
+                withAnimation(.timingCurve(0.55, 0.0, 0.25, 1.0, duration: 1.15 * slow).delay(0.35 * slow)) {
+                    angle = spineOnRight ? 165 : -165
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.6 * slow) { done = true }
             }
         }

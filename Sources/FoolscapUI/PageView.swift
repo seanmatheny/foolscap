@@ -59,6 +59,7 @@ public struct RulingView: View {
 /// Sections draw their own ruling (see `RulingView`) so it can scroll with content.
 public struct PageView<Content: View>: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.notebookTabEdge) private var tabEdge
     let content: Content
 
     public init(@ViewBuilder content: () -> Content) {
@@ -66,13 +67,16 @@ public struct PageView<Content: View>: View {
     }
 
     public var body: some View {
+        // The spine is on the side the tabs are not.
+        let spineOnRight = tabEdge == .left
         ZStack {
             theme.page.paperColor.color
             TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity, blend: theme.page.textureBlend)
             // Inner shadow along the spine side
-            LinearGradient(colors: [.black.opacity(0.18), .clear], startPoint: .leading, endPoint: .trailing)
+            LinearGradient(colors: [.black.opacity(0.18), .clear],
+                           startPoint: spineOnRight ? .trailing : .leading, endPoint: spineOnRight ? .leading : .trailing)
                 .frame(width: 28)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: spineOnRight ? .trailing : .leading)
                 .allowsHitTesting(false)
             content
         }

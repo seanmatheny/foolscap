@@ -14,6 +14,8 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
     private var library: NotebookLibrary?
     private var theme: NotebookTheme = .classicBlack
     private var confirmTimer: Timer?
+    /// Tags for `#` completion, fetched when the panel opens.
+    private var knownTags: [String] = []
 
     public func toggle(library: NotebookLibrary, theme: NotebookTheme) {
         if let panel, panel.isVisible { dismiss(); return }
@@ -23,6 +25,7 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
     public func show(library: NotebookLibrary, theme: NotebookTheme) {
         self.library = library
         self.theme = theme
+        knownTags = (try? library.index.allTags()) ?? []
         let panel = self.panel ?? makePanel()
         style(panel)
         field.stringValue = ""
@@ -116,6 +119,31 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if selector == #selector(NSResponder.cancelOperation(_:)) { dismiss(); return true }
         return false
+    }
+
+    // MARK: Tag completion
+
+    /// After a typed character (not an arrow or a click in the completion list),
+    /// open the system completion list when a `#tag` is being typed.
+    public func controlTextDidChange(_ obj: Notification) {
+        guard let event = NSApp.currentEvent, event.type == .keyDown,
+              let scalar = event.characters?.unicodeScalars.first,
+              !CharacterSet.controlCharacters.contains(scalar), !(0xF700...0xF8FF).contains(scalar.value),
+              let editor = field.currentEditor() as? NSTextView,
+              let partial = TagCompletion.partial(in: editor.string, caret: editor.selectedRange().location),
+              !partial.text.isEmpty, !TagCompletion.matches(for: partial.text, in: knownTags).isEmpty else { return }
+        editor.complete(nil)
+    }
+
+    /// The field editor decides which word it replaces (it may or may not take
+    /// the `#`), so each candidate is trimmed to what that range covers.
+    public func control(_ control: NSControl, textView: NSTextView, completions words: [String],
+                        forPartialWordRange charRange: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String] {
+        guard let partial = TagCompletion.partial(in: textView.string, caret: charRange.location + charRange.length),
+              charRange.location >= partial.range.location else { return [] }
+        let skip = charRange.location - partial.range.location
+        index.pointee = 0
+        return TagCompletion.matches(for: partial.text, in: knownTags).map { String(("#" + $0).dropFirst(skip)) }
     }
 
     /// Rounded paper card with the theme's texture and an accent rule.

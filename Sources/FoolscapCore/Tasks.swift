@@ -39,6 +39,39 @@ public enum TaskStatus: String, Codable, CaseIterable, Sendable, Hashable {
     }
 }
 
+/// Priority is written at the start of the task text as `!`, `!!` or `!!!`
+/// (the Reminders convention), so it survives in plain markdown.
+public enum TaskPriority: Int, Codable, CaseIterable, Sendable, Hashable, Comparable {
+    case none = 0, low = 1, medium = 2, high = 3
+
+    public var marker: String { String(repeating: "!", count: rawValue) }
+
+    public init(marker: String) {
+        self = TaskPriority(rawValue: min(3, marker.count)) ?? .none
+    }
+
+    public var title: String {
+        switch self {
+        case .none: return "No Priority"
+        case .low: return "Low"
+        case .medium: return "Medium"
+        case .high: return "High"
+        }
+    }
+
+    /// The indicator light: blue, amber and red; nil for no priority.
+    public var color: RGBA? {
+        switch self {
+        case .none: return nil
+        case .low: return .hex(0x4E8AC2)
+        case .medium: return .hex(0xE0A030)
+        case .high: return .hex(0xD2453A)
+        }
+    }
+
+    public static func < (a: TaskPriority, b: TaskPriority) -> Bool { a.rawValue < b.rawValue }
+}
+
 /// Where a task lives. For note-backed tasks this is a file path and a 0-based line.
 public struct TaskSource: Codable, Hashable, Sendable {
     public var path: String
@@ -91,13 +124,17 @@ public struct TaskItem: Identifiable, Codable, Hashable, Sendable {
     /// The first tag is the category.
     public var category: String? { tags.first }
 
-    /// Title with tags removed, for display.
+    /// The `!` marker at the start of the title, if any.
+    public var priority: TaskPriority { TaskLineParser.priority(in: title) }
+
+    /// Title with the priority marker and tags removed, for display.
     public var displayTitle: String {
-        TaskLineParser.stripTags(from: title)
+        TaskLineParser.stripTags(from: TaskLineParser.stripPriority(from: title))
     }
 
+    /// Priority is metadata like status: changing it keeps the task's identity.
     public static func contentKey(for title: String) -> String {
-        let normalised = title.lowercased()
+        let normalised = TaskLineParser.stripPriority(from: title).lowercased()
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
         let digest = SHA256.hash(data: Data(normalised.utf8))

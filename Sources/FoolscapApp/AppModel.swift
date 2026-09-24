@@ -20,7 +20,13 @@ final class AppModel {
     var textScale: Double {
         didSet { UserDefaults.standard.set(textScale, forKey: "textScale") }
     }
+    /// Paper and cover options from Settings, independent of the theme.
+    private(set) var ruling: Ruling = .blank
+    private(set) var marginRule = false
+    private(set) var elasticBand = false
+    private(set) var tabEdge: TabEdge = .left
     private(set) var library: NotebookLibrary?
+    private(set) var backup: BackupManager?
     private(set) var startupError: String?
     let search = SearchCoordinator()
     var showExport = false
@@ -30,7 +36,9 @@ final class AppModel {
     private var scribeForced = false
     private var tasksSection: TasksSection?
 
-    var theme: NotebookTheme { (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).scaled(by: textScale) }
+    var theme: NotebookTheme {
+        (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).scaled(by: textScale).ruled(ruling, marginRule: marginRule)
+    }
     var tabs: [NotebookTabItem] { sections.map { NotebookTabItem(id: $0.id, appearance: $0.tab) } }
     var notesFolderPath: String { library?.folder.root.path ?? "" }
 
@@ -39,6 +47,7 @@ final class AppModel {
         themeID = defaults.string(forKey: "themeID") ?? NotebookTheme.classicBlack.id
         textScale = defaults.object(forKey: "textScale") as? Double ?? 1.0
         selectedSectionID = defaults.string(forKey: "selectedSection") ?? "daily"
+        readAppearancePreferences()
         let root = defaults.string(forKey: "notesFolder").map { URL(fileURLWithPath: $0) } ?? NotesFolder.defaultRoot
         do {
             library = try NotebookLibrary(folder: NotesFolder(root: root))
@@ -46,6 +55,10 @@ final class AppModel {
             startupError = "Could not open notebook folder \(root.path): \(error.localizedDescription)"
         }
         if let library {
+            let backup = BackupManager(library: library)
+            backup.onRestored = { [weak self] in self?.reloadAfterRestore() }
+            backup.startSchedule()
+            self.backup = backup
             let daily = DailyNotesSection(library: library)
             let tasks = TasksSection(library: library) { [weak self] route in
                 guard let self else { return }
@@ -64,16 +77,38 @@ final class AppModel {
             rewireSections()
         }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
-        // `Foolscap --day 2026-09-22` opens on a given day (handy for scripted screenshots).
+        // `Foolscap --day=2026-09-22` opens on a given day (handy for scripted screenshots).
+        // Values ride inside the flag: with `open … --args`, a bare value argument makes
+        // AppKit treat the launch as "open these files" and the main window never appears.
         let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--day"), i + 1 < args.count, let day = DayKey(args[i + 1]) {
+        func flagValue(_ flag: String) -> String? {
+            if let joined = args.first(where: { $0.hasPrefix(flag + "=") }) { return String(joined.dropFirst(flag.count + 1)) }
+            if let i = args.firstIndex(of: flag), i + 1 < args.count { return args[i + 1] }
+            return nil
+        }
+        if let day = flagValue("--day").flatMap(DayKey.init) {
             dailyNotes?.selectedDay = day
             selectedSectionID = "daily"
         }
-        if let i = args.firstIndex(of: "--search"), i + 1 < args.count {
-            search.open(with: args[i + 1])
+        if let query = flagValue("--search") {
+            search.open(with: query)
         }
         if args.contains("--export") { showExport = true }
+        // `--prefs-bottom` scrolls the Settings form to its end once open (for screenshots).
+        if args.contains("--prefs-bottom") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                @MainActor func scrollView(in view: NSView?) -> NSScrollView? {
+                    guard let view else { return nil }
+                    if let s = view as? NSScrollView { return s }
+                    for sub in view.subviews { if let s = scrollView(in: sub) { return s } }
+                    return nil
+                }
+                guard let window = NSApp.windows.first(where: { $0.title.hasSuffix("Settings") }),
+                      let scroll = scrollView(in: window.contentView), let doc = scroll.documentView else { return }
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, doc.frame.height - scroll.contentView.bounds.height)))
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+        }
         registerHotKeys()
         if args.contains("--fullscreen") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { NSApp.windows.first { $0.isVisible }?.toggleFullScreen(nil) }
@@ -84,19 +119,66 @@ final class AppModel {
         if args.contains("--quick-task") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.quickTask() }
         }
+        // `--backup=<file.zip>` and `--restore=<file.zip>` run a backup or a restore
+        // (no confirmation) once the window is up, for scripts and for verification.
+        if let backup, let path = flagValue("--backup") {
+            let url = URL(fileURLWithPath: path)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { Task { try? await backup.backUp(to: url) } }
+        }
+        if let backup, let path = flagValue("--restore") {
+            let url = URL(fileURLWithPath: path)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { Task { try? await backup.restore(from: url) } }
+        }
+        // `--type=text` types into the focused editor after launch, so typing-driven
+        // behaviour (tag completion) can be screenshotted without an Accessibility grant.
+        if let raw = flagValue("--type") {
+            let text = raw.replacingOccurrences(of: "\\n", with: "\n")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+                textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
+                for ch in text { textView.insertText(String(ch), replacementRange: textView.selectedRange()) }
+            }
+        }
         NotificationCenter.default.addObserver(forName: HotKeyPreferences.changed, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.registerHotKeys() }
         }
-        // Settings changes the scale and the Scribe toggle through @AppStorage; mirror them here.
+        // Settings changes the scale, the paper options and the Scribe toggle through
+        // @AppStorage (and a restore rewrites them all); mirror them here.
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let v = UserDefaults.standard.object(forKey: "textScale") as? Double ?? 1.0
+                let defaults = UserDefaults.standard
+                let v = defaults.object(forKey: "textScale") as? Double ?? 1.0
                 if v != self.textScale { self.textScale = v }
-                let scribe = UserDefaults.standard.bool(forKey: "scribeEnabled")
+                if let id = defaults.string(forKey: "themeID"), id != self.themeID, NotebookTheme.builtIn(id: id) != nil { self.themeID = id }
+                self.readAppearancePreferences()
+                let scribe = defaults.bool(forKey: "scribeEnabled")
                 if !self.scribeForced, scribe != self.scribeEnabled { self.setScribeEnabled(scribe) }
             }
         }
+    }
+
+    private func readAppearancePreferences() {
+        let defaults = UserDefaults.standard
+        let r = Ruling(rawValue: defaults.string(forKey: PreferenceKeys.ruling) ?? "") ?? .blank
+        if r != ruling { ruling = r }
+        let m = defaults.bool(forKey: PreferenceKeys.marginRule)
+        if m != marginRule { marginRule = m }
+        let b = defaults.bool(forKey: PreferenceKeys.elasticBand)
+        if b != elasticBand { elasticBand = b }
+        let e = TabEdge(rawValue: defaults.string(forKey: PreferenceKeys.tabEdge) ?? "") ?? .left
+        if e != tabEdge { tabEdge = e }
+    }
+
+    /// A restore replaced the files, the index and the settings underneath the
+    /// sections: the Scribe section re-reads its state, the Tasks tab reloads.
+    private func reloadAfterRestore() {
+        if scribeEnabled {
+            setScribeEnabled(false)
+            setScribeEnabled(true)
+        }
+        tasksSection?.aggregator.scheduleReload()
+        if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
     }
 
     /// Add or remove the Scribe section at runtime, and everything derived from `sections`.

@@ -90,8 +90,10 @@ struct DailyNotesPage: View {
     var body: some View {
         let document = section.library.document(forDay: section.selectedDay)
         ZStack(alignment: .topTrailing) {
-            MarkdownEditor(document: document, revealLine: section.pendingLine) { section.library.scheduleSave() }
-                .id(section.selectedDay)
+            MarkdownEditor(document: document, revealLine: section.pendingLine,
+                           tags: { [library = section.library] in (try? library.index.allTags()) ?? [] }) { section.library.scheduleSave() }
+                // Keyed on the library generation too: a folder switch or a restore replaces every document.
+                .id("\(section.selectedDay.string)/\(section.library.generation)")
                 .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
                                         removal: .opacity))
             DayNavigator(section: section, showCalendar: $showCalendar)

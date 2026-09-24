@@ -89,6 +89,32 @@ public final class SearchIndex: Sendable {
         try migrator.migrate(db)
     }
 
+    // MARK: - Backup
+
+    /// Copy the whole database to a file (SQLite's online backup API, so it is
+    /// consistent even while the index is in use).
+    public func backup(toFileAt path: String) throws {
+        try? FileManager.default.removeItem(atPath: path)
+        let dest = try DatabaseQueue(path: path)
+        try db.backup(to: dest)
+        try dest.close()
+    }
+
+    /// Replace this database's contents with a backed-up file, then bring the
+    /// schema up to date. On any failure the index is emptied instead; it is
+    /// only a cache and the next scan rebuilds it.
+    public func restore(fromFileAt path: String) throws {
+        do {
+            let source = try DatabaseQueue(path: path)
+            try source.backup(to: db)
+            try source.close()
+            try migrate()
+        } catch {
+            try removeAll()
+            throw error
+        }
+    }
+
     // MARK: - Notes
 
     public struct NoteRecord: Equatable, Sendable {
