@@ -101,7 +101,10 @@ struct SyncStatusLine: View {
                 Button("Sign in to Amazon…") { section.signIn() }.buttonStyle(.plain).foregroundStyle(theme.accent.color)
             } else {
                 HStack(spacing: 6) {
-                    Text(lastRunText).lineLimit(1)
+                    // "5 min ago" goes stale, so it is redrawn every minute.
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        Text(lastRunText(now: context.date)).lineLimit(1)
+                    }
                     Text("·")
                     Button("Sync now") { section.syncNow() }.buttonStyle(.plain).foregroundStyle(theme.accent.color)
                 }
@@ -114,10 +117,14 @@ struct SyncStatusLine: View {
         .foregroundStyle(theme.dimInk.color)
     }
 
-    private var lastRunText: String {
-        guard let run = section.status.lastRun ?? section.state.lastSync else { return "Not synced yet" }
+    private static let relative: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .short
-        return "Synced " + f.localizedString(for: run, relativeTo: Date())
+        return f
+    }()
+
+    private func lastRunText(now: Date) -> String {
+        guard let run = section.status.lastRun ?? section.state.lastSync else { return "Not synced yet" }
+        return "Synced " + Self.relative.localizedString(for: run, relativeTo: now)
     }
 }
