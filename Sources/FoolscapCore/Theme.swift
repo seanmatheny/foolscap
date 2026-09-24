@@ -32,6 +32,42 @@ public enum Ruling: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// The paper's surface, chosen in Settings independently of the theme.
+public enum PaperTexture: String, Codable, CaseIterable, Sendable {
+    case none, cotton, laid, linen, vellum, flecked, coldPress
+
+    public var title: String {
+        switch self {
+        case .none: return "None"
+        case .cotton: return "Cotton"
+        case .laid: return "Laid"
+        case .linen: return "Linen"
+        case .vellum: return "Vellum"
+        case .flecked: return "Flecked"
+        case .coldPress: return "Cold press"
+        }
+    }
+
+    /// The tile in FoolscapUI/Textures (`make textures`); empty for none.
+    public var tile: String {
+        switch self {
+        case .none: return ""
+        case .coldPress: return "paper-coldpress"
+        default: return "paper-" + rawValue
+        }
+    }
+
+    /// Overlay opacity on light paper (soft light).
+    var strength: Double {
+        switch self {
+        case .none: return 0
+        case .cotton, .vellum, .flecked: return 0.9
+        case .laid, .linen: return 0.8
+        case .coldPress: return 0.7
+        }
+    }
+}
+
 /// How a texture tile combines with the colour beneath it.
 public enum TextureBlend: String, Codable, Sendable {
     /// Adds the tile's light parts: highlights on dark leather.
@@ -142,6 +178,16 @@ public struct NotebookTheme: Codable, Identifiable, Hashable, Sendable {
         t.type.body.size *= factor
         t.type.heading.size *= factor
         t.type.mono.size *= factor
+        return t
+    }
+
+    /// The same theme on another paper (texture preference, independent of theme).
+    /// Dark paper screens the tile in, which lifts the whole page, so it gets a
+    /// small fraction of the strength.
+    public func onPaper(_ texture: PaperTexture) -> NotebookTheme {
+        var t = self
+        t.page.textureTile = texture.tile
+        t.page.textureOpacity = texture.strength * (t.page.textureBlend == .screen ? 0.1 : 1)
         return t
     }
 

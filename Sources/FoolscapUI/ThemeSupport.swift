@@ -64,7 +64,7 @@ public struct TextureOverlay: View {
         }
     }
     public var body: some View {
-        if let img = FoolscapUIResources.texture(tile) {
+        if !tile.isEmpty, opacity > 0, let img = FoolscapUIResources.texture(tile) {
             // `blendMode` has to be the outermost modifier: opacity or clipping
             // applied after it would flatten the view into a normal composite.
             Image(nsImage: img)

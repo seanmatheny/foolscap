@@ -25,6 +25,7 @@ final class AppModel {
     private(set) var marginRule = false
     private(set) var elasticBand = false
     private(set) var tabEdge: TabEdge = .left
+    private(set) var paperTexture: PaperTexture = .none
     private(set) var library: NotebookLibrary?
     private(set) var backup: BackupManager?
     private(set) var startupError: String?
@@ -37,7 +38,7 @@ final class AppModel {
     private var tasksSection: TasksSection?
 
     var theme: NotebookTheme {
-        (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).scaled(by: textScale).ruled(ruling, marginRule: marginRule)
+        (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).scaled(by: textScale).onPaper(paperTexture).ruled(ruling, marginRule: marginRule)
     }
     var tabs: [NotebookTabItem] { sections.map { NotebookTabItem(id: $0.id, appearance: $0.tab) } }
     var notesFolderPath: String { library?.folder.root.path ?? "" }
@@ -168,6 +169,8 @@ final class AppModel {
         if b != elasticBand { elasticBand = b }
         let e = TabEdge(rawValue: defaults.string(forKey: PreferenceKeys.tabEdge) ?? "") ?? .left
         if e != tabEdge { tabEdge = e }
+        let p = PaperTexture(rawValue: defaults.string(forKey: PreferenceKeys.paperTexture) ?? "") ?? .none
+        if p != paperTexture { paperTexture = p }
     }
 
     /// A restore replaced the files, the index and the settings underneath the

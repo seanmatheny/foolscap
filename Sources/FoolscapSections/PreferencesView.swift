@@ -28,6 +28,7 @@ public struct PreferencesView: View {
     @AppStorage(PreferenceKeys.marginRule) private var marginRule = false
     @AppStorage(PreferenceKeys.elasticBand) private var elasticBand = false
     @AppStorage(PreferenceKeys.tabEdge) private var tabEdge = TabEdge.left.rawValue
+    @AppStorage(PreferenceKeys.paperTexture) private var paperTexture = PaperTexture.none.rawValue
     @AppStorage("exportFormat") private var exportFormat = "markdown"
     @AppStorage("exportIncludeAttachments") private var exportAttachments = true
     @AppStorage("scribeEnabled") private var scribeEnabled = false
@@ -71,6 +72,16 @@ public struct PreferencesView: View {
                 Toggle("Red margin line", isOn: $marginRule)
                 Text("Rules follow the text size and take their colour from the theme.")
                     .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Paper") {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 10)], spacing: 10) {
+                        ForEach(PaperTexture.allCases, id: \.self) { texture in
+                            PaperSwatch(texture: texture, theme: NotebookTheme.builtIn(id: themeID) ?? .classicBlack,
+                                        isSelected: texture.rawValue == paperTexture)
+                                .onTapGesture { paperTexture = texture.rawValue }
+                        }
+                    }
+                    .frame(width: 330)
+                }
                 Picker("Index tabs", selection: $tabEdge) {
                     ForEach(TabEdge.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
                 }
@@ -146,6 +157,7 @@ public enum PreferenceKeys {
     public static let marginRule = "marginRule"
     public static let elasticBand = "elasticBand"
     public static let tabEdge = "tabEdge"
+    public static let paperTexture = "paperTexture"
 }
 
 /// The Backup section of Settings: schedule, folder, one-off backup and restore.
@@ -192,6 +204,30 @@ struct BackupSettings: View {
         }
         Text("One zip file holds everything: notes and attachments, Tasks.md, Scribe notebooks and transcripts, the search index, Scribe sync state and these settings. Restoring replaces all of it; the current notebook is backed up to the folder above first.")
             .font(.caption).foregroundStyle(.secondary)
+    }
+}
+
+/// A corner of the current theme's paper in one texture, with its name.
+struct PaperSwatch: View {
+    let texture: PaperTexture
+    let theme: NotebookTheme
+    let isSelected: Bool
+
+    var body: some View {
+        let page = theme.onPaper(texture).page
+        VStack(spacing: 4) {
+            ZStack {
+                page.paperColor.color
+                TextureOverlay(tile: page.textureTile, opacity: page.textureOpacity, blend: page.textureBlend)
+            }
+            .frame(width: 60, height: 44)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(isSelected ? Color.accentColor : Color.black.opacity(0.15), lineWidth: isSelected ? 2.5 : 0.5))
+            .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+            Text(texture.title).font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+        }
+        .contentShape(Rectangle())
+        .help(texture == .none ? "Plain paper" : "\(texture.title) paper")
     }
 }
 
