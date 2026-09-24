@@ -46,6 +46,7 @@ public final class NotebookLibrary {
         folder = newFolder
         index = try SearchIndex(path: SearchIndex.defaultPath(for: newFolder))
         documents.removeAll()
+        knownTags = []
         generation += 1
         startWatching()
         Task { await rescan() }
@@ -328,7 +329,11 @@ public final class NotebookLibrary {
         if rescanTask == task { rescanTask = nil }
         guard generation == rescanGeneration, !task.isCancelled else { return }
         refreshDays()
-        if changed || full { notifyChanged() }
+        if changed || full {
+            notifyChanged()
+        } else if knownTags.isEmpty {
+            refreshTags()   // first scan after launch or a folder switch found nothing new
+        }
     }
 
     public func rebuildIndex() async {
