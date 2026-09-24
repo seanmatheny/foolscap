@@ -18,6 +18,24 @@ import AppKit
     }
 }
 
+@Suite @MainActor struct RulingDrawTests {
+    /// A scroll bouncing past the top asks for a rect wholly above the first rule;
+    /// the ruling loop used to build `0...-3` there and trap.
+    @Test func drawingAboveTheFirstRuleDoesNotTrap() throws {
+        let doc = NoteDocument(path: "x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)
+        doc.setText("one\ntwo\n")
+        for ruling in [Ruling.lined, .grid, .dotted] {
+            let view = MarkdownTextView(document: doc, palette: EditorPalette(theme: NotebookTheme.classicBlack.ruled(ruling, marginRule: true)))
+            view.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+            let rep = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            view.draw(NSRect(x: 0, y: -400, width: 600, height: 20))
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+}
+
 @Suite @MainActor struct CaretSkipTests {
     @Test func caretStepsOverCollapsedImageLines() {
         let doc = NoteDocument(path: "x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)

@@ -502,18 +502,21 @@ public final class MarkdownTextView: NSTextView {
         let rule = palette.ruleColor.cgColor
         let firstLine = max(0, Int((rect.minY - top - ruleOffset) / pitch) - 1)
         let lastLine = Int((rect.maxY - top - ruleOffset) / pitch) + 1
+        // Empty (not a trap) when the dirty rect lies wholly above the first rule,
+        // as it does while a scroll bounces past the top of the page.
+        let lines = stride(from: firstLine, through: lastLine, by: 1)
         switch palette.ruling {
         case .blank: break
         case .lined:
             ctx.setStrokeColor(rule)
-            for i in firstLine...lastLine {
+            for i in lines {
                 let y = top + ruleOffset + CGFloat(i) * pitch + 0.5
                 ctx.move(to: CGPoint(x: rect.minX, y: y)); ctx.addLine(to: CGPoint(x: rect.maxX, y: y))
             }
             ctx.strokePath()
         case .grid:
             ctx.setStrokeColor(rule); ctx.setLineWidth(0.5)
-            for i in firstLine...lastLine {
+            for i in lines {
                 let y = top + ruleOffset + CGFloat(i) * pitch + 0.5
                 ctx.move(to: CGPoint(x: rect.minX, y: y)); ctx.addLine(to: CGPoint(x: rect.maxX, y: y))
             }
@@ -525,7 +528,7 @@ public final class MarkdownTextView: NSTextView {
             ctx.strokePath()
         case .dotted:
             ctx.setFillColor(rule)
-            for i in firstLine...lastLine {
+            for i in lines {
                 let y = top + ruleOffset + CGFloat(i) * pitch
                 var x = EditorMetrics.leftInset.truncatingRemainder(dividingBy: pitch)
                 while x < bounds.maxX {
