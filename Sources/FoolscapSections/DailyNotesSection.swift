@@ -93,6 +93,8 @@ struct DailyNotesPage: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
+            // Holds the page's full size while the note loads, so the navigator stays in its corner.
+            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
             // The note loads in the background the first time a day is shown; the
             // editor appears once the text is in place, so nothing typed is overwritten.
             if let document, document.isLoaded {
