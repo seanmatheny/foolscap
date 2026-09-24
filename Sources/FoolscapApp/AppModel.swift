@@ -138,10 +138,10 @@ final class AppModel {
         // Each character is a key-down event, 0.15 s apart, so the completion list
         // sees keys as it would from the keyboard.
         if let raw = flagValue("--type") {
-            // Named keys: {up} {down} {left} {right} {tab} {esc}; \n is Return.
+            // Named keys: {up} {down} {left} {right} {tab} {esc} {paste} (⌘V); \n is Return.
             let named: [String: (String, UInt16)] = [
                 "up": ("\u{F700}", 126), "down": ("\u{F701}", 125), "left": ("\u{F702}", 123), "right": ("\u{F703}", 124),
-                "tab": ("\t", 48), "esc": ("\u{1B}", 53)]
+                "tab": ("\t", 48), "esc": ("\u{1B}", 53), "paste": ("v", 9)]
             var keys: [(chars: String, code: UInt16)] = []
             var rest = Substring(raw.replacingOccurrences(of: "\\n", with: "\n"))
             while let ch = rest.first {
@@ -168,8 +168,9 @@ final class AppModel {
                 Thread.detachNewThread {
                     for key in keys {
                         Thread.sleep(forTimeInterval: 0.15)
-                        let flags: NSEvent.ModifierFlags = key.chars.unicodeScalars.first.map { (0xF700...0xF8FF).contains($0.value) } == true
+                        var flags: NSEvent.ModifierFlags = key.chars.unicodeScalars.first.map { (0xF700...0xF8FF).contains($0.value) } == true
                             ? [.function, .numericPad] : []
+                        if key.chars == "v" && key.code == 9 { flags = .command }
                         guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
                                                            timestamp: ProcessInfo.processInfo.systemUptime,
                                                            windowNumber: windowNumber, context: nil,

@@ -71,15 +71,29 @@ public final class MarkdownTextView: NSTextView {
             if let line = styler.blockMap.line(at: caret), styler.isCollapsed(line: line.index) {
                 let length = (string as NSString).length
                 let forward = caret >= lastCaret
-                let target = forward ? min(length, line.range.location + line.range.length + 1)
-                                     : max(0, line.range.location - 1)
+                let lineEnd = line.range.location + line.range.length
+                let target = forward ? min(length, lineEnd + 1) : max(0, line.range.location - 1)
                 ranges = [NSValue(range: NSRange(location: target, length: 0))]
+                // The note ends on the image or link line: there is no line below it to
+                // land on, so make one (after this selection change has finished).
+                if forward, lineEnd >= length { DispatchQueue.main.async { [weak self] in self?.addLineAfterLastOverlay() } }
             }
         }
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         if ranges.count == 1, ranges[0].rangeValue.length == 0 { lastCaret = ranges[0].rangeValue.location }
         styler.selectionChanged()
         scheduleTagListUpdate(open: false)
+    }
+
+    private func addLineAfterLastOverlay() {
+        let length = (string as NSString).length
+        guard let line = styler.blockMap.line(at: length), styler.isCollapsed(line: line.index),
+              line.range.location + line.range.length >= length else { return }
+        let end = NSRange(location: length, length: 0)
+        guard shouldChangeText(in: end, replacementString: "\n") else { return }
+        textStorage?.replaceCharacters(in: end, with: "\n")
+        didChangeText()
+        setSelectedRange(NSRange(location: length + 1, length: 0))
     }
 
     // MARK: Tag completion
@@ -490,12 +504,16 @@ public final class MarkdownTextView: NSTextView {
     }
 
     /// Bottom of the last text line of the paragraph at `range` (excludes paragraph spacing).
+    /// The document's last paragraph, when the text ends with a newline, also carries
+    /// the empty line after it (TextKit's extra line fragment); that one is skipped, or
+    /// an image on the last line is drawn over the empty line below its reserved space.
     func lineBottom(for range: NSRange) -> CGFloat? {
         guard let tlm = textLayoutManager, let cm = tlm.textContentManager,
               let start = cm.location(tlm.documentRange.location, offsetBy: range.location) else { return nil }
         var bottom: CGFloat?
         tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
-            if let last = fragment.textLineFragments.last {
+            let lines = fragment.textLineFragments
+            if let last = lines.last(where: { $0.characterRange.length > 0 }) ?? lines.last {
                 bottom = fragment.layoutFragmentFrame.minY + last.typographicBounds.maxY + textContainerInset.height
             }
             return false

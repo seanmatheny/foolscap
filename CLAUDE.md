@@ -56,7 +56,12 @@
 - Overlays are positioned from the paragraph's last line bottom (`lineBottom(for:)`),
   not from the layout fragment's maxY: the last paragraph in a document gets no
   trailing paragraph spacing, so an image on the final line would float upward.
-  `insertMarkdown(ownLine:)` therefore always leaves a line after a block.
+  `insertMarkdown(ownLine:)` therefore always leaves a line after a block. When the
+  text ends with a newline, TextKit 2 puts the empty extra line fragment inside the
+  last paragraph's layout fragment, so `lineBottom` skips zero-length line fragments
+  (else the image draws over the line below it). A note ending on an image line with
+  no newline gets one added when the caret steps past the image
+  (`addLineAfterLastOverlay`). `--type={paste}` sends ⌘V for testing pastes.
 - `NSTextView.maxSize` must be set to greatestFiniteMagnitude or the view never
   grows past the clip view and scrolling silently stops.
 - Rotated SwiftUI labels keep their unrotated layout size: collapse them with
