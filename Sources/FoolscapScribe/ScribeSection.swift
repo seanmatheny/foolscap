@@ -297,9 +297,17 @@ public final class ScribeSection: NotebookSection {
         selectedNotebookID = item.id
         reveal(notebook: item.id)
         pendingPage = nil
-        if let line = route.line, let data = try? FileIO.read(library.folder.url(forRelativePath: route.path)) {
-            let parsed = ScribeTranscript.parse(String(decoding: data, as: UTF8.self))
-            pendingPage = ScribeTranscript.pageNumber(forLine: line, in: parsed)
+        guard let line = route.line else { return }
+        // Coordinated read off the main actor: iCloud can hold it for seconds.
+        let url = library.folder.url(forRelativePath: route.path)
+        Task { [weak self] in
+            let page = await Task.detached(priority: .userInitiated) {
+                (try? FileIO.read(url)).flatMap {
+                    ScribeTranscript.pageNumber(forLine: line, in: ScribeTranscript.parse(String(decoding: $0, as: UTF8.self)))
+                }
+            }.value
+            guard let self, self.selectedNotebookID == item.id else { return }
+            self.pendingPage = page
         }
     }
 
