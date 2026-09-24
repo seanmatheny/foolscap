@@ -16,6 +16,11 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
     private var confirmTimer: Timer?
     /// Tags for `#` completion, fetched when the panel opens.
     private var knownTags: [String] = []
+    private let tagPopup = TagCompletionPopup()
+    /// The `#tag` the open list would replace.
+    private var popupPartial: TagCompletion.Partial?
+    /// A tag just accepted or dismissed, so the list does not reopen over it.
+    private var dismissedTag: (location: Int, word: String)?
 
     public func toggle(library: NotebookLibrary, theme: NotebookTheme) {
         if let panel, panel.isVisible { dismiss(); return }
@@ -29,6 +34,7 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
         let panel = self.panel ?? makePanel()
         style(panel)
         field.stringValue = ""
+        dismissedTag = nil
         hint.stringValue = "Return adds to the Tasks tab · #tags welcome · Esc closes"
         if let screen = NSScreen.main {
             let size = panel.frame.size
@@ -40,7 +46,10 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
         field.selectText(nil)
     }
 
-    public func dismiss() { panel?.orderOut(nil) }
+    public func dismiss() {
+        hideTagList()
+        panel?.orderOut(nil)
+    }
 
     /// Borderless panels refuse key status by default; this one must take
     /// keyboard input without activating the app.
@@ -117,33 +126,55 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
     }
 
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if tagPopup.isVisible {
+            switch selector {
+            case #selector(NSResponder.moveUp(_:)): tagPopup.move(-1); return true
+            case #selector(NSResponder.moveDown(_:)): tagPopup.move(1); return true
+            case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+                if let tag = tagPopup.selectedTag { acceptTag(tag); return true }
+            case #selector(NSResponder.cancelOperation(_:)):
+                if let partial = popupPartial {
+                    dismissedTag = (partial.range.location, (textView.string as NSString).substring(with: partial.range))
+                }
+                hideTagList()
+                return true
+            default: hideTagList()   // caret moves leave the tag; edits reopen the list
+            }
+        }
         if selector == #selector(NSResponder.cancelOperation(_:)) { dismiss(); return true }
         return false
     }
 
     // MARK: Tag completion
 
-    /// After a typed character (not an arrow or a click in the completion list),
-    /// open the system completion list when a `#tag` is being typed.
-    public func controlTextDidChange(_ obj: Notification) {
-        guard let event = NSApp.currentEvent, event.type == .keyDown,
-              let scalar = event.characters?.unicodeScalars.first,
-              !CharacterSet.controlCharacters.contains(scalar), !(0xF700...0xF8FF).contains(scalar.value),
-              let editor = field.currentEditor() as? NSTextView,
-              let partial = TagCompletion.partial(in: editor.string, caret: editor.selectedRange().location),
-              !partial.text.isEmpty, !TagCompletion.matches(for: partial.text, in: knownTags).isEmpty else { return }
-        editor.complete(nil)
+    /// The themed tag list (as in the editor) under a `#tag` being typed; ↑/↓
+    /// choose, Return or Tab accept, Escape closes the list, then the panel.
+    public func controlTextDidChange(_ obj: Notification) { updateTagList() }
+
+    private func updateTagList() {
+        guard let panel, panel.isVisible, let editor = field.currentEditor() as? NSTextView,
+              editor.selectedRange().length == 0,
+              let partial = TagCompletion.partial(in: editor.string, caret: editor.selectedRange().location) else { hideTagList(); return }
+        let word = (editor.string as NSString).substring(with: partial.range)
+        if let dismissed = dismissedTag, dismissed.location == partial.range.location, dismissed.word == word { hideTagList(); return }
+        let matches = TagCompletion.matches(for: partial.text, in: knownTags)
+        let anchor = editor.firstRect(forCharacterRange: partial.range, actualRange: nil)
+        guard !matches.isEmpty, anchor != .zero else { hideTagList(); return }
+        popupPartial = partial
+        tagPopup.show(tags: matches, theme: theme, below: anchor, in: panel) { [weak self] tag in self?.acceptTag(tag) }
     }
 
-    /// The field editor decides which word it replaces (it may or may not take
-    /// the `#`), so each candidate is trimmed to what that range covers.
-    public func control(_ control: NSControl, textView: NSTextView, completions words: [String],
-                        forPartialWordRange charRange: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String] {
-        guard let partial = TagCompletion.partial(in: textView.string, caret: charRange.location + charRange.length),
-              charRange.location >= partial.range.location else { return [] }
-        let skip = charRange.location - partial.range.location
-        index.pointee = 0
-        return TagCompletion.matches(for: partial.text, in: knownTags).map { String(("#" + $0).dropFirst(skip)) }
+    private func hideTagList() {
+        popupPartial = nil
+        tagPopup.hide()
+    }
+
+    private func acceptTag(_ tag: String) {
+        guard let partial = popupPartial, let editor = field.currentEditor() as? NSTextView else { return }
+        hideTagList()
+        let word = "#" + tag + " "
+        dismissedTag = (partial.range.location, "#" + tag)
+        editor.insertText(word, replacementRange: partial.range)
     }
 
     /// Rounded paper card with the theme's texture and an accent rule.

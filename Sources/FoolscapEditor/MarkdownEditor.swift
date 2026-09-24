@@ -47,6 +47,7 @@ public struct MarkdownEditor: NSViewRepresentable {
         guard let textView = context.coordinator.textView else { return }
         let palette = EditorPalette(theme: theme)
         textView.knownTags = tags
+        textView.palette.theme = theme
         if palette.body != textView.palette.body || palette.ink != textView.palette.ink || palette.ruling != textView.palette.ruling
             || palette.showMarginRule != textView.palette.showMarginRule {
             textView.palette = palette

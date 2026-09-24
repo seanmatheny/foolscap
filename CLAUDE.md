@@ -30,8 +30,10 @@
 - Launch flags for verification: `--day=YYYY-MM-DD`, `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
   to that many points), `--scribe`,
-  `--type=text` (types into the focused editor after 2s, e.g. to show tag
-  completion), `--backup=file.zip` and `--restore=file.zip` (no confirmation).
+  `--type=text` (posts key events into the focused text after 2s, e.g. to show tag
+  completion; `\n` is Return, `{up}` `{down}` `{left}` `{right}` `{tab}` `{esc}` name
+  keys), `--quick-task` (opens the quick-task panel; `window-shot.sh … all`
+  captures it), `--backup=file.zip` and `--restore=file.zip` (no confirmation).
   Always use the `flag=value` form with `open Foolscap.app --args …`: a bare
   value argument (a date, a path, any word) makes AppKit treat the launch as
   "open these files" and the main window never appears; `Tools/winlist.swift`
@@ -86,11 +88,14 @@
 - Task priority is `!`/`!!`/`!!!` at the start of the task text (`TaskPriority`,
   `TaskLineParser.priority`). It stays inside `TaskItem.title` so files round-trip,
   but `contentKey` strips it: changing priority keeps the task's identity.
-- Tag completion (`TagCompletion` in Core) drives NSTextView's own completion list
-  in the editor (`rangeForUserCompletion` spans the `#`, `complete(nil)` is called
-  from `didChangeText` only when there are matches, since it beeps otherwise), the
-  quick-task panel's field editor (candidates trimmed to whatever word range AppKit
-  picked) and `TagCompletionRow` chips in the SwiftUI task fields.
+- Tag completion (`TagCompletion` in Core) shows `TagCompletionPopup` (FoolscapUI): a
+  themed, never-key child panel under the typed `#tag`, fed by the editor
+  (`didChangeText`/selection changes, keys through `doCommand(by:)`) and by the
+  quick-task panel (`controlTextDidChange`, `doCommandBy`). NSTextView's system list
+  is not used: it ignores the theme, accepts the suggestion on a typed space, and
+  runs its own event loop that blocks queued blocks and Apple Events such as Quit.
+  A bare `#` opens the list except at a line start (a heading). The SwiftUI task
+  fields use `TagCompletionRow` chips.
 - Backups (`FoolscapStore/Backup.swift`) are zips made with `/usr/bin/ditto`:
   `manifest.json`, `Notebook/`, `Index/index.sqlite` (SQLite online backup API),
   `Support/` (Application Support/Foolscap minus indexes) and `Preferences.plist`.

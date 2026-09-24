@@ -2,6 +2,7 @@ import AppKit
 import UniformTypeIdentifiers
 import FoolscapCore
 import FoolscapStore
+import FoolscapUI
 
 /// Editor geometry.
 enum EditorMetrics {
@@ -24,13 +25,12 @@ public final class MarkdownTextView: NSTextView {
     /// Known tags for `#` completion, most used first (set by the editor wrapper).
     var knownTags: () -> [String] = { [] }
     private var completionScheduled = false
-    private var insertingCompletion = false
-    /// The last word accepted (or cancelled) from the completion list, so the
-    /// list does not pop straight back up over it.
+    /// The last word accepted (or dismissed) from the tag list, so the list does
+    /// not pop straight back up over it.
     private var lastCompletion: (location: Int, word: String)?
-    /// Tags fetched by `offerTagCompletion`, reused by the `completions` call
-    /// that `complete(nil)` makes straight away (one lookup per keystroke).
-    private var offeredTags: [String]?
+    private let tagPopup = TagCompletionPopup()
+    /// The `#tag` the open list would replace.
+    private var popupPartial: TagCompletion.Partial?
 
     public init(document: NoteDocument, palette: EditorPalette) {
         self.palette = palette
@@ -79,58 +79,112 @@ public final class MarkdownTextView: NSTextView {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         if ranges.count == 1, ranges[0].rangeValue.length == 0 { lastCaret = ranges[0].rangeValue.location }
         styler.selectionChanged()
+        scheduleTagListUpdate(open: false)
     }
 
     // MARK: Tag completion
 
-    /// The system completion list, fed with known tags while a `#tag` is being
-    /// typed. It opens by itself after the first character following the `#`;
-    /// Return or Tab accepts, Escape closes, typing on keeps narrowing it.
-    public override var rangeForUserCompletion: NSRange {
-        if let partial = TagCompletion.partial(in: string, caret: selectedRange().location) { return partial.range }
-        return super.rangeForUserCompletion
-    }
-
-    public override func completions(forPartialWordRange charRange: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String]? {
-        let ns = string as NSString
-        guard charRange.length > 0, charRange.location + charRange.length <= ns.length,
-              ns.character(at: charRange.location) == 0x23 /* # */ else {
-            return super.completions(forPartialWordRange: charRange, indexOfSelectedItem: index)
-        }
-        let typed = ns.substring(with: NSRange(location: charRange.location + 1, length: charRange.length - 1))
-        index.pointee = 0
-        return TagCompletion.matches(for: typed, in: offeredTags ?? knownTags()).map { "#" + $0 }
-    }
-
-    public override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange, movement: Int, isFinal flag: Bool) {
-        insertingCompletion = true
-        super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
-        insertingCompletion = false
-        if flag { lastCompletion = (charRange.location, word) }
-    }
-
+    /// A themed list of known tags under a `#tag` being typed. It opens by itself
+    /// at the `#` (after the first letter at the start of a line, where `#` is
+    /// usually a heading) and narrows as typing goes on; ↑/↓ choose, Return, Tab
+    /// or a click accept, Escape closes, and a space or punctuation simply ends
+    /// the tag as typed.
     public override func didChangeText() {
         super.didChangeText()
-        guard !insertingCompletion, !completionScheduled else { return }
+        scheduleTagListUpdate(open: true)
+    }
+
+    /// Re-check after the edit or selection change has settled (the styler and
+    /// AppKit are still mid-update when these hooks run).
+    private func scheduleTagListUpdate(open: Bool) {
+        guard !completionScheduled, open || tagPopup.isVisible else { return }
         completionScheduled = true
         DispatchQueue.main.async { [weak self] in
             self?.completionScheduled = false
-            self?.offerTagCompletion()
+            self?.updateTagList(open: open)
         }
     }
 
-    private func offerTagCompletion() {
-        guard window?.firstResponder === self, selectedRange().length == 0, !hasMarkedText(),
-              let partial = TagCompletion.partial(in: string, caret: selectedRange().location), !partial.text.isEmpty else { return }
-        let word = (string as NSString).substring(with: partial.range)
-        if let last = lastCompletion, last.location == partial.range.location, last.word == word { return }
-        // `complete` beeps when it has nothing to offer: only call it when it does.
-        let tags = knownTags()
-        guard !TagCompletion.matches(for: partial.text, in: tags).isEmpty else { return }
-        offeredTags = tags
-        defer { offeredTags = nil }
-        complete(nil)
+    /// Show, refresh or hide the list for the tag at the caret; `open` is false
+    /// for caret moves and scrolling, which only keep an open list up to date.
+    private func updateTagList(open: Bool) {
+        guard let window, window.isKeyWindow, window.firstResponder === self, selectedRange().length == 0, !hasMarkedText(),
+              open || tagPopup.isVisible,
+              let partial = TagCompletion.partial(in: string, caret: selectedRange().location) else { hideTagList(); return }
+        let ns = string as NSString
+        if partial.text.isEmpty {
+            let lineStart = ns.lineRange(for: NSRange(location: partial.range.location, length: 0)).location
+            if partial.range.location == lineStart { hideTagList(); return }
+        }
+        let word = ns.substring(with: partial.range)
+        if let last = lastCompletion, last.location == partial.range.location, last.word == word { hideTagList(); return }
+        let matches = TagCompletion.matches(for: partial.text, in: knownTags())
+        guard !matches.isEmpty else { hideTagList(); return }
+        let anchor = firstRect(forCharacterRange: partial.range, actualRange: nil)
+        guard anchor != .zero else { hideTagList(); return }
+        popupPartial = partial
+        tagPopup.show(tags: matches, theme: palette.theme, below: anchor, in: window) { [weak self] tag in
+            self?.acceptTag(tag)
+        }
     }
+
+    private func hideTagList() {
+        popupPartial = nil
+        tagPopup.hide()
+    }
+
+    private func acceptTag(_ tag: String) {
+        guard let partial = popupPartial else { return }
+        let word = "#" + tag
+        lastCompletion = (partial.range.location, word)
+        hideTagList()
+        insertText(word, replacementRange: partial.range)
+    }
+
+    public override func doCommand(by selector: Selector) {
+        if tagPopup.isVisible {
+            switch selector {
+            case #selector(moveUp(_:)): tagPopup.move(-1); return
+            case #selector(moveDown(_:)): tagPopup.move(1); return
+            case #selector(insertNewline(_:)), #selector(insertTab(_:)):
+                if let tag = tagPopup.selectedTag { acceptTag(tag); return }
+            case #selector(cancelOperation(_:)):
+                if let partial = popupPartial {
+                    lastCompletion = (partial.range.location, (string as NSString).substring(with: partial.range))
+                }
+                hideTagList()
+                return
+            default: break
+            }
+        }
+        super.doCommand(by: selector)
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        hideTagList()
+        return super.resignFirstResponder()
+    }
+
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { hideTagList() }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        if let clip = enclosingScrollView?.contentView {
+            // Scrolling carries the tag away from the list: follow it (or close when it leaves).
+            NotificationCenter.default.addObserver(self, selector: #selector(tagListContextMoved), name: NSView.boundsDidChangeNotification, object: clip)
+        }
+        if let window {
+            NotificationCenter.default.addObserver(self, selector: #selector(tagListContextLost), name: NSWindow.didResignKeyNotification, object: window)
+        }
+    }
+
+    @objc private func tagListContextMoved() { if tagPopup.isVisible { updateTagList(open: false) } }
+    @objc private func tagListContextLost() { hideTagList() }
 
     // MARK: Overlays
 
@@ -544,3 +598,4 @@ public final class MarkdownTextView: NSTextView {
         ctx.restoreGState()
     }
 }
+

@@ -4,6 +4,8 @@ import FoolscapUI
 
 /// Everything the text view needs from a theme, resolved to AppKit types once.
 public struct EditorPalette {
+    /// The theme itself, for SwiftUI chrome drawn over the text (the tag list).
+    public var theme: NotebookTheme
     public var ink: NSColor
     public var dimInk: NSColor
     public var accent: NSColor
@@ -30,6 +32,7 @@ public struct EditorPalette {
     public var isDark: Bool
 
     public init(theme: NotebookTheme) {
+        self.theme = theme
         ink = theme.ink.nsColor
         dimInk = theme.dimInk.nsColor
         accent = theme.accent.nsColor

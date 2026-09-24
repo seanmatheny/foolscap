@@ -135,12 +135,49 @@ final class AppModel {
         }
         // `--type=text` types into the focused editor after launch, so typing-driven
         // behaviour (tag completion) can be screenshotted without an Accessibility grant.
+        // Each character is a key-down event, 0.15 s apart, so the completion list
+        // sees keys as it would from the keyboard.
         if let raw = flagValue("--type") {
-            let text = raw.replacingOccurrences(of: "\\n", with: "\n")
+            // Named keys: {up} {down} {left} {right} {tab} {esc}; \n is Return.
+            let named: [String: (String, UInt16)] = [
+                "up": ("\u{F700}", 126), "down": ("\u{F701}", 125), "left": ("\u{F702}", 123), "right": ("\u{F703}", 124),
+                "tab": ("\t", 48), "esc": ("\u{1B}", 53)]
+            var keys: [(chars: String, code: UInt16)] = []
+            var rest = Substring(raw.replacingOccurrences(of: "\\n", with: "\n"))
+            while let ch = rest.first {
+                if ch == "{", let close = rest.firstIndex(of: "}"), let key = named[String(rest[rest.index(after: rest.startIndex)..<close])] {
+                    keys.append(key); rest = rest[rest.index(after: close)...]; continue
+                }
+                keys.append(ch == "\n" ? ("\r", 36) : (String(ch), ch == " " ? 49 : 0))
+                rest = rest.dropFirst()
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+                func editor(in view: NSView?) -> NSTextView? {
+                    guard let view else { return nil }
+                    if let text = view as? NSTextView, text.isEditable { return text }
+                    return view.subviews.lazy.compactMap { editor(in: $0) }.first
+                }
+                guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey }),
+                      let textView = window.firstResponder as? NSTextView ?? editor(in: window.contentView) else { return }
+                window.makeKeyAndOrderFront(nil)
+                window.makeFirstResponder(textView)
                 textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
-                for ch in text { textView.insertText(String(ch), replacementRange: textView.selectedRange()) }
+                // Posted to the event queue from a background thread (postEvent allows
+                // that), so keys also reach the completion list's own event loop.
+                let windowNumber = window.windowNumber
+                Thread.detachNewThread {
+                    for key in keys {
+                        Thread.sleep(forTimeInterval: 0.15)
+                        let flags: NSEvent.ModifierFlags = key.chars.unicodeScalars.first.map { (0xF700...0xF8FF).contains($0.value) } == true
+                            ? [.function, .numericPad] : []
+                        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                                                           timestamp: ProcessInfo.processInfo.systemUptime,
+                                                           windowNumber: windowNumber, context: nil,
+                                                           characters: key.chars, charactersIgnoringModifiers: key.chars,
+                                                           isARepeat: false, keyCode: key.code) else { continue }
+                        NSApp.postEvent(event, atStart: false)
+                    }
+                }
             }
         }
         NotificationCenter.default.addObserver(forName: HotKeyPreferences.changed, object: nil, queue: .main) { [weak self] _ in
