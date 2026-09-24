@@ -113,11 +113,12 @@ public struct TaskItem: Identifiable, Codable, Hashable, Sendable {
         self.notes = notes
     }
 
+    nonisolated(unsafe) private static let linkPattern = try! NSRegularExpression(pattern: #"https?://[^\s<>)\]]+"#)
+
     /// The first http(s) link in the notes, if any.
     public var firstLink: URL? {
         guard let notes else { return nil }
-        let regex = try! NSRegularExpression(pattern: #"https?://[^\s<>)\]]+"#)
-        guard let m = regex.firstMatch(in: notes, range: NSRange(location: 0, length: (notes as NSString).length)) else { return nil }
+        guard let m = Self.linkPattern.firstMatch(in: notes, range: NSRange(location: 0, length: (notes as NSString).length)) else { return nil }
         return URL(string: (notes as NSString).substring(with: m.range))
     }
 

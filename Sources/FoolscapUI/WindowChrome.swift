@@ -17,9 +17,19 @@ public struct NotebookWindowChrome: NSViewRepresentable {
 
     public func makeNSView(context: Context) -> ChromeView { ChromeView() }
 
+    public func makeCoordinator() -> Coordinator { Coordinator() }
+
+    public final class Coordinator {
+        var lastShape: AnyHashable?
+    }
+
     public func updateNSView(_ view: ChromeView, context: Context) {
         view.coverColor = coverColor
         view.configureIfNeeded()
+        // The window server recomputes the whole window's shadow on each
+        // invalidation: only when the outline (selected tab, tab edge) changed.
+        guard context.coordinator.lastShape != shapeVersion else { return }
+        context.coordinator.lastShape = shapeVersion
         DispatchQueue.main.async { view.window?.invalidateShadow() }
     }
 

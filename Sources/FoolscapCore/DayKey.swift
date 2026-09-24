@@ -23,15 +23,19 @@ public struct DayKey: Hashable, Comparable, Codable, Sendable, CustomStringConve
     }
 
     /// "Tuesday 23 September 2026"
-    public var longTitle: String {
-        let f = DateFormatter(); f.locale = .current; f.setLocalizedDateFormatFromTemplate("EEEEdMMMMyyyy")
-        return f.string(from: date)
-    }
+    public var longTitle: String { Self.longFormatter.string(from: date) }
 
     /// "Tue 23 Sep"
-    public var shortTitle: String {
-        let f = DateFormatter(); f.locale = .current; f.setLocalizedDateFormatFromTemplate("EEEdMMM")
-        return f.string(from: date)
+    public var shortTitle: String { Self.shortFormatter.string(from: date) }
+
+    // Built once: these run in view bodies and for every indexed note.
+    // DateFormatter is thread-safe for formatting once configured.
+    nonisolated(unsafe) private static let longFormatter = formatter("EEEEdMMMMyyyy")
+    nonisolated(unsafe) private static let shortFormatter = formatter("EEEdMMM")
+
+    private static func formatter(_ template: String) -> DateFormatter {
+        let f = DateFormatter(); f.locale = .current; f.setLocalizedDateFormatFromTemplate(template)
+        return f
     }
 
     public var fileName: String { string + ".md" }

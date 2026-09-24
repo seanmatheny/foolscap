@@ -96,9 +96,10 @@ struct HTMLWalker: MarkupWalker {
     }
 
     /// Wrap #tags in spans.
+    nonisolated(unsafe) private static let tagPattern = try! NSRegularExpression(pattern: #"(?<![\w/#])#([\p{L}\p{N}_][\p{L}\p{N}_\-/]*)"#)
+
     private func tagged(_ escaped: String) -> String {
-        let regex = try! NSRegularExpression(pattern: #"(?<![\w/#])#([\p{L}\p{N}_][\p{L}\p{N}_\-/]*)"#)
-        return regex.stringByReplacingMatches(in: escaped, range: NSRange(location: 0, length: (escaped as NSString).length),
+        Self.tagPattern.stringByReplacingMatches(in: escaped, range: NSRange(location: 0, length: (escaped as NSString).length),
                                               withTemplate: "<span class=\"tag\">#$1</span>")
     }
 }

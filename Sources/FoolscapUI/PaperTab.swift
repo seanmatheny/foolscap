@@ -60,10 +60,14 @@ public struct PaperTab: View {
         // Tucked under the page when unselected: towards the page, whichever side it is on.
         let tuck: CGFloat = isSelected ? 0 : (hovering ? 1.5 : 4)
         ZStack {
-            shape.fill(color.color)
-            shape.fill(LinearGradient(colors: left ? [.black.opacity(0.10), .clear, .white.opacity(0.28)] : [.white.opacity(0.28), .clear, .black.opacity(0.10)],
-                                      startPoint: .leading, endPoint: .trailing))
-            TextureOverlay(tile: "paper", opacity: 0.5).mask(shape)
+            // Clipped as a group: a mask on the texture itself would flatten its blend.
+            ZStack {
+                shape.fill(color.color)
+                shape.fill(LinearGradient(colors: left ? [.black.opacity(0.10), .clear, .white.opacity(0.28)] : [.white.opacity(0.28), .clear, .black.opacity(0.10)],
+                                          startPoint: .leading, endPoint: .trailing))
+                TextureOverlay(tile: "paper", opacity: 0.5)
+            }
+            .clipShape(shape)
             shape.stroke(Color.black.opacity(0.22), lineWidth: 0.5)
             // On the right the label reads top to bottom; on the left, bottom to top
             // (like a book spine), with the icon kept at the top either way.
