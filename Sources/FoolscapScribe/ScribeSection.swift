@@ -50,6 +50,10 @@ public final class ScribeSection: NotebookSection {
     /// Watches for the connection coming back after an offline pass.
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
+    /// Whether the running pass fetches every recently edited notebook.
+    @ObservationIgnored private var runningRecheckAll = false
+    /// Sync Now arrived during a paced pass: a full pass follows it.
+    @ObservationIgnored private var recheckAllPending = false
     @ObservationIgnored private var startupTask: Task<Void, Never>?
     /// Bumped by every pass and by stop and sign-out, so a pass that was
     /// cancelled or superseded leaves status and state alone when it returns.
@@ -156,21 +160,34 @@ public final class ScribeSection: NotebookSection {
         status.needsSignIn = true
     }
 
-    public func syncNow() { startSync() }
+    /// Sync Now, launch, sign-in and reconnect: the user has usually just synced
+    /// the Kindle, so every recently edited notebook is fetched, not only those
+    /// the pacing is due to recheck.
+    public func syncNow() { startSync(recheckAll: true) }
 
-    /// One pass, awaited (the scheduler needs to know when it finished).
-    func runSync() async { await startSync().value }
+    /// One paced pass from the schedule, awaited (it needs to know when it finished).
+    func runSync() async { await startSync(recheckAll: false).value }
 
     /// Every pass, from launch, the schedule or Sync Now, runs as `syncTask`, so
-    /// stopping or signing out can cancel it; asking while one runs joins it.
+    /// stopping or signing out can cancel it; asking while one runs joins it, and
+    /// Sync Now during a paced pass queues a full pass after it.
     @discardableResult
-    private func startSync() -> Task<Void, Never> {
-        if let syncTask { return syncTask }
+    private func startSync(recheckAll: Bool) -> Task<Void, Never> {
+        if let syncTask {
+            if recheckAll && !runningRecheckAll { recheckAllPending = true }
+            return syncTask
+        }
         passID += 1
         let pass = passID
+        runningRecheckAll = recheckAll
         let task = Task { [weak self] in
-            await self?.performSync(pass: pass)
-            if let self, self.passID == pass { self.syncTask = nil }
+            await self?.performSync(pass: pass, recheckAll: recheckAll)
+            guard let self, self.passID == pass else { return }
+            self.syncTask = nil
+            if self.recheckAllPending {
+                self.recheckAllPending = false
+                self.startSync(recheckAll: true)
+            }
         }
         syncTask = task
         return task
@@ -183,12 +200,13 @@ public final class ScribeSection: NotebookSection {
         startupTask = nil
         syncTask?.cancel()
         syncTask = nil
+        recheckAllPending = false
         passID += 1
         status.isRunning = false
         status.phase = nil
     }
 
-    private func performSync(pass: Int) async {
+    private func performSync(pass: Int, recheckAll: Bool) async {
         guard let engine else { return }
         guard account.isSignedIn else { status.needsSignIn = true; return }
         status.isRunning = true
@@ -205,7 +223,8 @@ public final class ScribeSection: NotebookSection {
             }
         }
         do {
-            let report = try await engine.syncOnce(notesRoot: library.folder.root, languages: languages, progress: progress)
+            let report = try await engine.syncOnce(notesRoot: library.folder.root, languages: languages,
+                                                   recheckAll: recheckAll, progress: progress)
             let newState = await engine.state
             guard passID == pass else { return }
             apply(newState)

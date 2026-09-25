@@ -39,6 +39,10 @@ public struct ScribeItem: Codable, Equatable, Sendable, Identifiable {
     /// Fetches in a row since the last edit or rebuild that returned the page
     /// images already on disk; paces the recheck of recently edited notebooks.
     public var unchangedFetches: Int?
+    /// Amazon has stamped an edit that the page images on disk predate: it goes
+    /// on serving the old images for a while after an edit, so the notebook is
+    /// fetched every pass until they change.
+    public var awaitingImages: Bool?
     public var todos: [String: TodoRecord]
 
     public init(id: String, name: String, path: String, isFolder: Bool, parentID: String?, order: Int = 0) {

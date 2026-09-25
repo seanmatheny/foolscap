@@ -126,6 +126,12 @@
   unload after each run; drain both pipes off-thread or a long notebook deadlocks.
   The OCR cache is keyed on the page-PNG content hash, not the PDF bytes
   (CGPDFContext embeds dates).
+- Scribe sync pacing (`ScribeSyncEngine.sync`): Amazon stamps `modificationTime`
+  before its page renders change, sometimes by over an hour, so a notebook is
+  fetched every pass while its images predate the stamp (`awaitingImages`), on the
+  two passes after a rebuild, then every 2 h for the rest of the 72 h window. Only
+  the schedule is paced: Sync Now, launch, sign-in and reconnect pass `recheckAll`
+  and fetch every notebook in the window (a Sync Now during a paced pass queues one).
 - Amazon sign-in is a WKWebView window with the Android user agent (the notebook
   web app is only served to phones); cookies are copied to `HTTPCookieStorage.shared`
   for URLSession. The client refuses redirects: a 3xx means signed out.

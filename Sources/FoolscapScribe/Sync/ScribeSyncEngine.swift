@@ -47,7 +47,10 @@ public actor ScribeSyncEngine {
     }
 
     /// `notesRoot` is the notebook folder; files go under `<root>/Scribe/`.
-    public func syncOnce(notesRoot: URL, languages: [String],
+    /// `recheckAll` fetches every notebook edited within `recheckWindow` whatever
+    /// the recheck pacing says: for a pass the user asked for, when they have
+    /// usually just synced the Kindle and want what it uploaded.
+    public func syncOnce(notesRoot: URL, languages: [String], recheckAll: Bool = false,
                          progress: (@Sendable (String) -> Void)? = nil) async throws -> SyncReport {
         guard !isRunning else { return SyncReport() }
         isRunning = true
@@ -67,7 +70,7 @@ public actor ScribeSyncEngine {
             try Task.checkCancellation()
             do {
                 try await sync(notebook: notebook, title: titles[notebook.id] ?? notebook.name, root: scribeRoot,
-                               languages: languages, report: &report, progress: progress)
+                               languages: languages, recheckAll: recheckAll, report: &report, progress: progress)
             } catch ScribeClientError.signedOut {
                 throw ScribeClientError.signedOut
             } catch is CancellationError {
@@ -138,7 +141,7 @@ public actor ScribeSyncEngine {
 
     // MARK: One notebook
 
-    private func sync(notebook: ScribeItem, title: String, root: URL, languages: [String],
+    private func sync(notebook: ScribeItem, title: String, root: URL, languages: [String], recheckAll: Bool,
                       report: inout SyncReport, progress: (@Sendable (String) -> Void)?) async throws {
         var entry = notebook
         let pdfURL = root.appendingPathComponent(entry.path + ".pdf")
@@ -158,10 +161,13 @@ public actor ScribeSyncEngine {
         // transcript and cache can key on the real page images.
         let shouldRender = opened.modificationTime > entry.updateTime || pdfMissing || pagesChanged || entry.contentHash == nil
         // Amazon stamps modificationTime the moment a page is edited, but can go on
-        // serving the old page images for a while afterwards. A recently modified
-        // notebook is fetched again and rebuilt only when its page images differ:
-        // on the next couple of passes, then at most every `recheckInterval`.
-        let recheckDue = (entry.unchangedFetches ?? 0) < Self.eagerRechecks
+        // serving the old page images for a while afterwards (over an hour has been
+        // seen). A recently modified notebook is fetched again and rebuilt only when
+        // its page images differ: on every pass while the images on disk predate
+        // the stamp, on the next couple of passes after a rebuild, then at most
+        // every `recheckInterval`. A pass the user asked for fetches it regardless.
+        let recheckDue = recheckAll || entry.awaitingImages == true
+            || (entry.unchangedFetches ?? 0) < Self.eagerRechecks
             || nowSeconds - (entry.lastFetch ?? 0) >= Int(Self.recheckInterval)
         let recheck = !shouldRender && !placeholder && recheckDue
             && Double(nowSeconds - opened.modificationTime) < Self.recheckWindow
@@ -176,8 +182,10 @@ public actor ScribeSyncEngine {
                 // its embedded dates, yet upload it to iCloud and redraw the viewer.
                 entry.unchangedFetches = (entry.unchangedFetches ?? 0) + 1
                 if shouldRender {
+                    // The stamp moved but the images did not: Amazon has not caught up.
                     entry.updateTime = nowSeconds
                     entry.totalPages = opened.metadata.totalPages
+                    entry.awaitingImages = true
                 }
             } else {
                 let pdf = try PDFBuilder.makePDF(pages: pages)
@@ -187,6 +195,7 @@ public actor ScribeSyncEngine {
                 entry.contentHash = hash
                 entry.pdfHash = PDFBuilder.sha256(pdf)
                 entry.unchangedFetches = 0
+                entry.awaitingImages = false
                 report.rendered += 1
             }
         }

@@ -192,6 +192,26 @@ struct FakeOCR: OCRRunning {
     }
 }
 
+/// A clock the tests can move between passes.
+final class TestClock: @unchecked Sendable {
+    var now: Double
+    init(_ now: Double) { self.now = now }
+}
+
+/// One notebook, edited a minute ago, with a fake Kindle serving `pages`.
+@MainActor
+func makePacingEngine(in tmp: URL, clock: TestClock) -> (ScribeSyncEngine, FakeScribeClient) {
+    let client = FakeScribeClient()
+    client.listing = [RemoteItem(id: "n1", title: "Diary", type: "notebook")]
+    client.opened["n1"] = OpenedNotebook(renderingToken: "t1", metadata: .init(modificationTime: clock.now - 60, totalPages: 1))
+    client.pages["t1"] = [makePNG(width: 40, height: 40)]
+    let engine = ScribeSyncEngine(client: client, ocr: FakeOCR(observations: [[]]),
+                                  cache: OCRCache(directory: tmp.appendingPathComponent("OCR")),
+                                  stateURL: tmp.appendingPathComponent("state.json"), sink: MemorySink(),
+                                  now: { Date(timeIntervalSince1970: clock.now) }, sleep: { _ in })
+    return (engine, client)
+}
+
 @Suite @MainActor struct ScribeSyncEngineTests {
     @Test func firstPassWritesFilesTranscriptAndTask() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-scribe-sync-\(UUID().uuidString)")
@@ -284,6 +304,63 @@ struct FakeOCR: OCRRunning {
         client.signedOut = true
         await #expect(throws: ScribeClientError.signedOut) { try await engine.syncOnce(notesRoot: root, languages: ["en-US"]) }
         #expect(await engine.state == state)
+    }
+
+    @Test func syncNowFetchesPastThePacedRecheck() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-scribe-pacing-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = tmp.appendingPathComponent("Notes")
+        let clock = TestClock(1_700_000_000)
+        let (engine, client) = makePacingEngine(in: tmp, clock: clock)
+
+        // The first pass renders; the next two are the eager rechecks and find the same pixels.
+        for _ in 0..<3 { _ = try await engine.syncOnce(notesRoot: root, languages: ["en-US"]) }
+        #expect(client.renders == 3)
+        #expect(await engine.state.items["n1"]?.unchangedFetches == 2)
+
+        // Paced: a scheduled pass inside the recheck interval leaves the notebook alone…
+        clock.now += 60
+        _ = try await engine.syncOnce(notesRoot: root, languages: ["en-US"])
+        #expect(client.renders == 3)
+
+        // …but Sync Now fetches it and picks up the page Amazon finally serves.
+        client.pages["t1"] = [makePNG(width: 40, height: 40, mark: 9)]
+        let manual = try await engine.syncOnce(notesRoot: root, languages: ["en-US"], recheckAll: true)
+        #expect(client.renders == 4 && manual.rendered == 1)
+
+        // The rebuild starts the eager rechecks over; once used up, the schedule waits out the interval.
+        for _ in 0..<3 { _ = try await engine.syncOnce(notesRoot: root, languages: ["en-US"]) }
+        #expect(client.renders == 6)
+        clock.now += ScribeSyncEngine.recheckInterval
+        _ = try await engine.syncOnce(notesRoot: root, languages: ["en-US"])
+        #expect(client.renders == 7)
+    }
+
+    @Test func keepsFetchingWhileAmazonServesOldImagesForAnEdit() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-scribe-lag-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = tmp.appendingPathComponent("Notes")
+        let clock = TestClock(1_700_000_000)
+        let (engine, client) = makePacingEngine(in: tmp, clock: clock)
+        for _ in 0..<4 { _ = try await engine.syncOnce(notesRoot: root, languages: ["en-US"]) }
+        #expect(client.renders == 3)   // rendered, two eager rechecks, then paced
+
+        // Amazon stamps a new edit but still serves the old page: every pass fetches
+        // until the images change, instead of two passes and then a two-hour wait.
+        client.opened["n1"] = OpenedNotebook(renderingToken: "t1", metadata: .init(modificationTime: clock.now + 10, totalPages: 1))
+        clock.now += 20
+        for _ in 0..<3 { _ = try await engine.syncOnce(notesRoot: root, languages: ["en-US"]) }
+        #expect(client.renders == 6)
+        #expect(await engine.state.items["n1"]?.awaitingImages == true)
+
+        client.pages["t1"] = [makePNG(width: 40, height: 40, mark: 9)]
+        let caughtUp = try await engine.syncOnce(notesRoot: root, languages: ["en-US"])
+        #expect(caughtUp.rendered == 1 && client.renders == 7)
+        #expect(await engine.state.items["n1"]?.awaitingImages == false)
+
+        // Back to the pacing: two eager rechecks, then nothing until the interval passes.
+        for _ in 0..<3 { _ = try await engine.syncOnce(notesRoot: root, languages: ["en-US"]) }
+        #expect(client.renders == 9)
     }
 
     @Test func offlineAbortsThePassInsteadOfReportingEachNotebook() async throws {
