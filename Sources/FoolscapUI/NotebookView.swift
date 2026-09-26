@@ -39,7 +39,16 @@ enum NotebookMetrics {
     static let topMargin: CGFloat = 30       // leather above the page; hosts the traffic lights
     static let sideMargin: CGFloat = 50      // leather beside the page on the tab side: hosts the index tabs
     static let bottomMargin: CGFloat = 20
-    static let spineMargin: CGFloat = 30
+    /// Beyond the page's inner edge: the fold, then this much of the facing
+    /// page before the window ends. Nothing sits further in on that side.
+    static let facingWidth: CGFloat = 40
+
+    /// Where the page sits inside the cover: the tabs on one side, the fold
+    /// and the facing page on the other. Shared with the overlays laid on it.
+    static func pageInsets(tabsLeft: Bool) -> EdgeInsets {
+        EdgeInsets(top: topMargin, leading: tabsLeft ? sideMargin : facingWidth,
+                   bottom: bottomMargin, trailing: tabsLeft ? facingWidth : sideMargin)
+    }
 }
 
 /// The whole notebook: leather cover, page block, index tabs and elastic band.
@@ -62,6 +71,12 @@ public struct NotebookView<Page: View>: View {
         let tabsLeft = tabEdge == .left
         CoverBlock {
             ZStack(alignment: tabsLeft ? .topLeading : .topTrailing) {
+                // The facing page runs from under the page's inner edge to the window edge.
+                FacingPageView(foldOnLeft: tabsLeft)
+                    .frame(width: NotebookMetrics.facingWidth + 12)
+                    .padding(.top, NotebookMetrics.topMargin)
+                    .padding(.bottom, NotebookMetrics.bottomMargin)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topTrailing : .topLeading)
                 PageView { page(selection) }
                     .shadow(color: .black.opacity(0.35), radius: 3, x: tabsLeft ? -2 : 2, y: 0)
                     // Index tabs are glued to the page edge, behind it, sticking out sideways.
@@ -70,10 +85,14 @@ public struct NotebookView<Page: View>: View {
                             .padding(.top, 22)
                             .offset(x: tabsLeft ? -PaperTab.width : PaperTab.width)
                     }
-                    .padding(EdgeInsets(top: NotebookMetrics.topMargin,
-                                        leading: tabsLeft ? NotebookMetrics.sideMargin : NotebookMetrics.spineMargin,
-                                        bottom: NotebookMetrics.bottomMargin,
-                                        trailing: tabsLeft ? NotebookMetrics.spineMargin : NotebookMetrics.sideMargin))
+                    .padding(NotebookMetrics.pageInsets(tabsLeft: tabsLeft))
+                // The fold: both pages curve down into the spine.
+                FoldShadow()
+                    .frame(width: 44)
+                    .padding(.top, NotebookMetrics.topMargin)
+                    .padding(.bottom, NotebookMetrics.bottomMargin)
+                    .padding(tabsLeft ? .trailing : .leading, NotebookMetrics.facingWidth - 22)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topTrailing : .topLeading)
                 // The band wraps the cover beyond the tabs, so it never crosses the page.
                 if showsBand {
                     ElasticBandView()
@@ -136,13 +155,6 @@ struct CoverBlock<Content: View>: View {
             // Light from the top-left, and a worn sheen along the edges.
             shape.fill(LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.22)],
                                       startPoint: .topLeading, endPoint: .bottomTrailing))
-            // Spine: the crease where the cover folds.
-            LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0),
-                                   .init(color: .black.opacity(0.12), location: 0.5),
-                                   .init(color: .clear, location: 1)],
-                           startPoint: mirrored ? .trailing : .leading, endPoint: mirrored ? .leading : .trailing)
-                .frame(width: 26)
-                .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
             // Stitching just inside the edge.
             shape
                 .inset(by: 7)
@@ -165,6 +177,49 @@ struct InsetCover: InsettableShape {
     var spineOnRight = false
     func path(in rect: CGRect) -> Path { CoverShape(square: square, spineOnRight: spineOnRight).path(in: rect.insetBy(dx: amount, dy: amount)) }
     func inset(by extra: CGFloat) -> InsetCover { InsetCover(amount: amount + extra, square: square, spineOnRight: spineOnRight) }
+}
+
+/// The edge of the page opposite the one being read: paper curving up out of
+/// the fold and off the window's edge, so the window reads as an open book.
+struct FacingPageView: View {
+    @Environment(\.notebookTheme) private var theme
+    /// Whether the fold is on this strip's left (the tabs, and the page, are to the left).
+    let foldOnLeft: Bool
+
+    var body: some View {
+        ZStack {
+            theme.page.paperColor.color
+            TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity, blend: theme.page.textureBlend)
+            // Shade deepening into the fold.
+            LinearGradient(stops: [.init(color: .black.opacity(0.38), location: 0),
+                                   .init(color: .black.opacity(0.14), location: 0.45),
+                                   .init(color: .clear, location: 1)],
+                           startPoint: foldOnLeft ? .leading : .trailing, endPoint: foldOnLeft ? .trailing : .leading)
+            // The page's top and bottom edges throw a little shadow on the leather beside them.
+            VStack {
+                LinearGradient(colors: [.black.opacity(0.22), .clear], startPoint: .top, endPoint: .bottom).frame(height: 6)
+                Spacer()
+                LinearGradient(colors: [.clear, .black.opacity(0.22)], startPoint: .top, endPoint: .bottom).frame(height: 6)
+            }
+        }
+        .overlay(alignment: .top) { Rectangle().fill(Color.black.opacity(0.28)).frame(height: 0.5) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.black.opacity(0.28)).frame(height: 0.5) }
+        .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 1)
+        .allowsHitTesting(false)
+    }
+}
+
+/// The dark line of the fold between the two pages.
+struct FoldShadow: View {
+    var body: some View {
+        LinearGradient(stops: [.init(color: .clear, location: 0),
+                               .init(color: .black.opacity(0.30), location: 0.42),
+                               .init(color: .black.opacity(0.62), location: 0.5),
+                               .init(color: .black.opacity(0.26), location: 0.58),
+                               .init(color: .clear, location: 1)],
+                       startPoint: .leading, endPoint: .trailing)
+            .allowsHitTesting(false)
+    }
 }
 
 /// The elastic closure band, in the leather's own colour, darkened.

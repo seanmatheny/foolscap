@@ -273,7 +273,67 @@ extension NotebookTheme {
         ],
         isDark: true)
 
-    public static let builtIn: [NotebookTheme] = [.classicBlack, .oxblood, .kraft, .midnight]
+    /// Deep green pebbled leather, warm cream paper, brass tabs.
+    public static let forest = NotebookTheme(
+        id: "forest", name: "Forest",
+        cover: CoverMaterial(baseColor: .hex(0x1F3A2C), textureTile: "leather", grainOpacity: 0.3,
+                             stitchColor: .hex(0xC2A35C)),
+        page: PageStyle(paperColor: .hex(0xF7EFDC), textureTile: "paper", textureOpacity: 0.6,
+                        ruleColor: .hex(0x9AA48E, alpha: 0.6), marginRuleColor: .hex(0xC98A7A, alpha: 0.75)),
+        type: Typography(body: FontSpec(family: "Iowan Old Style", size: 15, design: .serif),
+                         heading: FontSpec(family: "Iowan Old Style", size: 22, design: .serif, bold: true),
+                         mono: FontSpec(family: "Menlo", size: 13, design: .mono),
+                         lineHeightMultiple: 1.35),
+        ink: .hex(0x24291F), dimInk: .hex(0x24291F, alpha: 0.42), accent: .hex(0x8A5A1E),
+        tabColors: [.hex(0xC9A85A), .hex(0x7FA07E), .hex(0xB07D6A), .hex(0x6F8FA6)],
+        highlighter: highlighterDefaults)
+
+    /// Navy leather, cool white paper, muted tabs.
+    public static let navy = NotebookTheme(
+        id: "navy", name: "Navy",
+        cover: CoverMaterial(baseColor: .hex(0x1C2A44), textureTile: "leather", grainOpacity: 0.3,
+                             stitchColor: .hex(0x9FB0C8)),
+        page: PageStyle(paperColor: .hex(0xF7F6F1), textureTile: "paper", textureOpacity: 0.5,
+                        ruleColor: .hex(0xA9B6C9, alpha: 0.65), marginRuleColor: .hex(0xD09090, alpha: 0.75)),
+        type: Typography(body: FontSpec(family: "Palatino", size: 15, design: .serif),
+                         heading: FontSpec(family: "Palatino", size: 22, design: .serif, bold: true),
+                         mono: FontSpec(family: "SF Mono", size: 13, design: .mono),
+                         lineHeightMultiple: 1.35),
+        ink: .hex(0x1F2430), dimInk: .hex(0x1F2430, alpha: 0.42), accent: .hex(0x2F5C8F),
+        tabColors: [.hex(0xB9A57A), .hex(0x8AA58C), .hex(0xA48CA0), .hex(0x6E8DAF)],
+        highlighter: highlighterDefaults)
+
+    /// Tan full-grain leather with its creases showing, ivory paper.
+    public static let saddle = NotebookTheme(
+        id: "saddle", name: "Saddle",
+        cover: CoverMaterial(baseColor: .hex(0x8E5A2B), textureTile: "leather-grain", grainOpacity: 0.55, blend: .softLight,
+                             stitchColor: .hex(0xE8D3A6)),
+        page: PageStyle(paperColor: .hex(0xFAF3E1), textureTile: "paper", textureOpacity: 0.6,
+                        ruleColor: .hex(0xB5A98F, alpha: 0.55), marginRuleColor: .hex(0xCF8F7C, alpha: 0.75)),
+        type: Typography(body: FontSpec(family: "Baskerville", size: 15.5, design: .serif),
+                         heading: FontSpec(family: "Baskerville", size: 23, design: .serif, bold: true),
+                         mono: FontSpec(family: "Menlo", size: 13, design: .mono),
+                         lineHeightMultiple: 1.35),
+        ink: .hex(0x2B2119), dimInk: .hex(0x2B2119, alpha: 0.42), accent: .hex(0xA0522D),
+        tabColors: [.hex(0xD2A24C), .hex(0x8AA37E), .hex(0xC07A5B), .hex(0x6F93B0)],
+        highlighter: highlighterDefaults)
+
+    /// Charcoal full-grain leather, pale grey paper: dark without being black.
+    public static let slate = NotebookTheme(
+        id: "slate", name: "Slate",
+        cover: CoverMaterial(baseColor: .hex(0x33373C), textureTile: "leather-grain", grainOpacity: 0.4, blend: .softLight,
+                             stitchColor: .hex(0x8C9298)),
+        page: PageStyle(paperColor: .hex(0xECEBE7), textureTile: "paper", textureOpacity: 0.5,
+                        ruleColor: .hex(0xA6ABB3, alpha: 0.6), marginRuleColor: .hex(0xC98C8C, alpha: 0.7)),
+        type: Typography(body: FontSpec(family: "Charter", size: 15, design: .serif),
+                         heading: FontSpec(family: "Charter", size: 22, design: .serif, bold: true),
+                         mono: FontSpec(family: "SF Mono", size: 13, design: .mono),
+                         lineHeightMultiple: 1.35),
+        ink: .hex(0x22252A), dimInk: .hex(0x22252A, alpha: 0.42), accent: .hex(0x9C4B3A),
+        tabColors: [.hex(0xBFA46F), .hex(0x8AA391), .hex(0xA995A6), .hex(0x7C97B0)],
+        highlighter: highlighterDefaults)
+
+    public static let builtIn: [NotebookTheme] = [.classicBlack, .oxblood, .kraft, .midnight, .forest, .navy, .saddle, .slate]
 
     public static func builtIn(id: String) -> NotebookTheme? { builtIn.first { $0.id == id } }
 }

@@ -29,17 +29,27 @@ func valueNoise(period: Int, seed: UInt64) -> (Double, Double) -> Double {
     }
 }
 
-/// Periodic Worley (cellular) noise: distance to nearest of `count` feature points, wrapping.
+/// Periodic Worley (cellular) noise: distance to the nearest of `count`
+/// feature points, wrapping. Points are bucketed on a grid so each lookup
+/// checks nine buckets, not every point (a tile has a million pixels).
 func worley(count: Int, seed: UInt64) -> (Double, Double) -> Double {
     var r = RNG(s: seed)
     let pts = (0..<count).map { _ in (r.next(), r.next()) }
+    let g = max(1, Int(sqrt(Double(count) / 2)))
+    var buckets = [[(Double, Double)]](repeating: [], count: g * g)
+    for p in pts { buckets[min(g - 1, Int(p.1 * Double(g))) * g + min(g - 1, Int(p.0 * Double(g)))].append(p) }
     return { x, y in
         var best = 1.0
-        for (px, py) in pts {
-            var dx = abs(x - px); if dx > 0.5 { dx = 1 - dx }
-            var dy = abs(y - py); if dy > 0.5 { dy = 1 - dy }
-            best = min(best, dx * dx + dy * dy)
-        }
+        let cx = min(g - 1, Int(x * Double(g))), cy = min(g - 1, Int(y * Double(g)))
+        for j in -1...1 { for i in -1...1 {
+            for (px, py) in buckets[((cy + j + g) % g) * g + ((cx + i + g) % g)] {
+                var dx = abs(x - px); if dx > 0.5 { dx = 1 - dx }
+                var dy = abs(y - py); if dy > 0.5 { dy = 1 - dy }
+                best = min(best, dx * dx + dy * dy)
+            }
+        } }
+        // A sparse neighbourhood (few points per bucket) can miss the true nearest
+        // point two buckets away; the ring check covers what the leather needs.
         return sqrt(best)
     }
 }
@@ -52,8 +62,8 @@ func fbm(octaves: [(period: Int, weight: Double)], seed: UInt64) -> (Double, Dou
 
 /// `retina` tiles are twice the pixels at 144 dpi, so they still tile every
 /// 256 pt but stay sharp on a Retina screen (fine paper detail needs it).
-func write(_ name: String, retina: Bool = false, _ f: (Double, Double) -> Double) {
-    let n = retina ? N * 2 : N
+func write(_ name: String, retina: Bool = false, points: Int = N, _ f: (Double, Double) -> Double) {
+    let n = retina ? points * 2 : points
     var pixels = [UInt8](repeating: 0, count: n * n)
     for j in 0..<n { for i in 0..<n {
         let v = max(0, min(1, f(Double(i) / Double(n), Double(j) / Double(n))))
@@ -91,13 +101,42 @@ func stretchedNoise(periodX: Int, periodY: Int, seed: UInt64) -> (Double, Double
     }
 }
 
-// Leather: pebbled cells (Worley) with fine grain, mid-grey centred.
-let cells = worley(count: 900, seed: 11)
-let grain = fbm(octaves: [(32, 0.3), (128, 0.7)], seed: 23)
-write("leather") { x, y in
-    let c = cells(x, y)              // 0 at cell centres, ~0.025 at borders
-    let ridge = min(1, c / 0.025)    // bright at borders
-    return 0.5 + (ridge - 0.5) * 0.18 + (grain(x, y) - 0.5) * 0.3
+// Leather: pebbled grain at two scales (larger pebbles with finer pores inside
+// them), each pebble domed rather than flat, over slow tone variation and a
+// few soft creases. A 512 pt Retina tile, so the pattern repeats rarely.
+let pebbles = worley(count: 700, seed: 11)
+let pores = worley(count: 9000, seed: 12)
+let tone = fbm(octaves: [(3, 0.5), (6, 0.3), (24, 0.2)], seed: 23)
+let creaseNoise = fbm(octaves: [(2, 0.6), (5, 0.4)], seed: 29)
+write("leather", retina: true, points: 512) { x, y in
+    let p = pebbles(x, y)            // 0 at pebble centres, ~0.03 at the seams
+    let dome = 1 - min(1, p / 0.03)  // high in the middle of a pebble
+    let seam = exp(-pow(p / 0.006, 2))   // a sharp dark groove between pebbles
+    let pore = 1 - min(1, pores(x, y) / 0.008)
+    // Light from the top-left: each pebble's upper-left face is lit.
+    let lit = (pebbles(x - 0.002, y - 0.002) - p) / 0.004
+    let crease = exp(-pow((creaseNoise(x, y) - 0.5) / 0.012, 2))
+    return 0.5 + (dome - 0.5) * 0.12 + lit * 0.08 - seam * 0.22 - pore * 0.06 + (tone(x, y) - 0.5) * 0.22 - crease * 0.12
+}
+
+// Full-grain leather: a smoother hide with fine pores and a faint pebble,
+// broad soft folds in the tone, and a few thin creases that wander one way.
+let hidePores = worley(count: 6000, seed: 61)
+let hidePebble = worley(count: 400, seed: 62)
+let hideTone = fbm(octaves: [(2, 0.5), (4, 0.3), (16, 0.2)], seed: 67)
+let hideFold = stretchedNoise(periodX: 2, periodY: 6, seed: 69)
+let creaseA = stretchedNoise(periodX: 3, periodY: 20, seed: 71)
+let creaseB = stretchedNoise(periodX: 5, periodY: 28, seed: 77)
+let creaseWobble = fbm(octaves: [(32, 0.6), (96, 0.4)], seed: 79)
+write("leather-grain", retina: true, points: 512) { x, y in
+    let pore = 1 - min(1, hidePores(x, y) / 0.006)
+    let pebble = 1 - min(1, hidePebble(x, y) / 0.04)
+    let w = (creaseWobble(x, y) - 0.5) * 0.02
+    // Thin lines only where each field passes its midpoint steeply, so they stay sparse.
+    let ca = exp(-pow((creaseA(x, y + w) - 0.5) / 0.006, 2))
+    let cb = exp(-pow((creaseB(x, y - w) - 0.55) / 0.005, 2))
+    let fold = (hideFold(x, y) - 0.5) * 0.2
+    return 0.5 + (hideTone(x, y) - 0.5) * 0.28 + fold + (pebble - 0.5) * 0.05 - pore * 0.05 - ca * 0.10 - cb * 0.08
 }
 
 // Paper: soft fibrous fractal noise, low contrast.

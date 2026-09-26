@@ -55,6 +55,12 @@
   (0.01pt clear font). The text view forwards selection changes to the styler.
 - Index tabs are the page's `.background` offset to the right, so they draw behind
   the page edge and inside the cover; the window never needs a transparent margin.
+- The spine side shows the fold and a 40 pt strip of the facing page (`FacingPageView`,
+  `FoldShadow`, `NotebookMetrics.facingWidth`) running off the window edge; the page and
+  the flyleaf share `NotebookMetrics.pageInsets(tabsLeft:)`. The cover animation still
+  hinges at the window edge. Leather tiles are 512 pt Retina tiles (`leather` pebbled,
+  `leather-grain` full-grain); `make textures` takes ~25 s (bucketed Worley noise).
+- Level-one headings in the editor (a daily note's date) are set in the accent colour.
 - Overlays are positioned from the paragraph's last line bottom (`lineBottom(for:)`),
   not from the layout fragment's maxY: the last paragraph in a document gets no
   trailing paragraph spacing, so an image on the final line would float upward.

@@ -41,10 +41,7 @@ public struct PageTurnOverlay<Content: View>: View {
                 .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0),
                                   anchor: spineOnRight ? .trailing : .leading, anchorZ: 0, perspective: 0.45)
                 .shadow(color: .black.opacity(0.4 * progress), radius: 24, x: spineOnRight ? -20 : 20, y: 0)
-                .padding(EdgeInsets(top: NotebookMetrics.topMargin,
-                                    leading: tabsLeft ? NotebookMetrics.sideMargin : NotebookMetrics.spineMargin,
-                                    bottom: NotebookMetrics.bottomMargin,
-                                    trailing: tabsLeft ? NotebookMetrics.spineMargin : NotebookMetrics.sideMargin))
+                .padding(NotebookMetrics.pageInsets(tabsLeft: tabsLeft))
                 .padding(.top, windowState.fullScreenTopInset)
             }
             .contentShape(Rectangle())

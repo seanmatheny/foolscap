@@ -235,6 +235,8 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         switch line.kind {
         case .heading(let level):
             base[.font] = p.headings[min(level, p.headings.count) - 1]
+            // The top heading (a daily note's date) is written in the accent colour.
+            if level == 1 { base[.foregroundColor] = p.accent }
             storage.setAttributes(base, range: para)
             let hashes = Self.match(Self.headingMarker, in: line.text)
             if hashes.location != NSNotFound { set(syntaxAttrs, hashes) }
