@@ -44,11 +44,13 @@ struct BookCover: View {
             VStack(spacing: 7) {
                 // Cover and shadow flattened into one layer (`drawingGroup`), so scrolling
                 // composites a texture instead of re-blurring two dozen shadows a frame.
+                // Two shadows: a tight one where the book meets the shelf, a soft one it casts.
                 CoverThumbnail(url: section.coverURL(for: book.path), title: book.title, author: book.author, width: 96)
-                    .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
-                    .padding(8)
+                    .shadow(color: .black.opacity(0.28), radius: 1.5, x: 0, y: 1)
+                    .shadow(color: .black.opacity(0.32), radius: 10, x: 0, y: 7)
+                    .padding(20)
                     .drawingGroup()
-                    .padding(-8)
+                    .padding(-20)
                     .scaleEffect(hovering ? 1.03 : 1)
                     .offset(y: hovering ? -2 : 0)
                 Text(book.title)
