@@ -124,6 +124,11 @@ public final class TaskAggregator {
         }
     }
 
+    public func removeTag(_ tag: String, from task: TaskItem) {
+        guard task.tags.contains(tag) else { return }
+        rename(task, to: TaskLineParser.removingTag(tag, from: task.title))
+    }
+
     public func move(_ task: TaskItem, to status: TaskStatus) { move([task], to: status) }
 
     /// Several tasks at once (a selection or a multi-task drag). The writes run one

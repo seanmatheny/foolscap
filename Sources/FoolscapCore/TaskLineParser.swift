@@ -44,6 +44,31 @@ public enum TaskLineParser {
         return out.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
     }
 
+    /// The title without every `#tag` matching `tag` (case-insensitively), each taking
+    /// one run of whitespace with it; the rest of the text is left as written.
+    public static func removingTag(_ tag: String, from title: String) -> String {
+        // Inline code is blanked character for character, so match offsets carry over.
+        let stripped = stripInlineCode(title)
+        let ns = title as NSString
+        let target = tag.lowercased()
+        var out = title as NSString
+        for m in tagRegex.matches(in: stripped, range: NSRange(location: 0, length: (stripped as NSString).length)).reversed()
+        where (stripped as NSString).substring(with: m.range(at: 1)).lowercased() == target {
+            var r = m.range
+            var start = r.location
+            while start > 0, let c = Unicode.Scalar(ns.character(at: start - 1)), c == " " || c == "\t" { start -= 1 }
+            if start < r.location {
+                r = NSRange(location: start, length: NSMaxRange(r) - start)
+            } else {
+                var end = NSMaxRange(r)
+                while end < ns.length, let c = Unicode.Scalar(ns.character(at: end)), c == " " || c == "\t" { end += 1 }
+                r.length = end - r.location
+            }
+            out = out.replacingCharacters(in: r, with: "") as NSString
+        }
+        return (out as String).trimmingCharacters(in: .whitespaces)
+    }
+
     /// Replace the status mark on a task line, keeping everything else byte-identical.
     public static func replacingStatus(in line: String, with status: TaskStatus) -> String? {
         guard let parsed = parse(line) else { return nil }

@@ -60,6 +60,7 @@ struct TasksPage: View {
 
     private var pitch: CGFloat { theme.linePitch }
     private var scale: CGFloat { theme.type.body.size / 15 }
+    static let fieldGap: CGFloat = 3
 
     var body: some View {
         GeometryReader { geo in
@@ -73,10 +74,13 @@ struct TasksPage: View {
                         header
                         newTaskField
                             .frame(height: pitch)
+                        // The gap under the field is borrowed from the header and the
+                        // space below the strip, so the task rows stay on the ruling.
+                        Spacer().frame(height: Self.fieldGap * 2)
                         CategoryStrip(tags: stripTags, selected: $section.selectedTag,
                                       onDropTasks: { items, tag in section.aggregator.addTag(tag, to: items); clearSelection() })
                             .frame(height: pitch)
-                        Spacer().frame(height: pitch / 2)
+                        Spacer().frame(height: pitch / 2 - Self.fieldGap)
                         ForEach(TaskStatus.allCases, id: \.self) { status in
                             TaskSectionView(status: status,
                                             tasks: section.aggregator.tasks(status: status, tag: section.selectedTag),
@@ -91,6 +95,7 @@ struct TasksPage: View {
                                             onRename: { section.aggregator.rename($0, to: $1) },
                                             onUpdate: { section.aggregator.update($0, title: $1, notes: $2) },
                                             onAddTag: { section.aggregator.addTag($1, to: $0) },
+                                            onRemoveTag: { section.aggregator.removeTag($1, from: $0) },
                                             onSetPriority: { section.aggregator.setPriority($1, of: $0) })
                         }
                         Spacer(minLength: pitch * 2)
@@ -123,7 +128,7 @@ struct TasksPage: View {
             Spacer()
             if let err = section.aggregator.error { Text(err).font(.caption).foregroundStyle(.red) }
         }
-        .frame(height: pitch * 1.5)
+        .frame(height: pitch * 1.5 - Self.fieldGap)
     }
 
     /// Always on the page, so adding tasks never takes a click first. Return adds
@@ -243,6 +248,7 @@ struct TaskSectionView: View {
     let onRename: (TaskItem, String) -> Void
     let onUpdate: (TaskItem, String, String?) -> Void
     let onAddTag: (TaskItem, String) -> Void
+    let onRemoveTag: (TaskItem, String) -> Void
     let onSetPriority: (TaskItem, TaskPriority) -> Void
     @State private var targeted = false
     private var scale: CGFloat { theme.type.body.size / 15 }
@@ -254,11 +260,13 @@ struct TaskSectionView: View {
          selection: Binding<Set<String>>, selectionAnchor: Binding<String?>, selectedTasks: [TaskItem],
          onMove: @escaping ([TaskItem], TaskStatus) -> Void, onToggle: @escaping (TaskItem) -> Void, onOpen: @escaping (TaskItem) -> Void,
          onRename: @escaping (TaskItem, String) -> Void, onUpdate: @escaping (TaskItem, String, String?) -> Void,
-         onAddTag: @escaping (TaskItem, String) -> Void, onSetPriority: @escaping (TaskItem, TaskPriority) -> Void) {
+         onAddTag: @escaping (TaskItem, String) -> Void, onRemoveTag: @escaping (TaskItem, String) -> Void,
+         onSetPriority: @escaping (TaskItem, TaskPriority) -> Void) {
         self.status = status; self.tasks = tasks; self.allTags = allTags; self.pitch = pitch
         _selection = selection; _selectionAnchor = selectionAnchor; self.selectedTasks = selectedTasks
         self.onMove = onMove; self.onToggle = onToggle; self.onOpen = onOpen
-        self.onRename = onRename; self.onUpdate = onUpdate; self.onAddTag = onAddTag; self.onSetPriority = onSetPriority
+        self.onRename = onRename; self.onUpdate = onUpdate; self.onAddTag = onAddTag; self.onRemoveTag = onRemoveTag
+        self.onSetPriority = onSetPriority
         _folded = AppStorage(wrappedValue: false, "fold." + status.rawValue)
     }
 
@@ -300,6 +308,7 @@ struct TaskSectionView: View {
                             onToggle: { onToggle(task) }, onOpen: { onOpen(task) },
                             onSetStatus: { onMove(group, $0) },
                             onUpdate: { onUpdate(task, $0, $1) }, onAddTag: { onAddTag(task, $0) },
+                            onRemoveTag: { onRemoveTag(task, $0) },
                             onSetPriority: { onSetPriority(task, $0) })
                         .draggable(TaskDrag(tasks: group)) {
                             Text(group.count > 1 ? "\(group.count) tasks" : task.displayTitle).font(.system(size: 14, design: .serif))
@@ -377,6 +386,7 @@ struct TaskRow: View {
     let onSetStatus: (TaskStatus) -> Void
     let onUpdate: (String, String?) -> Void
     let onAddTag: (String) -> Void
+    let onRemoveTag: (String) -> Void
     let onSetPriority: (TaskPriority) -> Void
     @State private var hovering = false
     @State private var editing = false
@@ -402,11 +412,7 @@ struct TaskRow: View {
                 .lineLimit(1)
                 .highlighted(theme.highlighter[task.status])
             ForEach(task.tags, id: \.self) { tag in
-                Text("#" + tag)
-                    .font(.system(size: 11 * scale, design: .serif))
-                    .foregroundStyle(theme.accent.color)
-                    .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(Capsule().fill(theme.accent.color.opacity(0.12)))
+                TaskTagChip(tag: tag, scale: scale, removable: !task.isReadOnly) { onRemoveTag(tag) }
             }
             if let notes = task.notes {
                 Button { editing = true } label: { Image(systemName: "text.alignleft").font(.system(size: 11)) }
@@ -486,6 +492,33 @@ struct TaskRow: View {
         case .inProgress: return "circle.lefthalf.filled"
         case .completed: return "checkmark.circle.fill"
         }
+    }
+}
+
+/// A tag on a task row. Clicking it takes the tag off the task; hovering
+/// strikes it through to say so.
+struct TaskTagChip: View {
+    @Environment(\.notebookTheme) private var theme
+    let tag: String
+    let scale: CGFloat
+    let removable: Bool
+    let onRemove: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let armed = removable && hovering
+        Button(action: onRemove) {
+            Text("#" + tag)
+                .font(.system(size: 11 * scale, design: .serif))
+                .strikethrough(armed, color: theme.accent.color)
+                .foregroundStyle(theme.accent.color)
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .background(Capsule().fill(theme.accent.color.opacity(armed ? 0.22 : 0.12)))
+        }
+        .buttonStyle(.plain)
+        .disabled(!removable)
+        .onHover { hovering = $0 }
+        .help(removable ? "Remove #\(tag)" : "")
     }
 }
 

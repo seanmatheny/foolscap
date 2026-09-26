@@ -23,6 +23,17 @@ import Foundation
         #expect(TaskLineParser.stripTags(from: p.title) == "Email Dave about and `#notatag` C#")
     }
 
+    @Test func removesOneTagAndKeepsTheRest() {
+        #expect(TaskLineParser.removingTag("bau", from: "Lais disk space alerts #bau #lais") == "Lais disk space alerts #lais")
+        #expect(TaskLineParser.removingTag("lais", from: "Lais disk space alerts #bau #lais") == "Lais disk space alerts #bau")
+        // Mid-text, leading (after a priority marker), any case, every copy.
+        #expect(TaskLineParser.removingTag("work", from: "Ship #work it  today") == "Ship it  today")
+        #expect(TaskLineParser.removingTag("work", from: "!! #Work Ship it #work") == "!! Ship it")
+        // A longer tag with the same prefix, inline code and C# stay.
+        #expect(TaskLineParser.removingTag("work", from: "Email #work/hpc about `#work` in C# #work") == "Email #work/hpc about `#work` in C#")
+        #expect(TaskLineParser.removingTag("home", from: "Fix #bau") == "Fix #bau")
+    }
+
     @Test func escapedHashIsNotATag() {
         // Scribe transcripts escape recognised text; `\#budget` must not become a tag.
         #expect(TaskLineParser.tags(in: ##"\#budget is \#5 but #scribe/book-notes is"##) == ["scribe/book-notes"])
