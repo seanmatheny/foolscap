@@ -58,9 +58,18 @@ public struct NotebookView<Page: View>: View {
     @Environment(\.notebookTheme) private var theme
     @Environment(\.notebookTabEdge) private var tabEdge
     @Environment(\.showsElasticBand) private var showsBand
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let tabs: [NotebookTabItem]
     @Binding var selection: String
     let page: (String) -> Page
+    /// The page the notebook lies open at; `selection` only ever reaches it
+    /// through `turnPage`, so the live page is never swapped before it has
+    /// been photographed.
+    @State private var shown: String?
+    @State private var anchor = PageAnchor()
+    /// A photograph taken as a tab was clicked, before the selection changed,
+    /// and where along the page's edge the click was (0 at the top).
+    @State private var pendingShot: (id: String, image: CGImage, size: CGSize, edge: CGFloat)?
 
     public init(tabs: [NotebookTabItem], selection: Binding<String>, @ViewBuilder page: @escaping (String) -> Page) {
         self.tabs = tabs; self._selection = selection; self.page = page
@@ -69,6 +78,7 @@ public struct NotebookView<Page: View>: View {
     public var body: some View {
         let windowState = WindowState.shared
         let tabsLeft = tabEdge == .left
+        let open = shown ?? selection
         CoverBlock {
             ZStack(alignment: tabsLeft ? .topLeading : .topTrailing) {
                 // The facing page runs from under the page's inner edge to the window edge.
@@ -77,14 +87,25 @@ public struct NotebookView<Page: View>: View {
                     .padding(.top, NotebookMetrics.topMargin)
                     .padding(.bottom, NotebookMetrics.bottomMargin)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topTrailing : .topLeading)
-                PageView { page(selection) }
-                    .shadow(color: .black.opacity(0.35), radius: 3, x: tabsLeft ? -2 : 2, y: 0)
+                PageView { page(open) }
+                    // The drop shadow belongs to a plain shape behind the page: on the page
+                    // itself it would put every photograph of the page through a blur.
+                    .background {
+                        RoundedRectangle(cornerRadius: 3).fill(theme.page.paperColor.color)
+                            .shadow(color: .black.opacity(0.25), radius: 3, x: tabsLeft ? -2 : 2, y: 0)
+                    }
+                    .overlay { PageSnapshotHost(anchor: anchor) }
                     // Index tabs are glued to the page edge, behind it, sticking out sideways.
                     .background(alignment: tabsLeft ? .topLeading : .topTrailing) {
-                        IndexTabsView(tabs: tabs, selection: $selection)
-                            .padding(.top, 22)
-                            .offset(x: tabsLeft ? -PaperTab.width : PaperTab.width)
+                        IndexTabsView(tabs: tabs, selection: $selection) { id, edge in
+                            // Photograph the page before the selection changes anything.
+                            if id != open, let shot = anchor.capture() { pendingShot = (open, shot.image, shot.size, edge) }
+                            selection = id
+                        }
+                        .padding(.top, 22)
+                        .offset(x: tabsLeft ? -PaperTab.width : PaperTab.width)
                     }
+                    .coordinateSpace(.named("page"))
                     .padding(NotebookMetrics.pageInsets(tabsLeft: tabsLeft))
                 // The fold: both pages curve down into the spine.
                 FoldShadow()
@@ -110,6 +131,31 @@ public struct NotebookView<Page: View>: View {
         }
         .background(NotebookWindowChrome(shapeVersion: "\(selection)-\(tabEdge.rawValue)", coverColor: theme.cover.baseColor.nsColor))
         .ignoresSafeArea()
+        .onAppear {
+            if shown == nil { shown = selection }
+            PageCurlRenderer.warmUp()
+        }
+        .onChange(of: selection) { old, new in turnPage(from: old, to: new) }
+    }
+
+    /// The page being read curls away over the spine, whichever way through
+    /// the tabs the new one lies, while the new page takes its place beneath.
+    /// The curl runs in a window of its own on a thread of its own, so it
+    /// starts with the click and carries on while the new page is built.
+    private func turnPage(from old: String, to new: String) {
+        guard old != new else { return }
+        let shot = pendingShot.flatMap { $0.id == old ? $0 : nil }
+        pendingShot = nil
+        let clicked = CACurrentMediaTime()
+        defer {
+            shown = new
+            if pageTurnLogging { NSLog("Foolscap turn: main thread %.1f ms before the page swap", (CACurrentMediaTime() - clicked) * 1000) }
+        }
+        // Without a photograph or a curl to draw (the shader still compiling) the page just changes.
+        guard !reduceMotion, let image = shot?.image ?? anchor.capture()?.image else { return }
+        let slow = ProcessInfo.processInfo.environment["FOOLSCAP_SLOW_OPEN"] != nil ? 4.0 : 1.0
+        _ = anchor.curl(image, style: PageCurlStyle.random(from: shot?.edge), spineOnRight: tabEdge == .left,
+                        paper: theme.page.paperColor, duration: 0.55 * slow)
     }
 }
 
@@ -205,10 +251,11 @@ struct CoverStitches: Shape {
 /// The leather folding over the spine: a shaded groove with a lit edge.
 struct SpineRidge: View {
     var body: some View {
+        // Kept faint: a crease the eye passes over, not a line it stops at.
         LinearGradient(stops: [.init(color: .black.opacity(0.0), location: 0),
-                               .init(color: .black.opacity(0.35), location: 0.35),
-                               .init(color: .black.opacity(0.5), location: 0.5),
-                               .init(color: .white.opacity(0.12), location: 0.7),
+                               .init(color: .black.opacity(0.14), location: 0.35),
+                               .init(color: .black.opacity(0.22), location: 0.5),
+                               .init(color: .white.opacity(0.06), location: 0.7),
                                .init(color: .clear, location: 1)],
                        startPoint: .leading, endPoint: .trailing)
             .allowsHitTesting(false)
@@ -239,8 +286,8 @@ struct FacingPageView: View {
             theme.page.paperColor.color
             TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity, blend: theme.page.textureBlend)
             // Shade deepening into the fold.
-            LinearGradient(stops: [.init(color: .black.opacity(0.38), location: 0),
-                                   .init(color: .black.opacity(0.14), location: 0.45),
+            LinearGradient(stops: [.init(color: .black.opacity(0.22), location: 0),
+                                   .init(color: .black.opacity(0.08), location: 0.45),
                                    .init(color: .clear, location: 1)],
                            startPoint: foldOnLeft ? .leading : .trailing, endPoint: foldOnLeft ? .trailing : .leading)
             // The page's top and bottom edges throw a little shadow on the leather beside them.
@@ -261,9 +308,9 @@ struct FacingPageView: View {
 struct FoldShadow: View {
     var body: some View {
         LinearGradient(stops: [.init(color: .clear, location: 0),
-                               .init(color: .black.opacity(0.30), location: 0.42),
-                               .init(color: .black.opacity(0.62), location: 0.5),
-                               .init(color: .black.opacity(0.26), location: 0.58),
+                               .init(color: .black.opacity(0.14), location: 0.42),
+                               .init(color: .black.opacity(0.32), location: 0.5),
+                               .init(color: .black.opacity(0.12), location: 0.58),
                                .init(color: .clear, location: 1)],
                        startPoint: .leading, endPoint: .trailing)
             .allowsHitTesting(false)
@@ -291,6 +338,9 @@ struct IndexTabsView: View {
     @Environment(\.notebookTabEdge) private var tabEdge
     let tabs: [NotebookTabItem]
     @Binding var selection: String
+    /// A click on a tab: its id and how far down the page's edge it was (0 at
+    /// the top, 1 at the bottom); the page curls from that end.
+    var select: (String, CGFloat) -> Void
 
     var body: some View {
         // Every tab is as long as the longest label, so the row reads as one set.
@@ -302,11 +352,16 @@ struct IndexTabsView: View {
                          isSelected: tab.id == selection,
                          index: index,
                          length: length)
-                    .onTapGesture { selection = tab.id }
+                    .onTapGesture(coordinateSpace: .named("page")) { location in
+                        select(tab.id, location.y / max(1, pageHeight))
+                    }
                     .accessibilityAddTraits(.isButton)
                     .accessibilityLabel(tab.appearance.label)
             }
             Spacer()
         }
+        .onGeometryChange(for: CGFloat.self) { proxy in proxy.bounds(of: .named("page"))?.height ?? 0 } action: { pageHeight = $0 }
     }
+
+    @State private var pageHeight: CGFloat = 0
 }

@@ -196,3 +196,35 @@
   CSSMERR_TP_NOT_TRUSTED and the Makefile falls back to ad-hoc).
 - The flyleaf (`PageTurnOverlay` in FoolscapUI, `flyleafOnOpen`) sits under
   `CoverOpeningOverlay` in RootView and turns around the spine on click, ↩ or ⎋.
+  Pages curl (`PageCurl.swift`, `PageCurlRenderer.swift`), always forward: the page
+  being read curls away over the spine whichever way through the tabs the new one
+  lies (a backward turn bringing the earlier page back over was tried and dropped as
+  distracting). A live editor cannot be bent, so `PageSnapshotHost` (an NSView laid
+  over the page) photographs the page as the tab is clicked, before `selection`
+  changes (`pendingShot`). The photograph comes from the window server
+  (`CGWindowListCreateImage`, reached through `dlsym` because the SDK marks it
+  unavailable; an app may read its own window without Screen Recording leave), with
+  `cacheDisplay` as the fallback: that redraws the view tree on the CPU and was the
+  "thinking" pause before a turn. The page's drop shadow sits on a shape behind the
+  page for the same reason. The curl plays in `PageTurnWindow`, a transparent child
+  window over the notebook, drawn by `PageCurlAnimator` from its own thread into a
+  `CAMetalLayer` (paced by `nextDrawable`), so the main thread building the new page
+  never stalls it; a blank sheet of paper under the curl stands in for the new page
+  until the notebook has drawn it. The shader is compiled from a Swift string at
+  runtime (`PageCurlRenderer.warmUp`): this Mac's Xcode 26 has no Metal toolchain
+  (`xcodebuild -downloadComponent MetalToolchain`), so a `.metal` file in a target
+  fails to build. `PageCurlStyle.random(from:)` picks the fold's lean from where
+  along the page's edge the click was, plus jitter and the roll's radius. Turns take
+  0.55 s; `FOOLSCAP_SLOW_OPEN=1` slows them 4x and `FOOLSCAP_TURN_LOG=1` logs each
+  stage's timing. The flyleaf curls the same way, rigidly (`PageTurnEffect`) when it
+  cannot be photographed.
+- Settings is a `TabView` (Notebook, Shortcuts, Scribe, Highlights, plug-in panes,
+  Files); each tab is a grouped form of fixed height. `--prefs-tab=name` opens a tab
+  (`notebook`, `shortcuts`, `scribe`, `highlights`, `files`); `--prefs-bottom` and
+  `--prefs-scroll` scroll the open tab's form.
+- The spine reads faint on purpose (`SpineRidge`, `FoldShadow`, the facing-page and
+  page inner shades are all in the 0.1–0.3 range): a heavier crease grabbed the eye.
+- The day's highlights change on `highlightsPicksRefresh` (`HighlightsPicksRefresh`):
+  at midnight (default) or every 24 h / 12 h / hour counted from the last draw, or
+  each time the app opens. Timed draws are keyed "yyyy-MM-dd HH:mm:ss" in
+  `daily.json` beside the plain day keys; `drawKey`/`drawnAt` there say what is up.
