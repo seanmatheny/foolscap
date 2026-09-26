@@ -200,7 +200,6 @@ struct CategoryStrip: View {
 }
 
 struct CategoryChip: View {
-    @Environment(\.notebookTheme) private var theme
     let label: String
     let isOn: Bool
     /// Tasks dropped on the chip; nil for a chip that takes no drops ("All").
@@ -209,17 +208,7 @@ struct CategoryChip: View {
     @State private var targeted = false
 
     var body: some View {
-        let chip = Button(action: action) {
-            Text(label)
-                .font(.system(size: 11.5, weight: isOn || targeted ? .semibold : .regular, design: .serif))
-                .padding(.horizontal, 9).padding(.vertical, 3)
-                .background(Capsule().fill(isOn || targeted ? theme.accent.color.opacity(targeted ? 0.32 : 0.2) : theme.ink.color.opacity(0.06)))
-                .overlay(Capsule().stroke(targeted ? theme.accent.color : theme.ink.color.opacity(isOn ? 0.25 : 0.1),
-                                          lineWidth: targeted ? 1.2 : 0.5))
-                .scaleEffect(targeted ? 1.08 : 1)
-        }
-        .buttonStyle(.plain)
-        .animation(.easeOut(duration: 0.12), value: targeted)
+        let chip = FilterChip(label: label, isOn: isOn, isTargeted: targeted, action: action)
         if let onDrop {
             chip
                 .dropDestination(for: TaskDrag.self) { drags, _ in
@@ -412,7 +401,7 @@ struct TaskRow: View {
                 .lineLimit(1)
                 .highlighted(theme.highlighter[task.status])
             ForEach(task.tags, id: \.self) { tag in
-                TaskTagChip(tag: tag, scale: scale, removable: !task.isReadOnly) { onRemoveTag(tag) }
+                TagChip(tag: tag, scale: scale, removable: !task.isReadOnly) { onRemoveTag(tag) }
             }
             if let notes = task.notes {
                 Button { editing = true } label: { Image(systemName: "text.alignleft").font(.system(size: 11)) }
@@ -495,33 +484,6 @@ struct TaskRow: View {
     }
 }
 
-/// A tag on a task row. Clicking it takes the tag off the task; hovering
-/// strikes it through to say so.
-struct TaskTagChip: View {
-    @Environment(\.notebookTheme) private var theme
-    let tag: String
-    let scale: CGFloat
-    let removable: Bool
-    let onRemove: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        let armed = removable && hovering
-        Button(action: onRemove) {
-            Text("#" + tag)
-                .font(.system(size: 11 * scale, design: .serif))
-                .strikethrough(armed, color: theme.accent.color)
-                .foregroundStyle(theme.accent.color)
-                .padding(.horizontal, 6).padding(.vertical, 1)
-                .background(Capsule().fill(theme.accent.color.opacity(armed ? 0.22 : 0.12)))
-        }
-        .buttonStyle(.plain)
-        .disabled(!removable)
-        .onHover { hovering = $0 }
-        .help(removable ? "Remove #\(tag)" : "")
-    }
-}
-
 /// Edit a task's single-line text and its notes (kept as indented lines under it).
 struct TaskEditPopover: View {
     let task: TaskItem
@@ -574,55 +536,6 @@ struct TaskEditPopover: View {
     }
 }
 
-struct TagPopover: View {
-    let allTags: [String]
-    let existing: [String]
-    let onPick: (String) -> Void
-    @State private var newTag = ""
-    @FocusState private var focused: Bool
-
-    @Environment(\.notebookTheme) private var theme
-
-    var body: some View {
-        PaperPopover {
-            VStack(alignment: .leading, spacing: 8) {
-                TextField("Tag", text: $newTag)
-                    .font(.system(size: 13, design: .serif))
-                    .paperField().frame(width: 200)
-                    .focused($focused)
-                    .onSubmit { onPick(choices.first ?? newTag) }
-                    .onKeyPress(.tab) {
-                        guard let first = choices.first, first != typed else { return .ignored }
-                        newTag = first; return .handled
-                    }
-                if !choices.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(choices, id: \.self) { tag in
-                            Button("#" + tag) { onPick(tag) }
-                                .buttonStyle(.plain).font(.system(size: 12.5, design: .serif))
-                                .foregroundStyle(theme.accent.color)
-                        }
-                    }
-                } else if !typed.isEmpty {
-                    Text("New tag #\(typed)").font(.system(size: 11, design: .serif)).foregroundStyle(theme.dimInk.color)
-                }
-            }
-        }
-        .onAppear { focused = true }
-    }
-
-    /// What has been typed, as a tag: no `#`, lowercased.
-    private var typed: String {
-        newTag.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased()
-    }
-
-    /// Known tags starting with what was typed (all of them before typing), minus the task's own.
-    private var choices: [String] {
-        let t = typed
-        return allTags.filter { !existing.contains($0) && (t.isEmpty || $0.hasPrefix(t)) }.prefix(8).map { $0 }
-    }
-}
-
 /// The priority "light" before a task: a coloured dot that opens a menu.
 struct PriorityLight: View {
     @Environment(\.notebookTheme) private var theme
@@ -657,42 +570,5 @@ struct PriorityLight: View {
         .fixedSize()
         .opacity(visible ? 1 : 0)
         .help(priority == .none ? "Set a priority" : "\(priority.title) priority")
-    }
-}
-
-/// Chips for the `#tag` being typed at the end of a field; click one to complete it.
-struct TagCompletionRow: View {
-    @Environment(\.notebookTheme) private var theme
-    @Binding var text: String
-    let known: [String]
-
-    var body: some View {
-        if let partial = TagCompletion.partial(in: text) {
-            let matches = TagCompletion.matches(for: partial.text, in: known)
-            if !matches.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(matches, id: \.self) { tag in
-                        Button("#" + tag) { text = TagCompletion.completing(text, partial: partial, with: tag) }
-                            .buttonStyle(.plain).font(.system(size: 11, design: .serif))
-                            .foregroundStyle(theme.accent.color)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(theme.accent.color.opacity(0.12)))
-                    }
-                    Text("⇥").font(.system(size: 10)).foregroundStyle(theme.dimInk.color)
-                }
-            }
-        }
-    }
-}
-
-extension View {
-    /// Tab completes the `#tag` being typed at the end of the field with the best match.
-    func completesTags(in text: Binding<String>, known: [String]) -> some View {
-        onKeyPress(.tab) {
-            guard let partial = TagCompletion.partial(in: text.wrappedValue),
-                  let first = TagCompletion.matches(for: partial.text, in: known).first else { return .ignored }
-            text.wrappedValue = TagCompletion.completing(text.wrappedValue, partial: partial, with: first)
-            return .handled
-        }
     }
 }

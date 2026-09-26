@@ -21,13 +21,26 @@ public struct NotesFolder: Hashable, Sendable {
     public static let scribeDirectoryName = "Scribe"
     public var scribeDirectory: URL { root.appendingPathComponent(NotesFolder.scribeDirectoryName, isDirectory: true) }
 
+    /// Kindle highlights: one markdown file per book (with its cover beside it).
+    public static let highlightsDirectoryName = "Highlights"
+    public var highlightsDirectory: URL { root.appendingPathComponent(NotesFolder.highlightsDirectoryName, isDirectory: true) }
+
     /// Every markdown file the index should know about: daily notes plus Tasks.md,
-    /// and the Scribe transcripts when that section is on.
-    public func listIndexableNotes(includingScribe: Bool = false) -> [(url: URL, day: DayKey?)] {
+    /// the Scribe transcripts and the highlight books when those sections are on.
+    public func listIndexableNotes(includingScribe: Bool = false, includingHighlights: Bool = false) -> [(url: URL, day: DayKey?)] {
         var out: [(URL, DayKey?)] = listDailyNotes().filter { !$0.isPlaceholder }.map { ($0.url, $0.day) }
         if FileManager.default.fileExists(atPath: tasksFile.path) { out.append((tasksFile, nil)) }
         if includingScribe { out += listScribeNotes().map { ($0, nil) } }
+        if includingHighlights { out += listHighlightNotes().map { ($0, nil) } }
         return out
+    }
+
+    /// Book files at the top of `Highlights/`, sorted by name; placeholders and dot files skipped.
+    public func listHighlightNotes() -> [URL] {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: highlightsDirectory.path) else { return [] }
+        return names.filter { !$0.hasPrefix(".") && $0.hasSuffix(".md") }.sorted()
+            .map { highlightsDirectory.appendingPathComponent($0) }
+            .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
     }
 
     /// Transcripts under `Scribe/`, any depth, sorted by path. iCloud
@@ -72,7 +85,7 @@ public struct NotesFolder: Hashable, Sendable {
     }
 
     /// The directories and root-level files that make up a notebook.
-    public static let layoutDirectories = ["Daily", "Attachments", scribeDirectoryName]
+    public static let layoutDirectories = ["Daily", "Attachments", scribeDirectoryName, highlightsDirectoryName]
 
     /// Every regular file that belongs to the notebook under `root`, with its
     /// path relative to the root: the layout directories at any depth plus

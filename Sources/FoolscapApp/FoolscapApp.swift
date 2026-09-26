@@ -4,6 +4,7 @@ import FoolscapCore
 import FoolscapStore
 import FoolscapUI
 import FoolscapSections
+import FoolscapHighlights
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -113,6 +114,12 @@ struct RootView: View {
                 section.makeRootView()
             } else {
                 Text("No section").foregroundStyle(.secondary)
+            }
+        }
+        // The flyleaf lies on the notebook; the cover opens above both.
+        .overlay {
+            if model.flyleafPresented, let highlights = model.highlightsSection {
+                PageTurnOverlay(isPresented: $model.flyleafPresented) { highlights.makeFlyleafView() }
             }
         }
         .overlay { CoverOpeningOverlay() }

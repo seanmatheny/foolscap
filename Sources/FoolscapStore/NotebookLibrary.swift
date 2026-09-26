@@ -173,6 +173,12 @@ public final class NotebookLibrary {
         didSet { if oldValue != indexesScribe { Task { await rescan() } } }
     }
 
+    /// Whether `rescan` indexes the highlight books under `Highlights/`; the
+    /// Highlights section switches it on, like `indexesScribe`.
+    public var indexesHighlights = false {
+        didSet { if oldValue != indexesHighlights { Task { await rescan() } } }
+    }
+
     /// Drop documents that are saved and not the given ones, to bound memory and
     /// the work each folder change does.
     public func releaseDocuments(except keep: Set<String>) {
@@ -316,11 +322,12 @@ public final class NotebookLibrary {
         let folder = self.folder
         let index = self.index
         let includeScribe = indexesScribe
+        let includeHighlights = indexesHighlights
         let task = Task.detached(priority: .utility) { () -> Bool in
             var changed = false
             let known = Dictionary(uniqueKeysWithValues: ((try? index.allNoteRecords()) ?? []).map { ($0.path, $0) })
             var seen = Set<String>()
-            for entry in folder.listIndexableNotes(includingScribe: includeScribe) {
+            for entry in folder.listIndexableNotes(includingScribe: includeScribe, includingHighlights: includeHighlights) {
                 let path = folder.relativePath(of: entry.url)
                 seen.insert(path)
                 guard let stat = FileIO.stat(entry.url) else { continue }

@@ -32,6 +32,8 @@ public struct PreferencesView: View {
     @AppStorage("exportFormat") private var exportFormat = "markdown"
     @AppStorage("exportIncludeAttachments") private var exportAttachments = true
     @AppStorage("scribeEnabled") private var scribeEnabled = false
+    @AppStorage("highlightsEnabled") private var highlightsEnabled = false
+    @AppStorage("flyleafOnOpen") private var flyleafOnOpen = false
     @AppStorage(BackupManager.intervalKey) private var backupInterval = BackupInterval.off.rawValue
     @AppStorage(BackupManager.keepKey) private var backupKeep = 10
 
@@ -99,9 +101,20 @@ public struct PreferencesView: View {
                 Toggle("Sync Kindle Scribe notebooks", isOn: $scribeEnabled)
                 Text("Adds a Scribe tab. Off, nothing runs: no sync, no handwriting recognition, no tab.")
                     .font(.caption).foregroundStyle(.secondary)
-                if scribeEnabled || !sectionPanes.isEmpty {
-                    ForEach(sectionPanes) { pane in pane.view }
-                }
+                ForEach(sectionPanes.filter { $0.id == "scribe" }) { pane in pane.view }
+            }
+            Section("Kindle Highlights") {
+                Toggle("Show Kindle highlights", isOn: $highlightsEnabled)
+                Text("Adds a Highlights tab: the highlights from the Kindle app on this Mac, three of them a day. Off, nothing runs: no import, no tab.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Open on today's highlights", isOn: $flyleafOnOpen)
+                    .disabled(!highlightsEnabled)
+                Text("The cover opens onto a loose page with the day's three; a click turns it to the notebook.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(sectionPanes.filter { $0.id == "highlights" }) { pane in pane.view }
+            }
+            ForEach(sectionPanes.filter { !["scribe", "highlights"].contains($0.id) }) { pane in
+                Section(pane.title) { pane.view }
             }
             Section("Storage") {
                 LabeledContent("Notebook folder") {
@@ -202,7 +215,7 @@ struct BackupSettings: View {
         } else if let message = backup.lastMessage {
             Text(message).font(.caption).foregroundStyle(.secondary)
         }
-        Text("One zip file holds everything: notes and attachments, Tasks.md, Scribe notebooks and transcripts, the search index, Scribe sync state and these settings. Restoring replaces all of it; the current notebook is backed up to the folder above first.")
+        Text("One zip file holds everything: notes and attachments, Tasks.md, Scribe notebooks and transcripts, highlight books and covers, the search index, sync state and these settings. Restoring replaces all of it; the current notebook is backed up to the folder above first.")
             .font(.caption).foregroundStyle(.secondary)
     }
 }

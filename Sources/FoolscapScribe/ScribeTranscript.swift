@@ -1,4 +1,5 @@
 import Foundation
+import FoolscapCore
 
 /// A notebook as the transcript writer sees it: Amazon id, display name and
 /// its path under `Scribe/` without the extension.
@@ -18,25 +19,14 @@ public enum ScribeTranscript {
     public static let formatVersion = "transcript/2"
 
     /// Sanitize notebook/folder names for the file system.
-    public static func sanitizeName(_ name: String) -> String {
-        let cleaned = name.replacingOccurrences(of: #"[\\/:*?"<>|]"#, with: "_", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty ? "untitled" : cleaned
-    }
+    public static func sanitizeName(_ name: String) -> String { FileNames.sanitize(name) }
 
     /// Keep recognised text literal: a stray "#word" would otherwise become a
     /// tag, and OCR noise is full of stray symbols.
-    public static func escapeMarkdown(_ text: String) -> String {
-        var out = text.replacingOccurrences(of: #"([\\`*_\[\]<#])"#, with: #"\\$1"#, options: .regularExpression)
-        out = out.replacingOccurrences(of: "~~", with: #"\~\~"#).replacingOccurrences(of: "==", with: #"\=\="#)
-        if out.range(of: #"^\s*(>|[-=_]{3,}\s*$)"#, options: .regularExpression) != nil { out = "\\" + out }
-        return out
-    }
+    public static func escapeMarkdown(_ text: String) -> String { MarkdownEscaping.escape(text) }
 
     /// The inverse of `escapeMarkdown`: every escape is a backslash before one character.
-    public static func unescapeMarkdown(_ text: String) -> String {
-        text.replacingOccurrences(of: #"\\(.)"#, with: "$1", options: .regularExpression)
-    }
+    public static func unescapeMarkdown(_ text: String) -> String { MarkdownEscaping.unescape(text) }
 
     static let todoMark = "**TODO:**"
 

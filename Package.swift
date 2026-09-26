@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "FoolscapEditor", targets: ["FoolscapEditor"]),
         .library(name: "FoolscapUI", targets: ["FoolscapUI"]),
         .library(name: "FoolscapScribe", targets: ["FoolscapScribe"]),
+        .library(name: "FoolscapHighlights", targets: ["FoolscapHighlights"]),
         .executable(name: "Foolscap", targets: ["FoolscapApp"]),
     ],
     dependencies: [
@@ -48,6 +49,14 @@ let package = Package(
             name: "FoolscapScribe",
             dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI"]
         ),
+        // Kindle highlights section: the Kindle app's databases and book files read
+        // natively (Calibre's KFX plugin out of process for KFX text), one markdown
+        // file per book, three highlights a day.
+        .target(
+            name: "FoolscapHighlights",
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI", .product(name: "GRDB", package: "GRDB.swift")],
+            resources: [.copy("Resources/kfx_extract.py")]
+        ),
         // The OCR helper, bundled as Contents/MacOS/scribe-ocr. A separate process so
         // Vision's recognition models are unloaded again when a run finishes.
         .executableTarget(
@@ -56,12 +65,12 @@ let package = Package(
         ),
         .executableTarget(
             name: "FoolscapApp",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe"],
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights"],
             exclude: ["Info.plist"]
         ),
         .testTarget(
             name: "FoolscapTests",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapSections", "FoolscapScribe"]
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights"]
         ),
     ]
 )

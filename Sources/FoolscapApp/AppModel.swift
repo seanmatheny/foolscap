@@ -4,6 +4,7 @@ import FoolscapStore
 import FoolscapUI
 import FoolscapSections
 import FoolscapScribe
+import FoolscapHighlights
 
 /// Wires the store, the section registry and user preferences together.
 @MainActor
@@ -36,6 +37,13 @@ final class AppModel {
     /// `--scribe` keeps the tab on for this launch whatever Settings says.
     private var scribeForced = false
     private var tasksSection: TasksSection?
+    /// The Highlights tab is a hard toggle too: off means no section, no import, no index rows.
+    private(set) var highlightsEnabled = false
+    /// `--highlights` / `--flyleaf` keep the tab on for this launch whatever Settings says.
+    private var highlightsForced = false
+    private(set) var highlightsSection: HighlightsSection?
+    /// The day's highlights lie on a loose page over the notebook until clicked away.
+    var flyleafPresented = false
 
     var theme: NotebookTheme {
         (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).scaled(by: textScale).onPaper(paperTexture).ruled(ruling, marginRule: marginRule)
@@ -73,11 +81,21 @@ final class AppModel {
                 self.selectedSectionID = sectionID
                 self.section(id: sectionID)?.navigate(to: route)
             }
+            highlightsForced = CommandLine.arguments.contains { $0 == "--highlights" || $0.hasPrefix("--highlights=") || $0 == "--flyleaf" }
+            setHighlightsEnabled(highlightsForced || defaults.bool(forKey: "highlightsEnabled"))
             scribeForced = CommandLine.arguments.contains("--scribe")
             setScribeEnabled(scribeForced || defaults.bool(forKey: "scribeEnabled"))
             rewireSections()
         }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
+        // `--highlights` opens the tab; `--highlights=books` on the shelf, `--highlights=Highlights/<Title>.md` on a book.
+        if highlightsForced, let highlights = highlightsSection {
+            if CommandLine.arguments.contains(where: { $0.hasPrefix("--highlights") }) { selectedSectionID = HighlightsSection.sectionID }
+            if let value = CommandLine.arguments.first(where: { $0.hasPrefix("--highlights=") })?.dropFirst("--highlights=".count) {
+                if value == "books" { highlights.showBooks() } else if !value.isEmpty { highlights.open(book: String(value)) }
+            }
+        }
+        flyleafPresented = highlightsEnabled && (CommandLine.arguments.contains("--flyleaf") || defaults.bool(forKey: "flyleafOnOpen"))
         // `Foolscap --day=2026-09-22` opens on a given day (handy for scripted screenshots).
         // Values ride inside the flag: with `open … --args`, a bare value argument makes
         // AppKit treat the launch as "open these files" and the main window never appears.
@@ -196,6 +214,8 @@ final class AppModel {
                 self.readAppearancePreferences()
                 let scribe = defaults.bool(forKey: "scribeEnabled")
                 if !self.scribeForced, scribe != self.scribeEnabled { self.setScribeEnabled(scribe) }
+                let highlights = defaults.bool(forKey: "highlightsEnabled")
+                if !self.highlightsForced, highlights != self.highlightsEnabled { self.setHighlightsEnabled(highlights) }
             }
         }
     }
@@ -221,6 +241,10 @@ final class AppModel {
             setScribeEnabled(false)
             setScribeEnabled(true)
         }
+        if highlightsEnabled {
+            setHighlightsEnabled(false)
+            setHighlightsEnabled(true)
+        }
         tasksSection?.aggregator.scheduleReload()
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
     }
@@ -239,6 +263,31 @@ final class AppModel {
             sections.removeAll { $0.id == ScribeSection.sectionID }
             library.indexesScribe = false
             if selectedSectionID == ScribeSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
+        }
+        rewireSections()
+    }
+
+    /// Add or remove the Highlights section at runtime; it sits before Scribe.
+    func setHighlightsEnabled(_ on: Bool) {
+        guard on != highlightsEnabled, let library else { return }
+        highlightsEnabled = on
+        if on {
+            // `--kindle-data=<dir>` reads a copy of the Kindle app's container (for verification).
+            let kindleData = CommandLine.arguments.first { $0.hasPrefix("--kindle-data=") }
+                .map { URL(fileURLWithPath: String($0.dropFirst("--kindle-data=".count))) }
+            let highlights = HighlightsSection(library: library,
+                                               extractor: NativeKindleExtractor(dataDirectory: kindleData ?? KindleLibrary.defaultDataDirectory))
+            sections.insert(highlights, at: sections.firstIndex { $0.id == ScribeSection.sectionID } ?? sections.endIndex)
+            highlightsSection = highlights
+            library.indexesHighlights = true
+            highlights.start()
+        } else {
+            highlightsSection?.stop()
+            highlightsSection = nil
+            sections.removeAll { $0.id == HighlightsSection.sectionID }
+            library.indexesHighlights = false
+            flyleafPresented = false
+            if selectedSectionID == HighlightsSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
         }
         rewireSections()
     }

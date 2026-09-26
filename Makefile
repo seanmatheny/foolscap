@@ -35,6 +35,18 @@ else ifneq ($(wildcard $(XCODE_PLUGINS)),)
 endif
 SWIFT := xcrun swift
 
+# macOS ties an app's privacy grants (Files & Folders ▸ Kindle, Full Disk Access) to
+# its code signature. An ad-hoc signature is a hash of the build, so every rebuild
+# would reset them. A self-signed code-signing certificate named "Foolscap Dev" in
+# the login keychain (Keychain Access ▸ Certificate Assistant ▸ Create a Certificate…,
+# type Code Signing) keeps the grants across builds; any other valid identity is used
+# next, and the ad-hoc signature is the fallback.
+CODESIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null | \
+  awk -F'"' '/"/ { n[++c] = $$2; if ($$2 ~ /Foolscap Dev/) p = $$2 } END { if (p) print p; else if (c) print n[1] }')
+ifeq ($(strip $(CODESIGN_IDENTITY)),)
+  CODESIGN_IDENTITY := -
+endif
+
 BINARY_NAME   := Foolscap
 BUNDLE_NAME   := $(BINARY_NAME).app
 CONTENTS      := $(BUNDLE_NAME)/Contents
@@ -61,8 +73,8 @@ _bundle:
 	cp "$(PLIST_SRC)" "$(CONTENTS)/Info.plist"
 	@for b in $(BUILD_DIR)/*.bundle; do [ -d "$$b" ] && cp -R "$$b" "$(RESOURCES_DIR)/"; done; true
 	@[ -f "$(ICNS)" ] && cp "$(ICNS)" "$(RESOURCES_DIR)/Foolscap.icns" || echo "(no icon yet: run make icon)"
-	codesign --force --deep --sign - "$(BUNDLE_NAME)" >/dev/null 2>&1 || true
-	@echo "✅  $(BUNDLE_NAME) is ready."
+	codesign --force --deep --sign "$(CODESIGN_IDENTITY)" "$(BUNDLE_NAME)" >/dev/null 2>&1 || true
+	@echo "✅  $(BUNDLE_NAME) is ready (signed: $(CODESIGN_IDENTITY))."
 
 run: app-debug
 	open "$(BUNDLE_NAME)"

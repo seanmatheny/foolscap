@@ -27,7 +27,7 @@ public final class ScribeSection: NotebookSection {
     public static let sectionID = "scribe"
     public static let looseFolderID = ""
     public let id = ScribeSection.sectionID
-    public let tab = TabAppearance(label: "Scribe", systemImage: "pencil.and.scribble", shortcut: "k")
+    public let tab = TabAppearance(label: "Scribe", systemImage: "pencil.and.scribble", colorIndex: 3, shortcut: "k")
 
     let library: NotebookLibrary
     public let account = ScribeAccount()
@@ -46,7 +46,7 @@ public final class ScribeSection: NotebookSection {
     /// A search hit's page, being worked out off the main actor.
     @ObservationIgnored var pageLookup: Task<Void, Never>?
     @ObservationIgnored private var engine: ScribeSyncEngine?
-    @ObservationIgnored private var scheduler: ScribeScheduler?
+    @ObservationIgnored private var scheduler: PeriodicScheduler?
     /// Watches for the connection coming back after an offline pass.
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
@@ -112,7 +112,7 @@ public final class ScribeSection: NotebookSection {
         let ocr: any OCRRunning = helper.map { ProcessOCRRunner(helperURL: $0) } ?? MissingOCRRunner()
         engine = ScribeSyncEngine(client: AmazonScribeClient(), ocr: ocr, cache: OCRCache(directory: cacheDirectory),
                                   stateURL: stateURL, sink: LibraryTaskSink(library: library))
-        let scheduler = ScribeScheduler { [weak self] in await self?.runSync() }
+        let scheduler = PeriodicScheduler(identifier: "com.seanmatheny.foolscap.scribe-sync") { [weak self] in await self?.runSync() }
         scheduler.start(minutes: syncMinutes)
         self.scheduler = scheduler
         let monitor = NWPathMonitor()

@@ -85,6 +85,32 @@ public final class SearchIndex: Sendable {
             // Existing notes are re-indexed on the next full scan.
             try db.execute(sql: "UPDATE notes SET hash = ''")
         }
+        migrator.registerMigration("v4-highlights") { db in
+            try db.create(table: "highlight_books") { t in
+                t.primaryKey("path", .text)
+                t.column("title", .text).notNull()
+                t.column("author", .text).notNull().defaults(to: "")
+            }
+            try db.create(table: "highlights") { t in
+                t.primaryKey("id", .text)
+                t.column("path", .text).notNull().indexed()
+                t.column("line", .integer).notNull()
+                t.column("meta_line", .integer).notNull()
+                t.column("text", .text).notNull()
+                t.column("note", .text)
+                t.column("position", .integer).notNull()
+                t.column("added", .double)
+                t.column("favourite", .boolean).notNull().defaults(to: false)
+                t.column("hidden", .boolean).notNull().defaults(to: false)
+                t.column("content_key", .text).notNull()
+            }
+            try db.create(table: "highlight_tags") { t in
+                t.column("highlight_id", .text).notNull().references("highlights", onDelete: .cascade)
+                t.column("tag", .text).notNull().indexed()
+            }
+            // Book files indexed before this version (a restored backup) are re-read on the next scan.
+            try db.execute(sql: "UPDATE notes SET hash = '' WHERE path LIKE 'Highlights/%'")
+        }
         try migrator.migrate(db)
     }
 
@@ -143,11 +169,28 @@ public final class SearchIndex: Sendable {
     public func index(path: String, day: DayKey?, text: String, stat: FileIO.Stat, hash: String) throws {
         let parsed = NoteParser.parse(text, path: path, day: day)
         let body = NoteParser.indexableBody(text)
+        let highlights = Self.isHighlightsFile(path) ? HighlightParser.parse(text, path: path) : nil
         try db.write { db in
             try db.execute(sql: "DELETE FROM notes WHERE path = ?", arguments: [path])
             try db.execute(sql: "DELETE FROM notes_fts WHERE path = ?", arguments: [path])
             try db.execute(sql: "DELETE FROM tasks WHERE path = ?", arguments: [path])
             try db.execute(sql: "DELETE FROM note_tags WHERE path = ?", arguments: [path])
+            try db.execute(sql: "DELETE FROM highlights WHERE path = ?", arguments: [path])
+            try db.execute(sql: "DELETE FROM highlight_books WHERE path = ?", arguments: [path])
+            if let highlights {
+                try db.execute(sql: "INSERT INTO highlight_books (path, title, author) VALUES (?,?,?)",
+                               arguments: [path, highlights.title, highlights.author])
+                for h in highlights.items {
+                    try db.execute(sql: """
+                        INSERT INTO highlights (id, path, line, meta_line, text, note, position, added, favourite, hidden, content_key)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                        """, arguments: [h.id, h.path, h.line, h.metaLine, h.paragraphs.joined(separator: "\n\n"), h.note, h.meta.position,
+                                         h.meta.added?.timeIntervalSince1970, h.meta.isFavourite, h.meta.isHidden, h.contentKey])
+                    for tag in h.meta.tags {
+                        try db.execute(sql: "INSERT INTO highlight_tags (highlight_id, tag) VALUES (?,?)", arguments: [h.id, tag])
+                    }
+                }
+            }
             for tag in parsed.tags {
                 try db.execute(sql: "INSERT INTO note_tags (path, tag) VALUES (?,?)", arguments: [path, tag])
             }
@@ -181,12 +224,70 @@ public final class SearchIndex: Sendable {
             try db.execute(sql: "DELETE FROM notes_fts WHERE path = ?", arguments: [path])
             try db.execute(sql: "DELETE FROM tasks WHERE path = ?", arguments: [path])
             try db.execute(sql: "DELETE FROM note_tags WHERE path = ?", arguments: [path])
+            try db.execute(sql: "DELETE FROM highlights WHERE path = ?", arguments: [path])
+            try db.execute(sql: "DELETE FROM highlight_books WHERE path = ?", arguments: [path])
         }
     }
 
     public func removeAll() throws {
         try db.write { db in
-            try db.execute(sql: "DELETE FROM notes; DELETE FROM notes_fts; DELETE FROM tasks; DELETE FROM note_tags;")
+            try db.execute(sql: """
+                DELETE FROM notes; DELETE FROM notes_fts; DELETE FROM tasks; DELETE FROM note_tags;
+                DELETE FROM highlights; DELETE FROM highlight_books;
+                """)
+        }
+    }
+
+    // MARK: - Highlights
+
+    /// Book files live at the top of `Highlights/`; their blockquotes are highlights.
+    public static func isHighlightsFile(_ path: String) -> Bool {
+        path.hasPrefix(NotesFolder.highlightsDirectoryName + "/") && path.hasSuffix(".md")
+    }
+
+    public struct HighlightBookRecord: Equatable, Sendable, Identifiable {
+        public var path: String
+        public var title: String
+        public var author: String
+        public var count: Int
+        public var hiddenCount: Int
+        public var id: String { path }
+    }
+
+    /// Every highlight (or one book's), in reading order.
+    public func highlights(inBook path: String? = nil) throws -> [HighlightItem] {
+        try db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT h.*, b.title AS book_title, b.author AS book_author
+                FROM highlights h LEFT JOIN highlight_books b ON b.path = h.path
+                \(path == nil ? "" : "WHERE h.path = ?") ORDER BY h.path, h.position, h.line
+                """, arguments: path.map { [$0] } ?? [])
+            let tagRows = try Row.fetchAll(db, sql: "SELECT highlight_id, tag FROM highlight_tags")
+            var tags: [String: [String]] = [:]
+            for r in tagRows { tags[r["highlight_id"], default: []].append(r["tag"]) }
+            return rows.map { r in
+                let text: String = r["text"]
+                let added: Double? = r["added"]
+                return HighlightItem(path: r["path"], line: r["line"], metaLine: r["meta_line"],
+                                     bookTitle: r["book_title"] ?? "", bookAuthor: r["book_author"] ?? "",
+                                     paragraphs: text.components(separatedBy: "\n\n"), note: r["note"],
+                                     meta: HighlightMeta(position: r["position"], added: added.map { Date(timeIntervalSince1970: $0) },
+                                                         tags: tags[r["id"]] ?? [], isFavourite: r["favourite"], isHidden: r["hidden"]))
+            }
+        }
+    }
+
+    /// Every book with highlights, by title.
+    public func highlightBooks() throws -> [HighlightBookRecord] {
+        try db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT b.path AS path, b.title AS title, b.author AS author,
+                       COUNT(h.id) AS count, COALESCE(SUM(h.hidden), 0) AS hidden_count
+                FROM highlight_books b LEFT JOIN highlights h ON h.path = b.path
+                GROUP BY b.path ORDER BY b.title COLLATE NOCASE, b.path
+                """).map {
+                HighlightBookRecord(path: $0["path"], title: $0["title"], author: $0["author"], count: $0["count"], hiddenCount: $0["hidden_count"])
+            }
         }
     }
 
@@ -259,12 +360,15 @@ public final class SearchIndex: Sendable {
         case all
         case under(String)
         case notUnder(String)
+        /// Everything outside several prefixes (Daily Notes leave out every other section's folder).
+        case notUnderAny([String])
 
         func includes(_ path: String) -> Bool {
             switch self {
             case .all: return true
             case .under(let p): return path.hasPrefix(p)
             case .notUnder(let p): return !path.hasPrefix(p)
+            case .notUnderAny(let ps): return !ps.contains { path.hasPrefix($0) }
             }
         }
 
@@ -278,6 +382,9 @@ public final class SearchIndex: Sendable {
             case .all: return ("1", [])
             case .under(let p): return ("\(column) LIKE ? ESCAPE '\\'", [pattern(p)])
             case .notUnder(let p): return ("\(column) NOT LIKE ? ESCAPE '\\'", [pattern(p)])
+            case .notUnderAny(let ps):
+                guard !ps.isEmpty else { return ("1", []) }
+                return (ps.map { _ in "\(column) NOT LIKE ? ESCAPE '\\'" }.joined(separator: " AND "), ps.map(pattern))
             }
         }
     }

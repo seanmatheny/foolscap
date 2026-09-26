@@ -29,7 +29,9 @@
   and also uses FoolscapUI chrome.
 - Launch flags for verification: `--day=YYYY-MM-DD`, `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
-  to that many points), `--scribe`,
+  to that many points), `--scribe`, `--highlights` (forces the Highlights tab on
+  and opens it), `--flyleaf` (forces the tab on and shows the day's three on the
+  opening page),
   `--type=text` (posts key events into the focused text after 2s, e.g. to show tag
   completion; `\n` is Return, `{up}` `{down}` `{left}` `{right}` `{tab}` `{esc}` name
   keys), `--quick-task` (opens the quick-task panel; `window-shot.sh … all`
@@ -139,3 +141,35 @@
   notes_sync.py. `ScribeTodos` has diverged (the Python tool is retired): its markers
   accept a spaced, colonless "TO DO" because Vision drops the colon. Bump
   `ScribeTodos.rulesVersion` when the rules change so notebooks are re-transcribed.
+- Kindle highlights (`FoolscapHighlights`): a hard toggle like Scribe (`highlightsEnabled`,
+  default off; `AppModel.setHighlightsEnabled` inserts the section before Scribe and
+  flips `NotebookLibrary.indexesHighlights`). One markdown file per book at
+  `Highlights/<Title>.md` (cover beside it as `.jpg`); each highlight is a blockquote
+  whose last line is the meta line `> — pos N · d MMM yyyy · #tags ♥ hidden`
+  (`HighlightParser`/`HighlightMarkdown` in Core). Identity is `path#line` plus a
+  content hash of the quote text; tags/♥/hidden edits go through
+  `NoteDocument.replaceHighlightMeta` + `library.save()` like task edits. The index
+  keeps `highlights`/`highlight_tags`/`highlight_books` (migration `v4-highlights`);
+  Daily search uses `PathScope.notUnderAny` to leave out `Scribe/` and `Highlights/`.
+- The Kindle app's databases hold positions, not text: `KindleLibrary` (BookData.sqlite,
+  WAL, read in place, never `immutable`) and `KindleAnnotations` (ksdk_annotation_v1.db)
+  give ranges; `MOBIBook` decodes `.azw` natively (PalmDOC), `KFXExtractor` runs
+  Calibre's KFX Input plugin via the bundled `kfx_extract.py` under `calibre-debug`
+  once per book and caches (pid, text) chunks in ~/Library/Caches/Foolscap/KFX (keys
+  match clippyconvert's cache, which is read as a fallback). Positions must equal
+  `ZRAWMAXPOSITION` or the book is skipped. The importer's ledger is
+  Application Support/Foolscap/Highlights/state.json; the day's picks (seeded by the
+  date, favourites ×3, hidden never, recent ×0.25) are pinned in `daily.json`.
+- Reading the Kindle container needs a TCC grant (Privacy & Security ▸ Files & Folders ▸
+  Foolscap ▸ Kindle, or Full Disk Access). macOS keys the grant on the code signature,
+  and an ad-hoc signature changes every build, so the Makefile signs with the
+  "Foolscap Dev" self-signed certificate when the login keychain has one (else any valid
+  identity, else ad-hoc). Without it, every `make app-debug` resets the grant and the
+  Files & Folders switch flips itself off on the next import. A grant made for an
+  ad-hoc build keeps that build's requirement even when toggled on again, so after
+  switching to the certificate Sean runs `tccutil reset All com.seanmatheny.foolscap`
+  once and re-grants (the "Foolscap Dev" self-signed certificate must be set to Always
+  Trust for code signing in Keychain Access, or `security find-identity` reports it as
+  CSSMERR_TP_NOT_TRUSTED and the Makefile falls back to ad-hoc).
+- The flyleaf (`PageTurnOverlay` in FoolscapUI, `flyleafOnOpen`) sits under
+  `CoverOpeningOverlay` in RootView and turns around the spine on click, ↩ or ⎋.

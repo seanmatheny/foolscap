@@ -10,8 +10,8 @@ final class DailyNotesSearchProvider: SearchProvider {
     let library: NotebookLibrary
     init(library: NotebookLibrary) { self.library = library }
 
-    /// Scribe transcripts share the index but belong to the Scribe section.
-    private let scope = SearchIndex.PathScope.notUnder(NotesFolder.scribeDirectoryName + "/")
+    /// Scribe transcripts and highlight books share the index but belong to their own sections.
+    private let scope = SearchIndex.PathScope.notUnderAny([NotesFolder.scribeDirectoryName + "/", NotesFolder.highlightsDirectoryName + "/"])
 
     func search(_ query: String, limit: Int) async throws -> [SearchHit] {
         await library.save()
@@ -230,30 +230,6 @@ struct TagSuggestionList: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// Wraps children onto new rows.
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 6
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? 400
-        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
-        for v in subviews {
-            let s = v.sizeThatFits(.unspecified)
-            if x + s.width > width, x > 0 { x = 0; y += rowH + spacing; rowH = 0 }
-            x += s.width + spacing; rowH = max(rowH, s.height)
-        }
-        return CGSize(width: width, height: y + rowH)
-    }
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
-        for v in subviews {
-            let s = v.sizeThatFits(.unspecified)
-            if x + s.width > bounds.maxX, x > bounds.minX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
-            v.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
-            x += s.width + spacing; rowH = max(rowH, s.height)
-        }
     }
 }
 

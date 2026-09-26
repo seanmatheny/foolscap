@@ -291,6 +291,41 @@ public final class NoteDocument: Identifiable {
         textStorage.replaceCharacters(in: NSRange(location: start, length: stop - start), with: replacementLines.joined(separator: "\n"))
     }
 
+    // MARK: Highlights
+
+    /// Rewrite the meta line of the highlight block starting on `line`,
+    /// verifying its content key; if the block moved, find a unique block with
+    /// the same key.
+    public func replaceHighlightMeta(line: Int, expectedKey: String, with meta: HighlightMeta) throws {
+        try replaceHighlightMeta(line: line, expectedKey: expectedKey) { $0 = meta }
+    }
+
+    /// Change the meta line as it stands now, so edits queued behind each other
+    /// (a ♥ then a tag) each build on the last.
+    public func replaceHighlightMeta(line: Int, expectedKey: String, change: (inout HighlightMeta) -> Void) throws {
+        let parsed = HighlightParser.parse(textStorage.string, path: path)
+        let item: HighlightItem
+        if let hit = parsed.items.first(where: { $0.line == line && $0.contentKey == expectedKey }) {
+            item = hit
+        } else {
+            let candidates = parsed.items.filter { $0.contentKey == expectedKey }
+            guard candidates.count == 1 else { throw TaskWriteError.moved }
+            item = candidates[0]
+        }
+        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        guard item.metaLine < map.lines.count else { throw TaskWriteError.moved }
+        var meta = item.meta
+        change(&meta)
+        guard meta != item.meta else { return }
+        textStorage.replaceCharacters(in: map.lines[item.metaLine].range, with: HighlightMarkdown.renderMeta(meta))
+    }
+
+    /// Replace the whole text as an edit (marks the document dirty, unlike `setText`).
+    public func replaceWholeText(_ text: String) {
+        guard text != textStorage.string else { return }
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: text)
+    }
+
     private func locateTask(line: Int, expectedKey: String) throws -> ScannedLine {
         let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
         func matches(_ l: ScannedLine) -> Bool {
