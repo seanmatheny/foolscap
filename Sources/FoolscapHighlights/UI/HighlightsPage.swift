@@ -14,6 +14,8 @@ struct HighlightsPage: View {
     private var pitch: CGFloat { theme.linePitch }
     private var scale: CGFloat { theme.type.body.size / 15 }
 
+    @State private var pageWidth: CGFloat = 800
+
     var body: some View {
         GeometryReader { geo in
             ScrollViewReader { proxy in
@@ -33,6 +35,8 @@ struct HighlightsPage: View {
                     }
                 }
                 .onChange(of: section.pendingHighlightID) { _, id in scroll(to: id, proxy: proxy) }
+                .onAppear { pageWidth = geo.size.width - 58 - 44 }
+                .onChange(of: geo.size.width) { _, w in pageWidth = w - 58 - 44 }
                 .onChange(of: section.items.count) { _, _ in scroll(to: section.pendingHighlightID, proxy: proxy) }
             }
         }
@@ -48,7 +52,7 @@ struct HighlightsPage: View {
         } else {
             switch section.mode {
             case .today: TodayView(section: section, items: section.picks, showsBooks: true)
-            case .books: BookGrid(section: section)
+            case .books: BookGrid(section: section, width: pageWidth)
             case .book(let path): BookPage(section: section, path: path)
             }
         }

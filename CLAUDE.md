@@ -164,6 +164,15 @@
   a highlight whose start moved), a plain deletion marks the block hidden; files never
   lose a block. The day's picks (seeded by the date, favourites ×3, hidden never,
   recent ×0.25, distinct books) are pinned in `daily.json`.
+- Kindle only fetches new highlights while it runs, so `importNow` (unless `opensKindle:
+  false`, as from the sync watcher) opens it hidden via `KindleApp.launchHidden`, waits for its
+  sync to go quiet (`waitForSync` watches BookData.sqlite-wal, Whispersync's WAL and the
+  annotation database: a fresh Kindle writes the first two within ~15 s even when nothing is
+  new, the annotation DB only for changed highlights; 8 s quiet, 45 s cap), imports, then
+  terminates it (the process is named "Kindle"); a Kindle already running is never touched. `highlightsOpensKindle` (default
+  on) turns this off. Schedules: at launch (default), when Kindle syncs, hourly, 3-hourly,
+  once a day (startup import only when `state.lastRun` is a day old), manual. Cover
+  thumbnails are warmed on reload and looked up synchronously on first render.
 - Paths in the index are byte-exact: `NotesFolder.relativePath` and `FileNames.sanitize`
   precompose accents, and `performRescan` compares stored paths by bytes, because Swift
   string equality is canonical (an NFD "Shōgun" would otherwise never be re-indexed

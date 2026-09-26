@@ -5,6 +5,7 @@ import FoolscapCore
 struct HighlightsSettingsPane: View {
     @Bindable var section: HighlightsSection
     @AppStorage(HighlightsImportSchedule.key) private var schedule = HighlightsImportSchedule.atLaunch.rawValue
+    @AppStorage(HighlightsImportSchedule.opensKindleKey) private var opensKindle = true
 
     var body: some View {
         Picker("Check for new highlights", selection: $schedule) {
@@ -12,6 +13,9 @@ struct HighlightsSettingsPane: View {
         }
         .onChange(of: schedule) { _, _ in section.settingsChanged() }
         Text("Each check reads the Kindle app's own database on this Mac; nothing runs while Foolscap is closed. “Whenever the Kindle app syncs” watches that file and costs nothing in between.")
+            .font(.caption).foregroundStyle(.secondary)
+        Toggle("Open the Kindle app in the background to fetch new highlights", isOn: $opensKindle)
+        Text("Kindle only receives highlights from your Kindle while it is running. Before a check, Foolscap opens it hidden, waits for it to sync, then quits it again; a Kindle you opened yourself is left alone.")
             .font(.caption).foregroundStyle(.secondary)
         LabeledContent("Import") {
             HStack {

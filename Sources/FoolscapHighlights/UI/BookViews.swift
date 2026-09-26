@@ -7,15 +7,25 @@ import FoolscapCore
 import FoolscapStore
 import FoolscapUI
 
-/// The shelf: every book's cover, with its title and count beneath.
+/// The shelf: every book's cover, with its title and count beneath. Built
+/// once, not lazily: a few dozen cells cost nothing to keep, and a lazy grid
+/// would create and drop rows mid-scroll.
 struct BookGrid: View {
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: HighlightsSection
+    /// The width the shelf may use, from the page.
+    var width: CGFloat
+    static let cellWidth: CGFloat = 108
+    static let spacing: CGFloat = 20
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 108, maximum: 132), spacing: 20, alignment: .top)], alignment: .leading, spacing: 26) {
-            ForEach(section.books) { book in
-                BookCover(section: section, book: book)
+        let columns = max(1, Int((width + Self.spacing) / (Self.cellWidth + Self.spacing)))
+        let rows = stride(from: 0, to: section.books.count, by: columns).map { Array(section.books[$0..<min($0 + columns, section.books.count)]) }
+        VStack(alignment: .leading, spacing: 26) {
+            ForEach(rows, id: \.first!.path) { row in
+                HStack(alignment: .top, spacing: Self.spacing) {
+                    ForEach(row) { book in BookCover(section: section, book: book) }
+                }
             }
         }
         .padding(.top, 8)
@@ -32,9 +42,15 @@ struct BookCover: View {
     var body: some View {
         Button { section.open(book: book.path) } label: {
             VStack(spacing: 7) {
+                // Cover and shadow flattened into one layer (`drawingGroup`), so scrolling
+                // composites a texture instead of re-blurring two dozen shadows a frame.
                 CoverThumbnail(url: section.coverURL(for: book.path), title: book.title, author: book.author, width: 96)
-                    .shadow(color: .black.opacity(hovering ? 0.35 : 0.22), radius: hovering ? 7 : 4, x: 0, y: hovering ? 4 : 2)
+                    .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
+                    .padding(8)
+                    .drawingGroup()
+                    .padding(-8)
                     .scaleEffect(hovering ? 1.03 : 1)
+                    .offset(y: hovering ? -2 : 0)
                 Text(book.title)
                     .font(.system(size: 11.5 * scale, design: .serif))
                     .multilineTextAlignment(.center)
@@ -43,7 +59,7 @@ struct BookCover: View {
                 Text("\(book.count - book.hiddenCount)")
                     .font(.system(size: 10.5 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
             }
-            .frame(width: 108)
+            .frame(width: BookGrid.cellWidth)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -63,7 +79,16 @@ struct CoverThumbnail: View {
     var width: CGFloat = 96
     @State private var image: NSImage?
 
+    /// Thumbnails are rendered at 3× the shelf height for Retina and zoom.
+    static let shelfPixels = 96 * 3 / 2 * 3
+
     private var height: CGFloat { width * 1.5 }
+
+    init(url: URL?, title: String, author: String, width: CGFloat = 96) {
+        self.url = url; self.title = title; self.author = author; self.width = width
+        // A cell scrolling back into view draws its cover on the first frame.
+        _image = State(initialValue: url.flatMap { CoverCache.shared.cached(for: $0, maxPixels: Int(width * 1.5 * 3)) })
+    }
 
     var body: some View {
         ZStack {
@@ -84,7 +109,7 @@ struct CoverThumbnail: View {
         }
         .task(id: url) {
             guard let url else { image = nil; return }
-            image = await CoverCache.shared.image(for: url, maxPixels: Int(height * 3))
+            if image == nil { image = await CoverCache.shared.image(for: url, maxPixels: Int(height * 3)) }
         }
     }
 }
@@ -131,6 +156,27 @@ final class CoverCache {
     private var loading: [String: Task<NSImage?, Never>] = [:]
     nonisolated static let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Foolscap/Covers", isDirectory: true)
+
+    /// What is already in memory, for a first render without a hop.
+    func cached(for url: URL, maxPixels: Int) -> NSImage? { images["\(url.path)|\(maxPixels)"] }
+
+    /// Load every cover once, a few at a time, so scrolling never decodes.
+    func warm(_ urls: [URL], maxPixels: Int) {
+        let pending = urls.filter { cached(for: $0, maxPixels: maxPixels) == nil }
+        guard !pending.isEmpty else { return }
+        Task { [weak self] in
+            await withTaskGroup(of: Void.self) { group in
+                var iterator = pending.makeIterator()
+                for _ in 0..<4 {
+                    guard let url = iterator.next() else { break }
+                    group.addTask { _ = await self?.image(for: url, maxPixels: maxPixels) }
+                }
+                while await group.next() != nil, let url = iterator.next() {
+                    group.addTask { _ = await self?.image(for: url, maxPixels: maxPixels) }
+                }
+            }
+        }
+    }
 
     func image(for url: URL, maxPixels: Int) async -> NSImage? {
         let key = "\(url.path)|\(maxPixels)"

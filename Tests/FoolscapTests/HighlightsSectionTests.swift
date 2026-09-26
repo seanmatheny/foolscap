@@ -1,8 +1,39 @@
 import Testing
 import Foundation
+import AppKit
 @testable import FoolscapCore
 @testable import FoolscapStore
 @testable import FoolscapHighlights
+
+@Suite struct ImportScheduleTests {
+    @Test func startupImportFollowsTheSchedule() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        typealias S = HighlightsImportSchedule
+        #expect(S.startupImportDue(.atLaunch, lastRun: now, now: now))
+        #expect(S.startupImportDue(.hourly, lastRun: now, now: now))
+        #expect(!S.startupImportDue(.manual, lastRun: nil, now: now))
+        #expect(S.startupImportDue(.daily, lastRun: nil, now: now))
+        #expect(!S.startupImportDue(.daily, lastRun: now.addingTimeInterval(-3600), now: now))
+        #expect(S.startupImportDue(.daily, lastRun: now.addingTimeInterval(-25 * 3600), now: now))
+        #expect(S.daily.minutes == 1440 && S.atLaunch.minutes == nil)
+    }
+}
+
+@Suite @MainActor struct CoverCacheTests {
+    @Test func warmedCoversAreAvailableWithoutAHop() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-cover-\(UUID().uuidString).jpg")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let image = NSImage(size: NSSize(width: 40, height: 60), flipped: false) { rect in NSColor.red.setFill(); rect.fill(); return true }
+        let tiff = try #require(image.tiffRepresentation)
+        try #require(CoverImage.jpeg(from: tiff)).write(to: tmp)
+        let cache = CoverCache.shared
+        #expect(cache.cached(for: tmp, maxPixels: 120) == nil)
+        cache.warm([tmp], maxPixels: 120)
+        for _ in 0..<50 where cache.cached(for: tmp, maxPixels: 120) == nil { try await Task.sleep(for: .milliseconds(40)) }
+        let warmed = try #require(cache.cached(for: tmp, maxPixels: 120))
+        #expect(warmed.size.height > 0 && warmed.size.height <= 120)
+    }
+}
 
 @Suite @MainActor struct HighlightsSectionTests {
     static let book = """

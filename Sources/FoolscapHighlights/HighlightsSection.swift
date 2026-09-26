@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
@@ -20,9 +21,11 @@ public final class HighlightsImportStatus {
 /// When the Kindle app's annotations are checked for new highlights. Every
 /// choice but `manual` also checks once when the tab starts.
 public enum HighlightsImportSchedule: String, CaseIterable, Sendable {
-    case atLaunch, whenKindleSyncs, hourly, everyThreeHours, manual
+    case atLaunch, whenKindleSyncs, hourly, everyThreeHours, daily, manual
 
     public static let key = "highlightsImportSchedule"
+    /// Whether an import may open the Kindle app hidden to fetch what is new (default on).
+    public static let opensKindleKey = "highlightsOpensKindle"
 
     public var title: String {
         switch self {
@@ -30,6 +33,7 @@ public enum HighlightsImportSchedule: String, CaseIterable, Sendable {
         case .whenKindleSyncs: return "Whenever the Kindle app syncs"
         case .hourly: return "Every hour"
         case .everyThreeHours: return "Every 3 hours"
+        case .daily: return "Once a day"
         case .manual: return "Only when I ask"
         }
     }
@@ -38,7 +42,18 @@ public enum HighlightsImportSchedule: String, CaseIterable, Sendable {
         switch self {
         case .hourly: return 60
         case .everyThreeHours: return 180
+        case .daily: return 24 * 60
         default: return nil
+        }
+    }
+
+    /// Whether the tab's start should import: every schedule but manual does,
+    /// and "once a day" only when the last run is a day old.
+    public static func startupImportDue(_ schedule: HighlightsImportSchedule, lastRun: Date?, now: Date = Date()) -> Bool {
+        switch schedule {
+        case .manual: return false
+        case .daily: return lastRun.map { now.timeIntervalSince($0) >= 24 * 3600 } ?? true
+        default: return true
         }
     }
 }
@@ -63,6 +78,8 @@ public final class HighlightsSection: NotebookSection {
     /// Every highlight in the index, in reading order per book.
     public private(set) var items: [HighlightItem] = []
     public private(set) var books: [SearchIndex.HighlightBookRecord] = []
+    /// Book path → its cover file, found once per reload (not stat-ed per cell).
+    public private(set) var coverURLs: [String: URL] = [:]
     /// Today's three.
     public private(set) var picks: [HighlightItem] = []
     /// A highlight to scroll to once its book page is shown (from search or a card).
@@ -133,7 +150,8 @@ public final class HighlightsSection: NotebookSection {
         }
         scheduleReload()
         applySchedule()
-        if schedule != .manual {
+        let lastRun = HighlightsState.load(from: stateURL).lastRun
+        if HighlightsImportSchedule.startupImportDue(schedule, lastRun: lastRun) {
             startupTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(5))
                 guard !Task.isCancelled else { return }
@@ -165,7 +183,7 @@ public final class HighlightsSection: NotebookSection {
             scheduler = s
         } else if schedule == .whenKindleSyncs,
                   let url = KindleAnnotations.databaseURL(dataDirectory: (extractor as? NativeKindleExtractor)?.dataDirectory ?? KindleLibrary.defaultDataDirectory) {
-            let w = KindleWatcher(url: url) { [weak self] in self?.importNow() }
+            let w = KindleWatcher(url: url) { [weak self] in self?.importNow(opensKindle: false) }
             w.start()
             watcher = w
         }
@@ -187,13 +205,32 @@ public final class HighlightsSection: NotebookSection {
 
     // MARK: Import
 
-    public func importNow() {
+    public var opensKindle: Bool {
+        defaults.object(forKey: HighlightsImportSchedule.opensKindleKey) == nil ? true : defaults.bool(forKey: HighlightsImportSchedule.opensKindleKey)
+    }
+
+    /// Import now. Kindle only fetches new highlights while it runs, so unless
+    /// told otherwise this first opens it hidden, waits for its sync, and quits
+    /// it again afterwards (never a Kindle the user had open).
+    public func importNow(opensKindle: Bool = true) {
         guard importTask == nil, let importer else { return }
         let status = self.status
         status.isRunning = true
         status.lastError = nil
+        let dataDirectory = (extractor as? NativeKindleExtractor)?.dataDirectory
+        let launchesKindle = opensKindle && self.opensKindle && dataDirectory == KindleLibrary.defaultDataDirectory
+            && KindleApp.isInstalled && KindleApp.running == nil
         importTask = Task { [weak self] in
+            var launched: NSRunningApplication?
+            defer { launched?.terminate() }
             do {
+                if launchesKindle {
+                    status.phase = "Opening Kindle to fetch new highlights…"
+                    launched = try await KindleApp.launchHidden()
+                    status.phase = "Waiting for Kindle to sync…"
+                    _ = await KindleApp.waitForSync(of: KindleApp.syncFiles(dataDirectory: KindleLibrary.defaultDataDirectory), timeout: 45)
+                    try Task.checkCancellation()
+                }
                 let report = try await importer.run { phase in
                     Task { @MainActor in status.phase = phase }
                 }
@@ -240,6 +277,17 @@ public final class HighlightsSection: NotebookSection {
         self.items = items
         var seen = Set<String>()
         self.books = books.filter { seen.insert($0.path).inserted }
+        let folder = library.folder
+        let paths = self.books.map(\.path)
+        coverURLs = await Task.detached(priority: .userInitiated) {
+            var found: [String: URL] = [:]
+            for path in paths {
+                let url = folder.url(forRelativePath: HighlightsImporter.coverPath(for: path))
+                if FileManager.default.fileExists(atPath: url.path) { found[path] = url }
+            }
+            return found
+        }.value
+        CoverCache.shared.warm(Array(coverURLs.values), maxPixels: CoverThumbnail.shelfPixels)
         refreshPicks()
     }
 
@@ -262,10 +310,7 @@ public final class HighlightsSection: NotebookSection {
     public func book(at path: String) -> SearchIndex.HighlightBookRecord? { books.first { $0.path == path } }
 
     /// The cover beside the book file, when there is one.
-    public func coverURL(for path: String) -> URL? {
-        let url = library.folder.url(forRelativePath: HighlightsImporter.coverPath(for: path))
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
-    }
+    public func coverURL(for path: String) -> URL? { coverURLs[path] }
 
     /// The tags in use across highlights, most used first.
     public var highlightTags: [String] {
