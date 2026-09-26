@@ -1,9 +1,39 @@
 import Foundation
 import FoolscapCore
 
-/// Three highlights a day, the same three all day: a seeded, weighted draw
-/// over the collection. Favourites weigh three times a plain highlight, hidden
-/// ones never come up, and anything shown in the last month is unlikely to.
+/// How often the three highlights change. The calendar day is the default;
+/// the timed choices count from the last change, so what came up this morning
+/// stays until the same time tomorrow.
+public enum HighlightsPicksRefresh: String, CaseIterable, Sendable {
+    case daily, every24Hours, every12Hours, everyHour, eachOpen
+
+    public static let key = "highlightsPicksRefresh"
+
+    public var title: String {
+        switch self {
+        case .daily: return "Each day at midnight"
+        case .every24Hours: return "Every 24 hours"
+        case .every12Hours: return "Every 12 hours"
+        case .everyHour: return "Every hour"
+        case .eachOpen: return "Each time Foolscap opens"
+        }
+    }
+
+    /// How long a draw stays up, for the timed choices.
+    public var interval: TimeInterval? {
+        switch self {
+        case .every24Hours: return 24 * 3600
+        case .every12Hours: return 12 * 3600
+        case .everyHour: return 3600
+        default: return nil
+        }
+    }
+}
+
+/// Three highlights at a time, the same three until the next refresh: a
+/// seeded, weighted draw over the collection. Favourites weigh three times a
+/// plain highlight, hidden ones never come up, and anything shown in the last
+/// month is unlikely to.
 public enum DailyPicks {
     public static let favouriteWeight = 3.0
     public static let recentWeight = 0.25
@@ -17,6 +47,47 @@ public enum DailyPicks {
     }()
 
     public static func dayKey(_ date: Date) -> String { dayFormatter.string(from: date) }
+
+    static let stampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
+
+    /// A draw key for a refresh at `date`: the day first, so it sorts among
+    /// plain day keys and `recentKeys` can read the day off it.
+    public static func stampKey(_ date: Date) -> String { stampFormatter.string(from: date) }
+
+    /// The key of the draw current at `now`: the day for the midnight cadence;
+    /// otherwise the last draw's key while it is still fresh, else a new one
+    /// stamped with the time (`openedAt` is when this run of the app began).
+    public static func drawKey(for refresh: HighlightsPicksRefresh, history: DailyPickHistory, now: Date, openedAt: Date) -> String {
+        switch refresh {
+        case .daily:
+            return dayKey(now)
+        case .eachOpen:
+            if let key = history.drawKey, let at = history.drawnAt, at >= openedAt { return key }
+            return stampKey(now)
+        default:
+            if let key = history.drawKey, let at = history.drawnAt, let interval = refresh.interval,
+               now.timeIntervalSince(at) < interval { return key }
+            return stampKey(now)
+        }
+    }
+
+    /// When the current draw is next due to change, if it is time that changes it.
+    public static func nextRefresh(for refresh: HighlightsPicksRefresh, history: DailyPickHistory, now: Date, calendar: Calendar = .current) -> Date? {
+        switch refresh {
+        case .daily:
+            return calendar.nextDate(after: now, matching: DateComponents(hour: 0, minute: 0, second: 5), matchingPolicy: .nextTime)
+        case .eachOpen:
+            return nil
+        default:
+            guard let interval = refresh.interval else { return nil }
+            return (history.drawnAt ?? now).addingTimeInterval(interval)
+        }
+    }
 
     /// FNV-1a of the day string: the same day seeds the same draw.
     static func seed(_ day: String) -> UInt64 {
@@ -39,8 +110,9 @@ public enum DailyPicks {
         return keyed.sorted { $0.0 > $1.0 }.map(\.1)
     }
 
-    /// The day's picks: those already recorded for the day (still present, not
-    /// hidden), topped up from the ranking. New picks are recorded in `history`.
+    /// The picks for `day` (a day key or a draw key): those already recorded for
+    /// it (still present, not hidden), topped up from the ranking. New picks are
+    /// recorded in `history`.
     public static func picks(_ items: [HighlightItem], day: String, history: inout DailyPickHistory, count: Int = 3) -> [HighlightItem] {
         let byKey = Dictionary(items.map { ($0.contentKey, $0) }, uniquingKeysWith: { a, _ in a })
         var chosen: [HighlightItem] = []
@@ -66,12 +138,14 @@ public enum DailyPicks {
         return chosen
     }
 
-    /// Content keys shown in the days before `day`, within the recent window.
+    /// Content keys shown by other draws up to `day`'s day, within the recent
+    /// window. Keys begin with the day, so other draws on the same day count too.
     static func recentKeys(_ history: DailyPickHistory, before day: String) -> Set<String> {
-        guard let date = dayFormatter.date(from: day) else { return [] }
+        let today = String(day.prefix(10))
+        guard let date = dayFormatter.date(from: today) else { return [] }
         let floor = dayKey(date.addingTimeInterval(-Double(recentDays) * 86400))
         var keys = Set<String>()
-        for (d, list) in history.days where d < day && d >= floor { keys.formUnion(list) }
+        for (d, list) in history.days where d != day && d.prefix(10) <= today && d >= floor { keys.formUnion(list) }
         return keys
     }
 }

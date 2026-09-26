@@ -249,7 +249,35 @@ final class FakeExtractor: KindleExtracting, @unchecked Sendable {
         // Recent keys come from earlier days within the window only.
         history.days["2026-09-01"] = ["old"]; history.days["2026-06-01"] = ["ancient"]
         #expect(DailyPicks.recentKeys(history, before: "2026-09-26") == ["old"])
-        history.prune(keeping: 2)
+        history.prune(keeping: 30)
         #expect(history.days.keys.sorted() == ["2026-09-01", "2026-09-26"])
+        // Timed draws are keyed by their stamp and prune by the day they begin with.
+        history.days["2026-09-26 09:15:00"] = ["morning"]; history.days["2026-08-20 22:00:00"] = ["stale"]
+        #expect(DailyPicks.recentKeys(history, before: "2026-09-26 21:00:00") == Set(["old", "morning"] + after.map(\.contentKey)))
+        history.prune(keeping: 30)
+        #expect(history.days.keys.sorted() == ["2026-09-01", "2026-09-26", "2026-09-26 09:15:00"])
+    }
+
+    @Test func drawKeysFollowTheRefreshCadence() {
+        let opened = DailyPicks.stampFormatter.date(from: "2026-09-26 08:00:00")!
+        let now = opened.addingTimeInterval(3600)
+        var h = DailyPickHistory()
+        // Midnight cadence: the day, whatever was drawn before.
+        #expect(DailyPicks.drawKey(for: .daily, history: h, now: now, openedAt: opened) == "2026-09-26")
+        // Nothing drawn yet: a timed cadence stamps the moment.
+        #expect(DailyPicks.drawKey(for: .every24Hours, history: h, now: now, openedAt: opened) == "2026-09-26 09:00:00")
+        h.drawKey = "2026-09-26 09:00:00"; h.drawnAt = now
+        // Still fresh 23 hours on, stale at 24; 12 hours runs out sooner.
+        #expect(DailyPicks.drawKey(for: .every24Hours, history: h, now: now.addingTimeInterval(23 * 3600), openedAt: opened) == "2026-09-26 09:00:00")
+        #expect(DailyPicks.drawKey(for: .every24Hours, history: h, now: now.addingTimeInterval(24 * 3600), openedAt: opened) == "2026-09-27 09:00:00")
+        #expect(DailyPicks.drawKey(for: .every12Hours, history: h, now: now.addingTimeInterval(13 * 3600), openedAt: opened) == "2026-09-26 22:00:00")
+        #expect(DailyPicks.nextRefresh(for: .every24Hours, history: h, now: now) == now.addingTimeInterval(24 * 3600))
+        #expect(DailyPicks.nextRefresh(for: .eachOpen, history: h, now: now) == nil)
+        // Each open: a draw from this run stays; one from an earlier run is replaced.
+        #expect(DailyPicks.drawKey(for: .eachOpen, history: h, now: now.addingTimeInterval(7200), openedAt: opened) == "2026-09-26 09:00:00")
+        #expect(DailyPicks.drawKey(for: .eachOpen, history: h, now: now.addingTimeInterval(7200), openedAt: now.addingTimeInterval(60)) == "2026-09-26 11:00:00")
+        // A plain day key from the midnight cadence carries over until its time runs out.
+        h.drawKey = "2026-09-26"; h.drawnAt = opened
+        #expect(DailyPicks.drawKey(for: .every24Hours, history: h, now: now, openedAt: opened) == "2026-09-26")
     }
 }

@@ -6,8 +6,15 @@ struct HighlightsSettingsPane: View {
     @Bindable var section: HighlightsSection
     @AppStorage(HighlightsImportSchedule.key) private var schedule = HighlightsImportSchedule.atLaunch.rawValue
     @AppStorage(HighlightsImportSchedule.opensKindleKey) private var opensKindle = true
+    @AppStorage(HighlightsPicksRefresh.key) private var picksRefresh = HighlightsPicksRefresh.daily.rawValue
 
     var body: some View {
+        Picker("Change the day's highlights", selection: $picksRefresh) {
+            ForEach(HighlightsPicksRefresh.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+        }
+        .onChange(of: picksRefresh) { _, _ in section.picksRefreshChanged() }
+        Text("The three highlights on the Highlights tab and the flyleaf. The timed choices count from the last change, so this morning's three stay up until the same time tomorrow.")
+            .font(.caption).foregroundStyle(.secondary)
         Picker("Check for new highlights", selection: $schedule) {
             ForEach(HighlightsImportSchedule.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
         }

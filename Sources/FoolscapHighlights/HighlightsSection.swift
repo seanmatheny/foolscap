@@ -98,7 +98,9 @@ public final class HighlightsSection: NotebookSection {
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
     @ObservationIgnored private var importTask: Task<Void, Never>?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
-    @ObservationIgnored private var midnightTask: Task<Void, Never>?
+    @ObservationIgnored private var picksTask: Task<Void, Never>?
+    /// When this run of the app began, for "each time Foolscap opens".
+    @ObservationIgnored private let openedAt = Date()
     @ObservationIgnored private var history = DailyPickHistory()
     /// Edits are written one after another (see `edit`).
     @ObservationIgnored private var writeChain: Task<Void, Never>?
@@ -125,6 +127,18 @@ public final class HighlightsSection: NotebookSection {
     public func settingsChanged() {
         guard started else { return }
         applySchedule()
+    }
+
+    public var picksRefresh: HighlightsPicksRefresh {
+        HighlightsPicksRefresh(rawValue: defaults.string(forKey: HighlightsPicksRefresh.key) ?? "") ?? .daily
+    }
+
+    /// Called by the settings pane after the picks cadence changes: the current
+    /// draw stays up if it is still fresh under the new rule.
+    public func picksRefreshChanged() {
+        guard started else { return }
+        refreshPicks()
+        schedulePicksRefresh()
     }
 
     public var kindleInstalled: Bool {
@@ -158,7 +172,7 @@ public final class HighlightsSection: NotebookSection {
                 self?.importNow()
             }
         }
-        scheduleMidnight()
+        schedulePicksRefresh()
     }
 
     public func stop() {
@@ -168,7 +182,7 @@ public final class HighlightsSection: NotebookSection {
         changeListener?.cancel(); changeListener = nil
         reloadTask?.cancel(); reloadTask = nil
         startupTask?.cancel(); startupTask = nil
-        midnightTask?.cancel(); midnightTask = nil
+        picksTask?.cancel(); picksTask = nil
         cancelImport()
         importer = nil
     }
@@ -189,15 +203,17 @@ public final class HighlightsSection: NotebookSection {
         }
     }
 
-    /// Picks are for the day: re-drawn at local midnight.
-    private func scheduleMidnight() {
-        midnightTask?.cancel()
-        midnightTask = Task { [weak self] in
+    /// Re-draw the picks when they fall due: at local midnight, or when the
+    /// timed cadence runs out. Each draw sets the next wait.
+    private func schedulePicksRefresh() {
+        picksTask?.cancel()
+        picksTask = Task { [weak self] in
             while !Task.isCancelled {
+                guard let self else { return }
                 let now = Date()
-                guard let next = Calendar.current.nextDate(after: now, matching: DateComponents(hour: 0, minute: 0, second: 5), matchingPolicy: .nextTime) else { return }
+                guard let next = DailyPicks.nextRefresh(for: picksRefresh, history: history, now: now) else { return }
                 try? await Task.sleep(for: .seconds(max(60, next.timeIntervalSince(now))))
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled else { return }
                 self.refreshPicks()
             }
         }
@@ -292,9 +308,11 @@ public final class HighlightsSection: NotebookSection {
     }
 
     private func refreshPicks() {
-        let day = DailyPicks.dayKey(Date())
+        let now = Date()
+        let key = DailyPicks.drawKey(for: picksRefresh, history: history, now: now, openedAt: openedAt)
         var h = history
-        let picks = DailyPicks.picks(items, day: day, history: &h)
+        let picks = DailyPicks.picks(items, day: key, history: &h)
+        if h.drawKey != key { h.drawKey = key; h.drawnAt = now }
         if h != history {
             h.prune()
             history = h

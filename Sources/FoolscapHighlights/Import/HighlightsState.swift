@@ -70,8 +70,11 @@ public struct HighlightsState: Codable, Equatable, Sendable {
 /// Which highlights were shown on which day, so the daily three stay put for
 /// the day and recent ones are not picked again soon.
 public struct DailyPickHistory: Codable, Equatable, Sendable {
-    /// "yyyy-MM-dd" → content keys shown that day.
+    /// Draw key ("yyyy-MM-dd", or "yyyy-MM-dd HH:mm:ss" for a timed refresh) → content keys shown.
     public var days: [String: [String]] = [:]
+    /// The draw currently up and when it was made; the timed refreshes count from here.
+    public var drawKey: String?
+    public var drawnAt: Date?
     public static let keptDays = 60
 
     public init() {}
@@ -88,10 +91,12 @@ public struct DailyPickHistory: Codable, Equatable, Sendable {
         try e.encode(self).write(to: url, options: .atomic)
     }
 
-    /// Drop days older than the kept window (day strings sort chronologically).
+    /// Drop draws more than `recent` days older than the newest (keys begin
+    /// with the day, so they sort chronologically).
     public mutating func prune(keeping recent: Int = keptDays) {
-        let keys = days.keys.sorted()
-        if keys.count > recent { for k in keys.prefix(keys.count - recent) { days[k] = nil } }
+        guard let newest = days.keys.max(), let date = DailyPicks.dayFormatter.date(from: String(newest.prefix(10))) else { return }
+        let floor = DailyPicks.dayKey(date.addingTimeInterval(-Double(recent) * 86400))
+        for k in days.keys where k < floor { days[k] = nil }
     }
 }
 
