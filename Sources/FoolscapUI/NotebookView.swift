@@ -121,7 +121,8 @@ struct CoverShape: Shape {
     var spineOnRight = false
     func path(in r: CGRect) -> Path {
         if square { return Path(r) }
-        let s = NotebookMetrics.spineRadius, e = NotebookMetrics.edgeRadius
+        // The fold side is cut by the window mid-page, so the cover is square there.
+        let s: CGFloat = 0, e = NotebookMetrics.edgeRadius
         // Radii per corner: top-left, top-right, bottom-right, bottom-left.
         let (tl, tr, br, bl) = spineOnRight ? (e, s, s, e) : (s, e, e, s)
         var p = Path()
@@ -155,15 +156,62 @@ struct CoverBlock<Content: View>: View {
             // Light from the top-left, and a worn sheen along the edges.
             shape.fill(LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.22)],
                                       startPoint: .topLeading, endPoint: .bottomTrailing))
-            // Stitching just inside the edge.
-            shape
-                .inset(by: 7)
+            // Stitching just inside the edge: along the top, the opening edge and the
+            // bottom, running off the fold side where the cover continues past the window.
+            CoverStitches(square: square, spineOnRight: mirrored)
                 .stroke(theme.cover.stitchColor.color.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            // The spine: a ridge in the leather where it folds, in line with the pages' fold.
+            SpineRidge()
+                .frame(width: 10)
+                .padding(mirrored ? .trailing : .leading, NotebookMetrics.facingWidth - 5)
+                .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
             // Edge highlight so the cover reads as thick.
             shape.stroke(Color.white.opacity(0.10), lineWidth: 1)
             content
         }
         .clipShape(shape)
+    }
+}
+
+/// The stitch line: an open path 7 pt inside the top, opening and bottom edges.
+struct CoverStitches: Shape {
+    var square = false
+    var spineOnRight = false
+    func path(in r: CGRect) -> Path {
+        let inset: CGFloat = 7
+        let box = r.insetBy(dx: inset, dy: inset)
+        let e = square ? 0 : NotebookMetrics.edgeRadius - inset
+        var p = Path()
+        if spineOnRight {
+            // Fold on the right: start at the right edge, run left along the top, down the left, back right.
+            p.move(to: CGPoint(x: r.maxX, y: box.minY))
+            p.addLine(to: CGPoint(x: box.minX + e, y: box.minY))
+            if e > 0 { p.addArc(center: CGPoint(x: box.minX + e, y: box.minY + e), radius: e, startAngle: .degrees(-90), endAngle: .degrees(-180), clockwise: true) }
+            p.addLine(to: CGPoint(x: box.minX, y: box.maxY - e))
+            if e > 0 { p.addArc(center: CGPoint(x: box.minX + e, y: box.maxY - e), radius: e, startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true) }
+            p.addLine(to: CGPoint(x: r.maxX, y: box.maxY))
+        } else {
+            p.move(to: CGPoint(x: r.minX, y: box.minY))
+            p.addLine(to: CGPoint(x: box.maxX - e, y: box.minY))
+            if e > 0 { p.addArc(center: CGPoint(x: box.maxX - e, y: box.minY + e), radius: e, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false) }
+            p.addLine(to: CGPoint(x: box.maxX, y: box.maxY - e))
+            if e > 0 { p.addArc(center: CGPoint(x: box.maxX - e, y: box.maxY - e), radius: e, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false) }
+            p.addLine(to: CGPoint(x: r.minX, y: box.maxY))
+        }
+        return p
+    }
+}
+
+/// The leather folding over the spine: a shaded groove with a lit edge.
+struct SpineRidge: View {
+    var body: some View {
+        LinearGradient(stops: [.init(color: .black.opacity(0.0), location: 0),
+                               .init(color: .black.opacity(0.35), location: 0.35),
+                               .init(color: .black.opacity(0.5), location: 0.5),
+                               .init(color: .white.opacity(0.12), location: 0.7),
+                               .init(color: .clear, location: 1)],
+                       startPoint: .leading, endPoint: .trailing)
+            .allowsHitTesting(false)
     }
 }
 
