@@ -70,6 +70,31 @@ import Foundation
         let text = try String(contentsOf: folder.url(for: day), encoding: .utf8)
         #expect(text == "# Day\n\n- [x] One #work\n- [x] Two #home\n- [x] Done #old\n- [x] Three #work\n")
     }
+
+    @Test func droppingTasksOnATagTagsEachOnce() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-flow-tag-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp)
+        try folder.ensureLayout()
+        let day = DayKey("2026-09-22")!
+        try "# Day\n\n- [ ] !! One\n- [ ] Two #home\n- [/] Three #work\n".write(to: folder.url(for: day), atomically: true, encoding: .utf8)
+
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
+        await library.rescan(full: true)
+        let aggregator = TaskAggregator()
+        aggregator.setProviders([DailyNotesTaskProvider(library: library)])
+        await aggregator.reload()
+
+        // All three dropped on #work: the third already has it and is left alone.
+        aggregator.addTag("work", to: aggregator.tasks)
+        #expect(aggregator.tasks(status: .notStarted, tag: "work").count == 2)
+        for _ in 0..<50 {
+            if try String(contentsOf: folder.url(for: day), encoding: .utf8).contains("Two #home #work") { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let text = try String(contentsOf: folder.url(for: day), encoding: .utf8)
+        #expect(text == "# Day\n\n- [ ] !! One #work\n- [ ] Two #home #work\n- [/] Three #work\n")
+    }
 }
 
 @Suite @MainActor struct StandaloneTaskTests {

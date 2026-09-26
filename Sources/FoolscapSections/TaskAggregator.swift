@@ -100,10 +100,28 @@ public final class TaskAggregator {
         }
     }
 
-    public func addTag(_ tag: String, to task: TaskItem) {
+    public func addTag(_ tag: String, to task: TaskItem) { addTag(tag, to: [task]) }
+
+    /// Tag several tasks at once (a drop onto a tag chip). Tasks that already carry
+    /// the tag are left alone; the writes run one after another like `move`.
+    public func addTag(_ tag: String, to items: [TaskItem]) {
         let clean = tag.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased()
-        guard !clean.isEmpty, !task.tags.contains(clean) else { return }
-        rename(task, to: task.title + " #" + clean)
+        guard !clean.isEmpty else { return }
+        let edits = items.compactMap { task -> (TaskItem, String, any TaskProvider)? in
+            guard !task.tags.contains(clean), !task.isReadOnly,
+                  let provider = providers.first(where: { $0.id == task.providerID }) else { return nil }
+            return (task, task.title + " #" + clean, provider)
+        }
+        guard !edits.isEmpty else { return }
+        for (task, title, _) in edits {
+            if let i = tasks.firstIndex(where: { $0.id == task.id }) { tasks[i].title = title; tasks[i].tags.append(clean) }
+        }
+        Task {
+            for (task, title, provider) in edits {
+                do { try await provider.setTitle(title, of: task) }
+                catch { self.error = "Could not tag task: \(error)"; await reload(); return }
+            }
+        }
     }
 
     public func move(_ task: TaskItem, to status: TaskStatus) { move([task], to: status) }

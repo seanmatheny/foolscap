@@ -51,8 +51,8 @@ public final class TasksSection: NotebookSection {
 struct TasksPage: View {
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: TasksSection
-    @State private var showNewTask = false
     @State private var newTaskText = ""
+    @FocusState private var newTaskFocused: Bool
     /// Selected task ids (click, ⌘-click, ⇧-click), moved together by drag or menu.
     @State private var selection: Set<String> = []
     /// Where a ⇧-click range starts.
@@ -71,7 +71,10 @@ struct TasksPage: View {
                         .onTapGesture { clearSelection() }
                     VStack(alignment: .leading, spacing: 0) {
                         header
-                        CategoryStrip(tags: stripTags, selected: $section.selectedTag)
+                        newTaskField
+                            .frame(height: pitch)
+                        CategoryStrip(tags: stripTags, selected: $section.selectedTag,
+                                      onDropTasks: { items, tag in section.aggregator.addTag(tag, to: items); clearSelection() })
                             .frame(height: pitch)
                         Spacer().frame(height: pitch / 2)
                         ForEach(TaskStatus.allCases, id: \.self) { status in
@@ -100,6 +103,8 @@ struct TasksPage: View {
         }
         .foregroundStyle(theme.ink.color)
         .background {
+            // ⌘N goes to the new-task field.
+            Button("") { newTaskFocused = true }.keyboardShortcut("n", modifiers: [.command]).opacity(0)
             // Escape clears the selection.
             if !selection.isEmpty {
                 Button("") { clearSelection() }.keyboardShortcut(.cancelAction).opacity(0)
@@ -116,31 +121,30 @@ struct TasksPage: View {
             Text("Tasks").font(theme.type.heading.font).fontWeight(.bold)
             Text("\(section.aggregator.tasks.count)").font(.system(size: 13 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
             Spacer()
-            Button {
-                showNewTask.toggle()
-            } label: {
-                Label("New task", systemImage: "plus").labelStyle(.iconOnly)
-                    .font(.system(size: 13, weight: .semibold)).frame(width: 26, height: 26)
-                    .background(Circle().fill(theme.accent.color.opacity(0.14)))
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut("n", modifiers: [.command])
-            .popover(isPresented: $showNewTask, arrowEdge: .bottom) {
-                PaperPopover {
-                    VStack(alignment: .leading, spacing: 8) {
-                        TextField("Task, with #category", text: $newTaskText)
-                            .paperField().frame(width: 320)
-                            .onSubmit { submit() }
-                            .completesTags(in: $newTaskText, known: section.knownTags)
-                        TagCompletionRow(text: $newTaskText, known: section.knownTags)
-                        Text("Start with !, !! or !!! for low, medium or high priority.")
-                            .font(.caption).foregroundStyle(theme.dimInk.color)
-                    }
-                }
-            }
             if let err = section.aggregator.error { Text(err).font(.caption).foregroundStyle(.red) }
         }
         .frame(height: pitch * 1.5)
+    }
+
+    /// Always on the page, so adding tasks never takes a click first. Return adds
+    /// and keeps the focus for the next one.
+    private var newTaskField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "plus").font(.system(size: 12, weight: .semibold)).foregroundStyle(theme.dimInk.color)
+            TextField("Add a task, with #tags; start with !, !! or !!! for priority", text: $newTaskText)
+                .font(.system(size: 14 * scale, design: .serif))
+                .textFieldStyle(.plain)
+                .focused($newTaskFocused)
+                .onSubmit { submit() }
+                .completesTags(in: $newTaskText, known: section.knownTags)
+            TagCompletionRow(text: $newTaskText, known: section.knownTags)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 6).fill(theme.ink.color.opacity(newTaskFocused ? 0.07 : 0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.ink.color.opacity(newTaskFocused ? 0.22 : 0.12), lineWidth: 0.5))
+        .help("⌘N")
+        // The field's text and placeholder follow the paper, not the system appearance.
+        .colorScheme(theme.isDark ? .dark : .light)
     }
 
     /// Tags of tasks still to do; the chosen filter stays until it is cleared,
@@ -162,37 +166,65 @@ struct TasksPage: View {
     }
 
     private func submit() {
+        guard !newTaskText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         section.addTask(newTaskText)
         newTaskText = ""
-        showNewTask = false
+        newTaskFocused = true
     }
 }
 
+/// The tag filter. Tasks dropped on a tag chip get that tag.
 struct CategoryStrip: View {
-    @Environment(\.notebookTheme) private var theme
     let tags: [String]
     @Binding var selected: String?
+    let onDropTasks: ([TaskItem], String) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                chip("All", isOn: selected == nil) { selected = nil }
+                CategoryChip(label: "All", isOn: selected == nil) { selected = nil }
                 ForEach(tags, id: \.self) { tag in
-                    chip("#" + tag, isOn: selected == tag) { selected = selected == tag ? nil : tag }
+                    CategoryChip(label: "#" + tag, isOn: selected == tag,
+                                 onDrop: { onDropTasks($0, tag) }) { selected = selected == tag ? nil : tag }
                 }
             }
+            // Room for a targeted chip's scale ("All" leads and takes no drops).
+            .padding(.trailing, 4).padding(.vertical, 2)
         }
     }
+}
 
-    private func chip(_ label: String, isOn: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+struct CategoryChip: View {
+    @Environment(\.notebookTheme) private var theme
+    let label: String
+    let isOn: Bool
+    /// Tasks dropped on the chip; nil for a chip that takes no drops ("All").
+    var onDrop: (([TaskItem]) -> Void)?
+    let action: () -> Void
+    @State private var targeted = false
+
+    var body: some View {
+        let chip = Button(action: action) {
             Text(label)
-                .font(.system(size: 11.5, weight: isOn ? .semibold : .regular, design: .serif))
+                .font(.system(size: 11.5, weight: isOn || targeted ? .semibold : .regular, design: .serif))
                 .padding(.horizontal, 9).padding(.vertical, 3)
-                .background(Capsule().fill(isOn ? theme.accent.color.opacity(0.2) : theme.ink.color.opacity(0.06)))
-                .overlay(Capsule().stroke(theme.ink.color.opacity(isOn ? 0.25 : 0.1), lineWidth: 0.5))
+                .background(Capsule().fill(isOn || targeted ? theme.accent.color.opacity(targeted ? 0.32 : 0.2) : theme.ink.color.opacity(0.06)))
+                .overlay(Capsule().stroke(targeted ? theme.accent.color : theme.ink.color.opacity(isOn ? 0.25 : 0.1),
+                                          lineWidth: targeted ? 1.2 : 0.5))
+                .scaleEffect(targeted ? 1.08 : 1)
         }
         .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.12), value: targeted)
+        if let onDrop {
+            chip
+                .dropDestination(for: TaskDrag.self) { drags, _ in
+                    onDrop(drags.flatMap(\.tasks))
+                    return true
+                } isTargeted: { targeted = $0 }
+                .help("Click to filter; drop tasks here to tag them")
+        } else {
+            chip
+        }
     }
 }
 
