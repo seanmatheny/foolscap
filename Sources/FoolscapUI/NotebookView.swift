@@ -202,9 +202,9 @@ struct FacingPageView: View {
                 LinearGradient(colors: [.clear, .black.opacity(0.22)], startPoint: .top, endPoint: .bottom).frame(height: 6)
             }
         }
+        // No `.shadow` here: it would render the strip offscreen and flatten the texture's blend.
         .overlay(alignment: .top) { Rectangle().fill(Color.black.opacity(0.28)).frame(height: 0.5) }
         .overlay(alignment: .bottom) { Rectangle().fill(Color.black.opacity(0.28)).frame(height: 0.5) }
-        .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 1)
         .allowsHitTesting(false)
     }
 }
