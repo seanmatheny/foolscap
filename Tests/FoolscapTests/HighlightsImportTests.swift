@@ -269,7 +269,8 @@ final class FakeExtractor: KindleExtracting, @unchecked Sendable {
         h.drawKey = "2026-09-26 09:00:00"; h.drawnAt = now
         // Still fresh 23 hours on, stale at 24; 12 hours runs out sooner.
         #expect(DailyPicks.drawKey(for: .every24Hours, history: h, now: now.addingTimeInterval(23 * 3600), openedAt: opened) == "2026-09-26 09:00:00")
-        #expect(DailyPicks.drawKey(for: .every24Hours, history: h, now: now.addingTimeInterval(24 * 3600), openedAt: opened) == "2026-09-27 09:00:00")
+        // Stamped in local time: 24 real hours on can read 10:00 across a daylight-saving change.
+        #expect(DailyPicks.drawKey(for: .every24Hours, history: h, now: now.addingTimeInterval(24 * 3600), openedAt: opened) == DailyPicks.stampKey(now.addingTimeInterval(24 * 3600)))
         #expect(DailyPicks.drawKey(for: .every12Hours, history: h, now: now.addingTimeInterval(13 * 3600), openedAt: opened) == "2026-09-26 22:00:00")
         #expect(DailyPicks.nextRefresh(for: .every24Hours, history: h, now: now) == now.addingTimeInterval(24 * 3600))
         #expect(DailyPicks.nextRefresh(for: .eachOpen, history: h, now: now) == nil)
