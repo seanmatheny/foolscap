@@ -48,9 +48,39 @@ public struct PreferencesView: View {
         self.moveToFolder = moveToFolder
     }
 
+    /// The tab Settings opens on; `--prefs-tab=name` picks one for screenshots.
+    @AppStorage("settingsTab") private var tab = "notebook"
+
     public var body: some View {
-        Form {
-            Section("Notebook") {
+        TabView(selection: $tab) {
+            notebookTab.tabItem { Label("Notebook", systemImage: "book.closed") }.tag("notebook")
+            shortcutsTab.tabItem { Label("Shortcuts", systemImage: "keyboard") }.tag("shortcuts")
+            scribeTab.tabItem { Label("Scribe", systemImage: "pencil.and.scribble") }.tag("scribe")
+            highlightsTab.tabItem { Label("Highlights", systemImage: "highlighter") }.tag("highlights")
+            ForEach(sectionPanes.filter { !["scribe", "highlights"].contains($0.id) }) { pane in
+                settingsForm(height: 420) { Section(pane.title) { pane.view } }
+                    .tabItem { Label(pane.title, systemImage: "puzzlepiece.extension") }.tag(pane.id)
+            }
+            filesTab.tabItem { Label("Files", systemImage: "folder") }.tag("files")
+        }
+        .frame(width: 600)
+        .onAppear {
+            if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--prefs-tab=") }) {
+                tab = String(flag.dropFirst("--prefs-tab=".count))
+            }
+        }
+    }
+
+    /// Every tab is a grouped form of the same width; the window follows the tab's height.
+    private func settingsForm<C: View>(height: CGFloat, @ViewBuilder _ content: () -> C) -> some View {
+        Form { content() }
+            .formStyle(.grouped)
+            .frame(height: height)
+    }
+
+    private var notebookTab: some View {
+        settingsForm(height: 760) {
+            Section("Theme") {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 12)], spacing: 12) {
                     ForEach(NotebookTheme.builtIn) { theme in
                         ThemeSwatch(theme: theme, isSelected: theme.id == themeID)
@@ -58,6 +88,18 @@ public struct PreferencesView: View {
                     }
                 }
                 .padding(.vertical, 4)
+                LabeledContent("Paper") {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 10)], spacing: 10) {
+                        ForEach(PaperTexture.allCases, id: \.self) { texture in
+                            PaperSwatch(texture: texture, theme: NotebookTheme.builtIn(id: themeID) ?? .classicBlack,
+                                        isSelected: texture.rawValue == paperTexture)
+                                .onTapGesture { paperTexture = texture.rawValue }
+                        }
+                    }
+                    .frame(width: 330)
+                }
+            }
+            Section("Page") {
                 LabeledContent("Text size") {
                     HStack {
                         Slider(value: $textScale, in: 0.8...1.6, step: 0.05).frame(width: 200)
@@ -74,16 +116,8 @@ public struct PreferencesView: View {
                 Toggle("Red margin line", isOn: $marginRule)
                 Text("Rules follow the text size and take their colour from the theme.")
                     .font(.caption).foregroundStyle(.secondary)
-                LabeledContent("Paper") {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 10)], spacing: 10) {
-                        ForEach(PaperTexture.allCases, id: \.self) { texture in
-                            PaperSwatch(texture: texture, theme: NotebookTheme.builtIn(id: themeID) ?? .classicBlack,
-                                        isSelected: texture.rawValue == paperTexture)
-                                .onTapGesture { paperTexture = texture.rawValue }
-                        }
-                    }
-                    .frame(width: 330)
-                }
+            }
+            Section("Cover") {
                 Picker("Index tabs", selection: $tabEdge) {
                     ForEach(TabEdge.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
                 }
@@ -91,18 +125,33 @@ public struct PreferencesView: View {
                 Toggle("Elastic band around the cover", isOn: $elasticBand)
                 Toggle("Open the cover when the app starts", isOn: $openingAnimation)
             }
+        }
+    }
+
+    private var shortcutsTab: some View {
+        settingsForm(height: 260) {
             Section("Shortcuts") {
                 LabeledContent("Quick task (anywhere)") { ShortcutRecorder(name: "quickTaskHotKey", defaultCombo: .quickTaskDefault) }
                 Text("Opens a small panel over any app; ↩ adds the task to the Tasks tab.")
                     .font(.caption).foregroundStyle(.secondary)
                 LabeledContent("Tabs") { Text(tabsSummary).foregroundStyle(.secondary) }
             }
+        }
+    }
+
+    private var scribeTab: some View {
+        settingsForm(height: 600) {
             Section("Kindle Scribe") {
                 Toggle("Sync Kindle Scribe notebooks", isOn: $scribeEnabled)
                 Text("Adds a Scribe tab. Off, nothing runs: no sync, no handwriting recognition, no tab.")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(sectionPanes.filter { $0.id == "scribe" }) { pane in pane.view }
             }
+        }
+    }
+
+    private var highlightsTab: some View {
+        settingsForm(height: 760) {
             Section("Kindle Highlights") {
                 Toggle("Show Kindle highlights", isOn: $highlightsEnabled)
                 Text("Adds a Highlights tab: the highlights from the Kindle app on this Mac, three of them a day. Off, nothing runs: no import, no tab.")
@@ -113,9 +162,11 @@ public struct PreferencesView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(sectionPanes.filter { $0.id == "highlights" }) { pane in pane.view }
             }
-            ForEach(sectionPanes.filter { !["scribe", "highlights"].contains($0.id) }) { pane in
-                Section(pane.title) { pane.view }
-            }
+        }
+    }
+
+    private var filesTab: some View {
+        settingsForm(height: 700) {
             Section("Storage") {
                 LabeledContent("Notebook folder") {
                     HStack {
@@ -158,9 +209,6 @@ public struct PreferencesView: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .frame(width: 560)
-        .frame(minHeight: 520, idealHeight: 820)
     }
 }
 
