@@ -1,6 +1,8 @@
 import SwiftUI
 import AppKit
 import ImageIO
+import CryptoKit
+import UniformTypeIdentifiers
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
@@ -119,27 +121,48 @@ struct PlaceholderCover: View {
     }
 }
 
-/// Downsampled cover images, loaded off the main actor and kept for the session.
+/// Downsampled cover images: kept for the session in memory and, as small
+/// JPEGs, in ~/Library/Caches, so a launch never decodes the originals in
+/// the (iCloud) notes folder again. Keyed on the cover's path and mtime.
 @MainActor
 final class CoverCache {
     static let shared = CoverCache()
-    private var images: [URL: NSImage] = [:]
+    private var images: [String: NSImage] = [:]
+    private var loading: [String: Task<NSImage?, Never>] = [:]
+    nonisolated static let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Foolscap/Covers", isDirectory: true)
 
     func image(for url: URL, maxPixels: Int) async -> NSImage? {
-        if let cached = images[url] { return cached }
-        let image = await Task.detached(priority: .userInitiated) { () -> NSImage? in
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-            let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
-                                            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-                                            kCGImageSourceCreateThumbnailWithTransform: true]
-            guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
-        }.value
-        if let image { images[url] = image }
+        let key = "\(url.path)|\(maxPixels)"
+        if let cached = images[key] { return cached }
+        if let task = loading[key] { return await task.value }
+        let task = Task.detached(priority: .userInitiated) { Self.load(url, maxPixels: maxPixels) }
+        loading[key] = task
+        let image = await task.value
+        loading[key] = nil
+        if let image { images[key] = image }
         return image
     }
 
-    func forget(_ url: URL) { images[url] = nil }
+    nonisolated private static func load(_ url: URL, maxPixels: Int) -> NSImage? {
+        let fm = FileManager.default
+        let mtime = (try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let digest = Insecure.SHA1.hash(data: Data("\(url.path)|\(Int(mtime))|\(maxPixels)".utf8))
+        let cached = directory.appendingPathComponent(digest.prefix(8).map { String(format: "%02x", $0) }.joined() + ".jpg")
+        if let data = try? Data(contentsOf: cached), let image = NSImage(data: data) { return image }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                                        kCGImageSourceCreateThumbnailWithTransform: true]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        let out = NSMutableData()
+        if let destination = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) {
+            CGImageDestinationAddImage(destination, cg, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+            if CGImageDestinationFinalize(destination) { try? (out as Data).write(to: cached, options: .atomic) }
+        }
+        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+    }
 }
 
 /// One book: cover and title at the top, a tag strip, then every highlight in reading order.
@@ -155,10 +178,15 @@ struct BookPage: View {
         let book = section.book(at: path)
         VStack(alignment: .leading, spacing: 0) {
             Button { section.showBooks() } label: {
-                Label("Books", systemImage: "chevron.left").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                Label("All books", systemImage: "chevron.left")
+                    .font(.system(size: 13 * scale, weight: .semibold, design: .serif))
+                    .foregroundStyle(theme.accent.color)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(Capsule().fill(theme.accent.color.opacity(0.12)))
             }
             .buttonStyle(.plain)
-            .padding(.bottom, 10)
+            .help("Back to the shelf")
+            .padding(.bottom, 12)
             HStack(alignment: .top, spacing: 18) {
                 CoverThumbnail(url: section.coverURL(for: path), title: book?.title ?? "", author: book?.author ?? "", width: 72)
                     .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
@@ -217,11 +245,7 @@ struct HighlightRow: View {
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            RoundedRectangle(cornerRadius: 1)
-                .fill(item.isFavourite ? theme.accent.color.opacity(0.6) : theme.ink.color.opacity(hovering ? 0.25 : 0.12))
-                .frame(width: 2)
-            VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array(item.paragraphs.enumerated()), id: \.offset) { _, paragraph in
                     Text(paragraph)
                         .font(.system(size: 15 * scale, design: .serif))
@@ -251,7 +275,12 @@ struct HighlightRow: View {
                     Spacer()
                     HighlightControls(section: section, item: item, visible: hovering, size: 12 * scale)
                 }
-            }
+        }
+        .padding(.leading, 14)
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 1)
+                .fill(item.isFavourite ? theme.accent.color.opacity(0.6) : theme.ink.color.opacity(hovering ? 0.25 : 0.12))
+                .frame(width: 2)
         }
         .padding(.vertical, 9)
         .opacity(item.isHidden ? 0.5 : 1)

@@ -138,15 +138,28 @@ final class FakeExtractor: KindleExtracting, @unchecked Sendable {
         let parsed = HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "Highlights/Moby Dick.md")
         #expect(parsed.items.map(\.text) == ["Call me Ishmael. Some years ago.", "Later."])
         #expect(parsed.items[0].meta.tags == ["sea"] && parsed.items[0].isFavourite)
-        // A highlight deleted on the Kindle stays in the file.
+        // A highlight whose start moved (a new Kindle id over the same passage) replaces the old block, keeping its tags.
+        x.annotations = ["B1": [Self.annotation(95), Self.annotation(300)]]
+        x.texts = ["B1": [95: ["Ishmael, some years ago."], 300: ["Later."]]]
+        let moved = try await env.importer.run { _ in }
+        #expect(moved.highlightsUpdated == 1 && moved.highlightsAdded == 0)
+        let p3 = HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p")
+        #expect(p3.items.map(\.text) == ["Ishmael, some years ago.", "Later."])
+        #expect(p3.items[0].meta.tags == ["sea"] && p3.items[0].isFavourite && p3.items[0].meta.position == 95)
+        // A highlight deleted on the Kindle stays in the file, hidden from the day's draw.
         x.annotations = ["B1": [Self.annotation(300)]]
-        _ = try await env.importer.run { _ in }
-        #expect(HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p").items.count == 2)
+        let deleted = try await env.importer.run { _ in }
+        #expect(deleted.highlightsHidden == 1 && deleted.booksWritten == 1)
+        let p4 = HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p")
+        #expect(p4.items.count == 2 && p4.items[0].isHidden && p4.items[0].meta.tags == ["sea"] && !p4.items[1].isHidden)
+        // Nothing further to do once it is hidden.
+        let quiet = try await env.importer.run { _ in }
+        #expect(quiet.highlightsHidden == 0 && quiet.booksWritten == 0)
         // A lost ledger does not duplicate what the file already holds.
         try? FileManager.default.removeItem(at: env.stateURL)
         let fresh = HighlightsImporter(extractor: x, library: env.library, stateURL: env.stateURL)
         _ = try await fresh.run { _ in }
-        #expect(HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p").items.map(\.text) == ["Call me Ishmael. Some years ago.", "Later."])
+        #expect(HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p").items.map(\.text) == ["Ishmael, some years ago.", "Later."])
     }
 
     @Test func titleCollisionsEmptiesAndAccessErrors() async throws {

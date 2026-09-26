@@ -238,7 +238,8 @@ public final class HighlightsSection: NotebookSection {
             ((try? index.highlights()) ?? [], (try? index.highlightBooks()) ?? [])
         }.value
         self.items = items
-        self.books = books
+        var seen = Set<String>()
+        self.books = books.filter { seen.insert($0.path).inserted }
         refreshPicks()
     }
 

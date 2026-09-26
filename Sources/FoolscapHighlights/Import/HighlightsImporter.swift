@@ -16,6 +16,8 @@ public struct ImportReport: Equatable, Sendable {
     public var booksWritten = 0
     public var highlightsAdded = 0
     public var highlightsUpdated = 0
+    /// Deleted on the Kindle: marked hidden in the file, never removed.
+    public var highlightsHidden = 0
     public var coversWritten = 0
     public var empties = 0
     public var skipped: [SkippedBook] = []
@@ -28,6 +30,7 @@ public struct ImportReport: Equatable, Sendable {
         var parts: [String] = []
         if highlightsAdded > 0 { parts.append("\(highlightsAdded) added") }
         if highlightsUpdated > 0 { parts.append("\(highlightsUpdated) updated") }
+        if highlightsHidden > 0 { parts.append("\(highlightsHidden) hidden (deleted on the Kindle)") }
         if parts.isEmpty { parts.append("nothing new") }
         if !skipped.isEmpty { parts.append("\(skipped.count) book\(skipped.count == 1 ? "" : "s") skipped") }
         return parts.joined(separator: ", ")
@@ -61,7 +64,7 @@ public actor HighlightsImporter {
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         report.booksSeen = books.count
 
-        var work: [(book: KindleBook, pending: [KindleAnnotation], wantsCover: Bool)] = []
+        var work: [(book: KindleBook, pending: [KindleAnnotation], vanished: [String: HighlightsState.Annotation], wantsCover: Bool)] = []
         for book in books {
             let annotations = listing.annotations[book.id] ?? []
             if !book.isDownloaded {
@@ -74,18 +77,21 @@ public actor HighlightsImporter {
             }
             let pending = annotations.filter { needsWork($0, book: book) }
             let wantsCover = !(state.books[book.id]?.coverDone ?? false)
-            if pending.isEmpty && !wantsCover { continue }
-            work.append((book, pending, wantsCover))
+            let vanished = self.vanished(from: annotations, book: book)
+            if pending.isEmpty && vanished.isEmpty && !wantsCover { continue }
+            work.append((book, pending, vanished, wantsCover))
         }
         let kfxBooks = work.map(\.book).filter { $0.format == .kfx }
         if !kfxBooks.isEmpty { await extractor.prepare(kfxBooks, progress: progress) }
 
-        for (book, pending, wantsCover) in work {
+        for (book, pending, vanished, wantsCover) in work {
             try Task.checkCancellation()
             progress("Reading \(book.title)…")
             let extracted: ExtractedBook
             do {
-                extracted = try await extractor.extract(book, annotations: pending, wantsCover: wantsCover)
+                extracted = pending.isEmpty && !wantsCover
+                    ? ExtractedBook(book: book, coverJPEG: nil, highlights: [], emptyCount: 0)
+                    : try await extractor.extract(book, annotations: pending, wantsCover: wantsCover)
             } catch let failure as ExtractionFailure {
                 report.skipped.append(SkippedBook(title: book.title, count: pending.count, reason: failure.message)); continue
             } catch is CancellationError {
@@ -94,7 +100,7 @@ public actor HighlightsImporter {
                 report.skipped.append(SkippedBook(title: book.title, count: pending.count, reason: error.localizedDescription)); continue
             }
             report.empties += extracted.emptyCount
-            try await write(extracted, pending: pending, report: &report)
+            try await write(extracted, pending: pending, vanished: vanished, report: &report)
             try? state.save(to: stateURL)
         }
         state.lastRun = now()
@@ -110,7 +116,22 @@ public actor HighlightsImporter {
         return false
     }
 
-    private func write(_ extracted: ExtractedBook, pending: [KindleAnnotation], report: inout ImportReport) async throws {
+    /// Ledger entries for this book whose annotation the Kindle no longer has.
+    private func vanished(from annotations: [KindleAnnotation], book: KindleBook) -> [String: HighlightsState.Annotation] {
+        let present = Set(annotations.map { HighlightsState.key(book: book.id, annotation: $0.id) })
+        let prefix = book.id + "/"
+        return state.annotations.filter { $0.key.hasPrefix(prefix) && !$0.value.empty && !present.contains($0.key) }
+    }
+
+    /// The range a ledger entry covered; older entries only know their start, from the Kindle id.
+    private static func range(of entry: HighlightsState.Annotation, key: String) -> ClosedRange<Int>? {
+        if let start = entry.start { return start...(entry.end ?? start) }
+        guard let dash = key.lastIndex(of: "-"), let start = Int(key[key.index(after: dash)...]) else { return nil }
+        return start...start
+    }
+
+    private func write(_ extracted: ExtractedBook, pending: [KindleAnnotation], vanished: [String: HighlightsState.Annotation],
+                       report: inout ImportReport) async throws {
         let book = extracted.book
         var record: HighlightsState.Book
         if let existing = state.books[book.id] {
@@ -121,33 +142,58 @@ public actor HighlightsImporter {
         let path = record.path
         var blocks: [HighlightMarkdown.NewBlock] = []
         var extractedIDs = Set<String>()
+        var vanished = vanished
+        let ranges = Dictionary(pending.map { ($0.id, $0.start...max($0.start, $0.end)) }, uniquingKeysWith: { a, _ in a })
         for h in extracted.highlights {
             extractedIDs.insert(h.annotationID)
             let key = HighlightsState.key(book: book.id, annotation: h.annotationID)
             let contentKey = HighlightItem.contentKey(for: h.paragraphs)
-            // A known annotation with new text replaces its old block; a new one
-            // replaces an identical quote if the file already has it (a lost
-            // ledger), else is appended.
+            // A known annotation with new text replaces its old block. A new one
+            // takes the place of a vanished highlight over the same passage (the
+            // Kindle renames a highlight whose start moved), or of an identical
+            // quote the file already has (a lost ledger); else it is appended.
             let known = state.annotations[key]
-            if known != nil { report.highlightsUpdated += 1 } else { report.highlightsAdded += 1 }
+            var replacing = known?.contentKey
+            if replacing == nil, let range = ranges[h.annotationID],
+               let old = vanished.first(where: { Self.range(of: $0.value, key: $0.key)?.overlaps(range) == true }) {
+                replacing = old.value.contentKey
+                vanished[old.key] = nil
+                state.annotations[old.key] = nil
+                report.highlightsUpdated += 1
+            } else if known != nil {
+                report.highlightsUpdated += 1
+            } else {
+                report.highlightsAdded += 1
+            }
             blocks.append(HighlightMarkdown.NewBlock(paragraphs: h.paragraphs, note: h.note,
                                                     meta: HighlightMeta(position: h.position, added: h.created),
-                                                    replacingKey: known?.contentKey ?? contentKey))
-            state.annotations[key] = HighlightsState.Annotation(contentKey: contentKey, modified: h.modified, empty: false)
+                                                    replacingKey: replacing ?? contentKey))
+            state.annotations[key] = HighlightsState.Annotation(contentKey: contentKey, modified: h.modified, empty: false,
+                                                                start: ranges[h.annotationID]?.lowerBound, end: ranges[h.annotationID]?.upperBound)
         }
+        // What the Kindle deleted outright is hidden from the day's draw, not removed.
+        let hiddenKeys = Set(vanished.values.map(\.contentKey))
+        for key in vanished.keys { state.annotations[key] = nil }
         // Ranges without text are remembered too, so they are not retried every pass.
         for a in pending where !extractedIDs.contains(a.id) {
             let key = HighlightsState.key(book: book.id, annotation: a.id)
             if state.annotations[key] == nil { state.annotations[key] = HighlightsState.Annotation(contentKey: "", modified: a.modified, empty: true) }
         }
-        if !blocks.isEmpty {
+        if !blocks.isEmpty || !hiddenKeys.isEmpty {
             let doc = await library.loadedDocument(atRelativePath: path)
             let header = HighlightMarkdown.renderHeader(title: book.title, author: book.author)
             let current = await MainActor.run { doc.text }
             let base = current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? header : current
-            let updated = HighlightMarkdown.inserting(blocks, into: base, path: path)
-            await MainActor.run { doc.replaceWholeText(updated) }
-            report.booksWritten += 1
+            var updated = HighlightMarkdown.inserting(blocks, into: base, path: path)
+            if !hiddenKeys.isEmpty {
+                let before = HighlightParser.parse(updated, path: path).items.filter { hiddenKeys.contains($0.contentKey) && !$0.isHidden }.count
+                updated = HighlightMarkdown.hiding(hiddenKeys, in: updated, path: path)
+                report.highlightsHidden += before
+            }
+            if updated != current {
+                await MainActor.run { doc.replaceWholeText(updated) }
+                report.booksWritten += 1
+            }
         }
         if !record.coverDone {
             if let jpeg = extracted.coverJPEG {

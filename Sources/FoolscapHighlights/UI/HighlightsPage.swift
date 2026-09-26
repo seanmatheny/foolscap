@@ -18,9 +18,9 @@ struct HighlightsPage: View {
         GeometryReader { geo in
             ScrollViewReader { proxy in
                 ScrollView {
+                    // Quotes and covers do not sit on the ruling, so the page is left plain.
                     ZStack(alignment: .topLeading) {
-                        RulingView(pitch: pitch, topInset: pitch * 2 - 4, marginX: 58)
-                            .frame(minHeight: geo.size.height)
+                        Color.clear.frame(minHeight: geo.size.height)
                         VStack(alignment: .leading, spacing: 0) {
                             header
                             Spacer().frame(height: pitch / 2)

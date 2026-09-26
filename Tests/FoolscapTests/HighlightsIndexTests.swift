@@ -119,3 +119,34 @@ import Foundation
         #expect(doc.text == "y" && doc.isDirty)
     }
 }
+
+@Suite @MainActor struct PathNormalisationTests {
+    @Test func rescanReplacesAnEquivalentSpelling() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-nfc-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp)
+        try folder.ensureLayout()
+        try FileManager.default.createDirectory(at: folder.highlightsDirectory, withIntermediateDirectories: true)
+        let decomposed = "Highlights/Sho\u{0304}gun.md", precomposed = "Highlights/Sh\u{014D}gun.md"
+        try HighlightsIndexTests.book.write(to: folder.url(forRelativePath: decomposed), atomically: true, encoding: .utf8)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
+        library.indexesHighlights = true
+        await library.rescan(full: true)
+        // An index built before paths were normalised holds the decomposed spelling.
+        let stat = FileIO.stat(folder.url(forRelativePath: decomposed))!
+        try library.index.index(path: decomposed, day: nil, text: HighlightsIndexTests.book, stat: stat, hash: FileIO.hash(Data(HighlightsIndexTests.book.utf8)))
+        #expect(try library.index.highlightBooks().count == 2)
+        await library.rescan()
+        let paths = try library.index.allNoteRecords().map(\.path)
+        #expect(paths.count == 1 && paths[0].utf8.elementsEqual(precomposed.utf8))
+        #expect(try library.index.highlightBooks().count == 1)
+    }
+
+    @Test func relativePathsAndFileNamesArePrecomposed() {
+        let folder = NotesFolder(root: URL(fileURLWithPath: "/tmp/notes"))
+        let decomposed = "Sho\u{0304}gun"
+        let precomposed = "Sh\u{014D}gun"
+        #expect(folder.relativePath(of: URL(fileURLWithPath: "/tmp/notes/Highlights/\(decomposed).md")) == "Highlights/\(precomposed).md")
+        #expect(FileNames.sanitize(decomposed + ": x") == precomposed + "_ x")
+    }
+}

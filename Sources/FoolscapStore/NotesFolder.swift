@@ -65,7 +65,9 @@ public struct NotesFolder: Hashable, Sendable {
     public func relativePath(of url: URL) -> String {
         let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
         let p = url.standardizedFileURL.path
-        return p.hasPrefix(rootPath) ? String(p.dropFirst(rootPath.count)) : p
+        // The file system hands back decomposed accents ("Shōgun" as o + ◌̄); paths written from
+        // titles are precomposed. One form, or the index holds a note twice.
+        return (p.hasPrefix(rootPath) ? String(p.dropFirst(rootPath.count)) : p).precomposedStringWithCanonicalMapping
     }
 
     public func url(forRelativePath path: String) -> URL {

@@ -158,8 +158,16 @@
   once per book and caches (pid, text) chunks in ~/Library/Caches/Foolscap/KFX (keys
   match clippyconvert's cache, which is read as a fallback). Positions must equal
   `ZRAWMAXPOSITION` or the book is skipped. The importer's ledger is
-  Application Support/Foolscap/Highlights/state.json; the day's picks (seeded by the
-  date, favourites ×3, hidden never, recent ×0.25) are pinned in `daily.json`.
+  Application Support/Foolscap/Highlights/state.json (annotation id → content key,
+  modified time, range): a newer `last_modified` rewrites the block in place, a new
+  annotation overlapping a vanished one's range takes over its block (the Kindle renames
+  a highlight whose start moved), a plain deletion marks the block hidden; files never
+  lose a block. The day's picks (seeded by the date, favourites ×3, hidden never,
+  recent ×0.25, distinct books) are pinned in `daily.json`.
+- Paths in the index are byte-exact: `NotesFolder.relativePath` and `FileNames.sanitize`
+  precompose accents, and `performRescan` compares stored paths by bytes, because Swift
+  string equality is canonical (an NFD "Shōgun" would otherwise never be re-indexed
+  beside its NFC twin). Cover thumbnails are cached in ~/Library/Caches/Foolscap/Covers.
 - Reading the Kindle container needs a TCC grant (Privacy & Security ▸ Files & Folders ▸
   Foolscap ▸ Kindle, or Full Disk Access). macOS keys the grant on the code signature,
   and an ad-hoc signature changes every build, so the Makefile signs with the

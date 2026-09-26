@@ -137,7 +137,8 @@ public final class NotebookLibrary {
     }
 
     /// Any note by relative path, with its text in place (for task write-backs).
-    public func loadedDocument(atRelativePath path: String) async -> NoteDocument {
+    public func loadedDocument(atRelativePath rawPath: String) async -> NoteDocument {
+        let path = rawPath.precomposedStringWithCanonicalMapping
         let d: NoteDocument
         if let existing = documents[path] {
             d = existing
@@ -325,16 +326,21 @@ public final class NotebookLibrary {
         let includeHighlights = indexesHighlights
         let task = Task.detached(priority: .utility) { () -> Bool in
             var changed = false
-            let known = Dictionary(uniqueKeysWithValues: ((try? index.allNoteRecords()) ?? []).map { ($0.path, $0) })
-            var seen = Set<String>()
+            // Swift strings match by canonical equivalence ("Shōgun" with a composed or a
+            // decomposed ō), SQLite by bytes: a record is only "the same" when its stored
+            // path is byte-identical, or an old spelling would linger beside the new one.
+            var known: [Data: SearchIndex.NoteRecord] = [:]
+            for r in (try? index.allNoteRecords()) ?? [] { known[Data(r.path.utf8)] = r }
+            func record(_ path: String) -> SearchIndex.NoteRecord? { known[Data(path.utf8)] }
+            var seen = Set<Data>()
             for entry in folder.listIndexableNotes(includingScribe: includeScribe, includingHighlights: includeHighlights) {
                 let path = folder.relativePath(of: entry.url)
-                seen.insert(path)
+                seen.insert(Data(path.utf8))
                 guard let stat = FileIO.stat(entry.url) else { continue }
-                if !full, let k = known[path], k.mtime == stat.mtime, k.size == stat.size { continue }
+                if !full, let k = record(path), k.mtime == stat.mtime, k.size == stat.size { continue }
                 guard let data = try? FileIO.read(entry.url) else { continue }
                 let hash = FileIO.hash(data)
-                if !full, let k = known[path], k.hash == hash {
+                if !full, let k = record(path), k.hash == hash {
                     // Touched but identical: refresh the stat only.
                     try? index.updateStat(path: path, stat: stat)
                     continue
@@ -342,8 +348,8 @@ public final class NotebookLibrary {
                 try? index.index(path: path, day: entry.day, text: String(decoding: data, as: UTF8.self), stat: stat, hash: hash)
                 changed = true
             }
-            for path in known.keys where !seen.contains(path) {
-                try? index.remove(path: path)
+            for (bytes, k) in known where !seen.contains(bytes) {
+                try? index.remove(path: k.path)
                 changed = true
             }
             return changed

@@ -15,9 +15,8 @@ struct TodayView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 34) {
             Text(Self.dateLine(Date()))
-                .font(.system(size: 12 * scale, design: .serif)).kerning(0.6)
-                .foregroundStyle(theme.dimInk.color)
-                .textCase(.uppercase)
+                .font(.system(size: 20 * scale, weight: .bold, design: .serif))
+                .highlighted(theme.highlighter[.inProgress])
             if items.isEmpty {
                 Text("Nothing to show today. Un-hide a few highlights, or import more.")
                     .font(.system(size: 15, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
@@ -48,10 +47,9 @@ struct QuoteCard: View {
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            RoundedRectangle(cornerRadius: 1).fill(theme.accent.color.opacity(0.55)).frame(width: 2.5)
-                .padding(.vertical, 4)
-            VStack(alignment: .leading, spacing: 10) {
+        // The rule is an overlay of the text block, so it always spans the block's final
+        // height (a sibling in an HStack can be measured before long text has wrapped).
+        VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(item.paragraphs.enumerated()), id: \.offset) { _, paragraph in
                     Text(paragraph)
                         .font(.system(size: 19 * scale, design: .serif))
@@ -77,7 +75,10 @@ struct QuoteCard: View {
                         }
                     }
                 }
-            }
+        }
+        .padding(.leading, 18.5)
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 1).fill(theme.accent.color.opacity(0.55)).frame(width: 2.5).padding(.vertical, 4)
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
@@ -97,8 +98,9 @@ struct QuoteCard: View {
                 Text(text)
             }
         }
-        .font(.system(size: 13 * scale, design: .serif))
-        .foregroundStyle(theme.dimInk.color)
+        .font(.system(size: 14 * scale, design: .serif))
+        .italic()
+        .foregroundStyle(theme.accent.color)
     }
 }
 
@@ -177,8 +179,7 @@ struct FlyleafView: View {
         GeometryReader { geo in
             ScrollView {
                 ZStack(alignment: .topLeading) {
-                    RulingView(pitch: pitch, topInset: pitch * 2 - 4, marginX: 58)
-                        .frame(minHeight: geo.size.height)
+                    Color.clear.frame(minHeight: geo.size.height)
                     VStack(alignment: .leading, spacing: 0) {
                         Spacer().frame(height: pitch * 1.5)
                         TodayView(section: section, items: section.picks, showsBooks: false)

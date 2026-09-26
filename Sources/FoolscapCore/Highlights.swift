@@ -251,6 +251,18 @@ public enum HighlightMarkdown {
         }
     }
 
+    /// Mark the blocks with these content keys hidden (a highlight deleted on the Kindle).
+    public static func hiding(_ keys: Set<String>, in text: String, path: String) -> String {
+        guard !keys.isEmpty else { return text }
+        var lines = text.components(separatedBy: "\n")
+        for item in HighlightParser.parse(text, path: path).items where keys.contains(item.contentKey) && !item.meta.isHidden {
+            var meta = item.meta
+            meta.isHidden = true
+            if item.metaLine < lines.count { lines[item.metaLine] = renderMeta(meta) }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// Splice new blocks into a book file: replacements in place, the rest in
     /// position order (before the first block with a larger position, else at
     /// the end). Everything already in the file is kept, including lines the

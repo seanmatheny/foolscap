@@ -23,8 +23,11 @@ public struct HighlightsState: Codable, Equatable, Sendable {
         public var modified: Date?
         /// The Kindle range held no text; retried only when the annotation changes.
         public var empty: Bool
-        public init(contentKey: String, modified: Date?, empty: Bool) {
-            self.contentKey = contentKey; self.modified = modified; self.empty = empty
+        /// The Kindle range, so a later highlight over the same passage can take its place.
+        public var start: Int?
+        public var end: Int?
+        public init(contentKey: String, modified: Date?, empty: Bool, start: Int? = nil, end: Int? = nil) {
+            self.contentKey = contentKey; self.modified = modified; self.empty = empty; self.start = start; self.end = end
         }
     }
 

@@ -23,7 +23,8 @@ public enum MarkdownEscaping {
 public enum FileNames {
     /// Sanitize a title for use as a file or folder name.
     public static func sanitize(_ name: String) -> String {
-        let cleaned = name.replacingOccurrences(of: #"[\\/:*?"<>|]"#, with: "_", options: .regularExpression)
+        let cleaned = name.precomposedStringWithCanonicalMapping
+            .replacingOccurrences(of: #"[\\/:*?"<>|]"#, with: "_", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return cleaned.isEmpty ? "untitled" : cleaned
     }
