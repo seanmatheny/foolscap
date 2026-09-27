@@ -115,6 +115,38 @@ func makePNG(width: Int, height: Int, dpi: Double = 96, mark: Int = 0) -> Data {
     }
 }
 
+@Suite struct ScribePageRendererTests {
+    /// A relaunch must show drawn pages without the PDF, which iCloud may have evicted.
+    @Test func pagesDrawnOnceComeBackFromDiskWithoutThePDF() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-pages-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let pdf = dir.appendingPathComponent("n.pdf")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try PDFBuilder.makePDF(pages: [makePNG(width: 192, height: 96), makePNG(width: 96, height: 96, mark: 2)]).write(to: pdf)
+        let cacheDir = dir.appendingPathComponent("cache")
+
+        let first = ScribePageRenderer(diskDirectory: cacheDir)
+        #expect(await first.cachedPageSizes(id: "n/1", version: "v1") == nil)
+        #expect(await first.pageSizes(id: "n/1", url: pdf, version: "v1") == [CGSize(width: 144, height: 72), CGSize(width: 72, height: 72)])
+        let drawn = try #require(await first.image(id: "n/1", url: pdf, version: "v1", page: 0, width: 100, backingScale: 2))
+        #expect(drawn.image.size == NSSize(width: 100, height: 50))
+        try FileManager.default.removeItem(at: pdf)
+
+        let relaunched = ScribePageRenderer(diskDirectory: cacheDir)
+        #expect(await relaunched.cachedPageSizes(id: "n/1", version: "v1")?.count == 2)
+        #expect(await relaunched.cachedPageSizes(id: "n/1", version: "v2") == nil)
+        // The bitmap is written in the background.
+        var cached: RenderedPage?
+        for _ in 0..<50 where cached == nil {
+            cached = await relaunched.cachedImage(id: "n/1", version: "v1", page: 0, width: 100, backingScale: 2)
+            if cached == nil { try await Task.sleep(for: .milliseconds(100)) }
+        }
+        #expect(cached?.image.size == NSSize(width: 100, height: 50))
+        #expect(await relaunched.cachedImage(id: "n/1", version: "v1", page: 0, width: 150, backingScale: 2) == nil)
+        #expect(!ICloudPlaceholders.needsDownload(dir.appendingPathComponent("cache")))
+    }
+}
+
 @Suite struct ScribeClientParsingTests {
     @Test func decodesListingAndOpenedNotebook() throws {
         let listing = #"{"itemsList":[{"id":"f1","title":"Work","type":"folder","items":[{"id":"n1","title":"todo","type":"notebook","items":[]}]},{"id":"n2","title":"Loose","type":"notebook"}]}"#

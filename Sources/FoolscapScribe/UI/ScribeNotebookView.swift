@@ -15,6 +15,8 @@ struct ScribeNotebookView: View {
     @State private var transcriptPages: [Int: ScribeTranscript.Page] = [:]
     @State private var pageSizes: [CGSize] = []
     @State private var isPlaceholder = false
+    /// The PDF is on this Mac, so pages missing from the cache can be drawn.
+    @State private var pdfReady = false
     @State private var copied = false
 
     private var pitch: CGFloat { theme.linePitch }
@@ -98,7 +100,7 @@ struct ScribeNotebookView: View {
                 .foregroundStyle(theme.dimInk.color)
                 .padding(.top, pitch)
             PageFacsimile(renderer: section.renderer, id: notebook.id, url: pdfURL, version: version, page: index,
-                          width: width, aspect: size.height / max(1, size.width))
+                          pdfReady: pdfReady, width: width, aspect: size.height / max(1, size.width))
             if let page, !page.isEmpty {
                 VStack(alignment: .leading, spacing: pitch / 2) {
                     ForEach(Array(page.paragraphs.enumerated()), id: \.offset) { _, paragraph in
@@ -140,25 +142,38 @@ struct ScribeNotebookView: View {
     private func load() async {
         let pdf = pdfURL
         let version = self.version
-        if ICloudPlaceholders.isPlaceholder(pdf) {
+        let renderer = section.renderer
+        pdfReady = false
+        await renderer.release(except: notebook.id)
+        // Pages drawn before come from the cache, whether or not iCloud has
+        // evicted the PDF since.
+        if let sizes = await renderer.cachedPageSizes(id: notebook.id, version: version) { pageSizes = sizes }
+        // A coordinated read on iCloud Drive can wait seconds for the file
+        // provider, so it must not run on the main actor.
+        let transcriptURL = section.transcriptURL(for: notebook)
+        let transcript = Task.detached(priority: .userInitiated) {
+            (try? FileIO.read(transcriptURL)).map { ScribeTranscript.parse(String(decoding: $0, as: UTF8.self)) }
+        }
+        // Opening an evicted PDF blocks until it has downloaded, and would hold
+        // up the renderer meanwhile, so wait for the download here instead.
+        if ICloudPlaceholders.needsDownload(pdf) {
             isPlaceholder = true
             ICloudPlaceholders.startDownload(pdf)
             // Nothing in the task id changes when the download lands, so wait
             // for it here; leaving the notebook cancels the wait.
-            while ICloudPlaceholders.isPlaceholder(pdf) {
-                try? await Task.sleep(for: .seconds(1))
+            while ICloudPlaceholders.needsDownload(pdf) {
+                if parsed == nil, let read = await transcript.value { show(read) }
+                try? await Task.sleep(for: .milliseconds(250))
                 if Task.isCancelled { return }
             }
+            isPlaceholder = false
         }
-        isPlaceholder = false
-        await section.renderer.release(except: notebook.id)
-        pageSizes = await section.renderer.pageSizes(id: notebook.id, url: pdf, version: version)
-        // A coordinated read on iCloud Drive can wait seconds for the file
-        // provider, so it must not run on the main actor.
-        let transcriptURL = section.transcriptURL(for: notebook)
-        let read = await Task.detached(priority: .userInitiated) {
-            (try? FileIO.read(transcriptURL)).map { ScribeTranscript.parse(String(decoding: $0, as: UTF8.self)) }
-        }.value
+        pdfReady = true
+        pageSizes = await renderer.pageSizes(id: notebook.id, url: pdf, version: version)
+        show(await transcript.value)
+    }
+
+    private func show(_ read: ScribeTranscript.Parsed?) {
         parsed = read
         transcriptPages = Dictionary((read?.pages ?? []).map { ($0.number, $0) }, uniquingKeysWith: { first, _ in first })
     }
@@ -174,6 +189,7 @@ struct PageFacsimile: View {
     let url: URL
     let version: String
     let page: Int
+    let pdfReady: Bool
     let width: CGFloat
     let aspect: CGFloat
     @State private var image: NSImage?
@@ -192,9 +208,13 @@ struct PageFacsimile: View {
         .clipShape(RoundedRectangle(cornerRadius: 2))
         .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.black.opacity(0.18), lineWidth: 0.5))
         .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
-        .task(id: "\(id)|\(version)|\(page)|\(Int(renderWidth))") {
+        .task(id: "\(id)|\(version)|\(page)|\(Int(renderWidth))|\(pdfReady)") {
             let backing = NSScreen.main?.backingScaleFactor ?? 2
-            image = await renderer.image(id: id, url: url, version: version, page: page, width: renderWidth, backingScale: backing)?.image
+            if let cached = await renderer.cachedImage(id: id, version: version, page: page, width: renderWidth, backingScale: backing) {
+                image = cached.image
+            } else if pdfReady {
+                image = await renderer.image(id: id, url: url, version: version, page: page, width: renderWidth, backingScale: backing)?.image
+            }
         }
     }
 }

@@ -83,7 +83,7 @@ final class AppModel {
             }
             highlightsForced = CommandLine.arguments.contains { $0 == "--highlights" || $0.hasPrefix("--highlights=") || $0 == "--flyleaf" }
             setHighlightsEnabled(highlightsForced || defaults.bool(forKey: "highlightsEnabled"))
-            scribeForced = CommandLine.arguments.contains("--scribe")
+            scribeForced = CommandLine.arguments.contains { $0 == "--scribe" || $0.hasPrefix("--scribe=") }
             setScribeEnabled(scribeForced || defaults.bool(forKey: "scribeEnabled"))
             rewireSections()
         }
@@ -94,6 +94,12 @@ final class AppModel {
             if let value = CommandLine.arguments.first(where: { $0.hasPrefix("--highlights=") })?.dropFirst("--highlights=".count) {
                 if value == "books" { highlights.showBooks() } else if !value.isEmpty { highlights.open(book: String(value)) }
             }
+        }
+        // `--scribe=<Folder>/<Notebook>` opens the Scribe tab on that notebook.
+        if let value = CommandLine.arguments.first(where: { $0.hasPrefix("--scribe=") })?.dropFirst("--scribe=".count),
+           !value.isEmpty, let scribe = section(id: ScribeSection.sectionID) {
+            selectedSectionID = ScribeSection.sectionID
+            scribe.navigate(to: SectionRoute(path: "\(NotesFolder.scribeDirectoryName)/\(value).md"))
         }
         flyleafPresented = highlightsEnabled && (CommandLine.arguments.contains("--flyleaf") || defaults.bool(forKey: "flyleafOnOpen"))
         // `Foolscap --day=2026-09-22` opens on a given day (handy for scripted screenshots).

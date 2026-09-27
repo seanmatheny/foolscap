@@ -152,4 +152,9 @@ public enum ScribePaths {
     }
     public static var stateURL: URL { supportDirectory.appendingPathComponent("state.json") }
     public static var ocrDirectory: URL { supportDirectory.appendingPathComponent("OCR", isDirectory: true) }
+    /// Drawn page bitmaps, kept locally because iCloud evicts the PDFs.
+    public static var pageCacheDirectory: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Foolscap/ScribePages", isDirectory: true)
+    }
 }

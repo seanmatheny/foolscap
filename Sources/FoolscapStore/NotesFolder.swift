@@ -163,6 +163,19 @@ public enum ICloudPlaceholders {
         return !FileManager.default.fileExists(atPath: url.path) && FileManager.default.fileExists(atPath: placeholder.path)
     }
 
+    /// Evicted in place: iCloud Drive now keeps the file's own name and drops its
+    /// data (the `dataless` flag) instead of leaving a `.icloud` stub, and the
+    /// first read blocks, for seconds, while the file downloads. `lstat` reads
+    /// the flag without starting that download.
+    public static func isDataless(_ url: URL) -> Bool {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return false }
+        return info.st_flags & UInt32(SF_DATALESS) != 0
+    }
+
+    /// Either kind of iCloud file that is not on this Mac yet.
+    public static func needsDownload(_ url: URL) -> Bool { isPlaceholder(url) || isDataless(url) }
+
     public static func startDownload(_ url: URL) {
         try? FileManager.default.startDownloadingUbiquitousItem(at: url)
     }

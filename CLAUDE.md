@@ -29,7 +29,7 @@
   and also uses FoolscapUI chrome.
 - Launch flags for verification: `--day=YYYY-MM-DD`, `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
-  to that many points), `--scribe`, `--highlights` (forces the Highlights tab on
+  to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--highlights` (forces the Highlights tab on
   and opens it), `--flyleaf` (forces the tab on and shows the day's three on the
   opening page),
   `--type=text` (posts key events into the focused text after 2s, e.g. to show tag
