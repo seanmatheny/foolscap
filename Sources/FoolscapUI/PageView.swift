@@ -7,6 +7,8 @@ public struct RulingView: View {
     public var pitch: CGFloat
     public var topInset: CGFloat
     public var marginX: CGFloat
+    /// The margin rule sits this far left of the text column (`marginX`), as in the editor.
+    public nonisolated static let marginRuleOffset: CGFloat = 16
 
     public init(pitch: CGFloat = 26, topInset: CGFloat = 60, marginX: CGFloat = 64) {
         self.pitch = pitch; self.topInset = topInset; self.marginX = marginX
@@ -47,7 +49,8 @@ public struct RulingView: View {
                 }
             }
             if theme.page.marginRule {
-                var p = Path(); p.move(to: CGPoint(x: marginX - 14, y: 0)); p.addLine(to: CGPoint(x: marginX - 14, y: size.height))
+                let x = marginX - Self.marginRuleOffset + 0.5
+                var p = Path(); p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x, y: size.height))
                 ctx.stroke(p, with: .color(theme.page.marginRuleColor.color), lineWidth: 1)
             }
         }

@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import CoreTransferable
 import FoolscapCore
+import FoolscapEditor
 import FoolscapStore
 import FoolscapUI
 
@@ -43,8 +44,7 @@ public final class TasksSection: NotebookSection {
     func addTask(_ text: String) { Task { await library.addStandaloneTask(text) } }
 
     func refreshKnownTags() {
-        var seen = Set<String>()
-        knownTags = (aggregator.tags + library.knownTags).filter { seen.insert($0).inserted }
+        knownTags = aggregator.knownTags(adding: library.knownTags)
     }
 }
 
@@ -63,10 +63,12 @@ struct TasksPage: View {
     static let fieldGap: CGFloat = 3
 
     var body: some View {
+        // The ruling falls where the daily note's does, and the rows move with it.
+        let palette = EditorPalette(theme: theme)
         GeometryReader { geo in
             ScrollView {
                 ZStack(alignment: .topLeading) {
-                    RulingView(pitch: pitch, topInset: pitch * 2 - 4, marginX: 58)
+                    RulingView(pitch: pitch, topInset: pitch + PageRuling.ruleOffset(palette), marginX: PageRuling.textLeft)
                         .frame(minHeight: geo.size.height)
                         .contentShape(Rectangle())
                         .onTapGesture { clearSelection() }
@@ -100,9 +102,9 @@ struct TasksPage: View {
                         }
                         Spacer(minLength: pitch * 2)
                     }
-                    .padding(.leading, 58)
+                    .padding(.leading, PageRuling.textLeft)
                     .padding(.trailing, 44)
-                    .padding(.top, pitch)
+                    .padding(.top, pitch + PageRuling.rowShift(palette))
                 }
             }
         }

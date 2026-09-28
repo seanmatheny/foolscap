@@ -6,10 +6,54 @@ import FoolscapUI
 
 /// Editor geometry.
 enum EditorMetrics {
-    static let leftInset: CGFloat = 58
+    static let leftInset: CGFloat = PageRuling.textLeft
     static let rightInset: CGFloat = 36
-    static let marginRuleOffset: CGFloat = 16   // red line sits this far left of the text
+    static let marginRuleOffset: CGFloat = RulingView.marginRuleOffset   // red line sits this far left of the text
     static let topLines: CGFloat = 1            // ruled lines above the first text line
+    /// The header (today's tasks) ends where the Tasks tab's rows do.
+    static let headerRightInset: CGFloat = 44
+}
+
+/// Where the ruled lines fall on a page, shared by the editor and the SwiftUI
+/// pages (the Tasks tab) so the ruling does not move between tabs.
+public enum PageRuling {
+    /// Left edge of the text column; the margin rule sits `RulingView.marginRuleOffset` left of it.
+    public static let textLeft: CGFloat = 58
+
+    /// From the top of a line's band to its rule: just under the baseline of a
+    /// line set in the top heading (a daily note's date), whose lower baseline
+    /// every page's ruling follows.
+    @MainActor public static func ruleOffset(_ palette: EditorPalette) -> CGFloat {
+        let key = "\(palette.headings[0].fontName)/\(palette.headings[0].pointSize)/\(palette.pitch)"
+        if let cached = ruleOffsets[key] { return cached }
+        let ps = NSMutableParagraphStyle()
+        ps.minimumLineHeight = palette.pitch
+        ps.maximumLineHeight = palette.pitch
+        let storage = NSTextStorage(string: "# Today\n", attributes: [.font: palette.headings[0], .paragraphStyle: ps])
+        let content = NSTextContentStorage()
+        content.textStorage = storage
+        let layout = NSTextLayoutManager()
+        content.addTextLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: 1000, height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        layout.textContainer = container
+        var baseline = palette.pitch * 0.78
+        layout.enumerateTextLayoutFragments(from: layout.documentRange.location, options: [.ensuresLayout]) { fragment in
+            if let line = fragment.textLineFragments.first, line.glyphOrigin.y > 0 { baseline = line.glyphOrigin.y }
+            return false
+        }
+        let offset = baseline + 3.5
+        ruleOffsets[key] = offset
+        return offset
+    }
+
+    @MainActor public static func ruleOffset(theme: NotebookTheme) -> CGFloat { ruleOffset(EditorPalette(theme: theme)) }
+
+    /// How far a band of SwiftUI rows `pitch` tall (the Tasks tab's) moves down so each
+    /// row's rule falls 4 pt above its bottom, where it sits on the Tasks tab.
+    @MainActor public static func rowShift(_ palette: EditorPalette) -> CGFloat { ruleOffset(palette) - (palette.pitch - 4) }
+
+    @MainActor private static var ruleOffsets: [String: CGFloat] = [:]
 }
 
 /// A TextKit 2 text view whose storage is the document's markdown. Draws the
@@ -20,8 +64,6 @@ public final class MarkdownTextView: NSTextView {
     let document: NoteDocument
     private(set) lazy var overlays = OverlayController(textView: self)
     private var syncingOverlays = false
-    /// Distance from a line fragment's top to the baseline, measured from layout.
-    private var measuredBaseline: CGFloat?
     /// Known tags for `#` completion, most used first (set by the editor wrapper).
     var knownTags: () -> [String] = { [] }
     private var completionScheduled = false
@@ -211,10 +253,60 @@ public final class MarkdownTextView: NSTextView {
         super.beginDocument()
     }
 
+    // MARK: Header
+
+    /// A view laid under the note's opening heading (today's #today tasks), in
+    /// space the styler reserves below that line, so it sits on the ruling and
+    /// scrolls with the note. The text storage is untouched.
+    var headerView: NSView? {
+        didSet {
+            guard headerView !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let headerView { addSubview(headerView) }
+            refreshOverlays()
+        }
+    }
+
+    /// The header's own height; the space reserved for it is rounded up to whole ruled lines.
+    var headerHeight: CGFloat = 0 {
+        didSet { if headerHeight != oldValue { refreshOverlays() } }
+    }
+
+    var headerReservation: CGFloat {
+        guard headerView != nil, headerHeight > 0 else { return 0 }
+        return ceil(headerHeight / palette.pitch - 0.01) * palette.pitch
+    }
+
+    /// The line the header sits under: the opening heading (a daily note's date).
+    /// Nil when the note does not open with one; the header then heads the page.
+    var headerAnchor: Int? {
+        guard let first = styler.blockMap.lines.first, case .heading = first.kind else { return nil }
+        return 0
+    }
+
+    /// Without a heading to sit under, the header takes whole lines above the text.
+    private func updateTopInset() {
+        let top = palette.pitch * EditorMetrics.topLines + (headerAnchor == nil ? headerReservation : 0)
+        if textContainerInset.height != top {
+            textContainerInset = NSSize(width: EditorMetrics.leftInset, height: top)
+        }
+    }
+
+    /// Under its line, moved down as the Tasks tab's rows are so each row sits on a rule.
+    private func positionHeader() {
+        guard let headerView else { return }
+        var top = palette.pitch * EditorMetrics.topLines
+        if let anchor = headerAnchor, let bottom = lineBottom(for: styler.blockMap.lines[anchor].range) { top = bottom }
+        let width = max(120, bounds.width - EditorMetrics.leftInset - EditorMetrics.headerRightInset)
+        headerView.frame = NSRect(x: EditorMetrics.leftInset, y: top + PageRuling.rowShift(palette),
+                                  width: width, height: max(1, headerHeight))
+    }
+
     private func overlaysChanged() {
         guard !syncingOverlays else { return }
         syncingOverlays = true
         defer { syncingOverlays = false }
+        updateTopInset()
         let before = styler.overlayHeights
         if overlays.sync(map: styler.blockMap) {
             let after = styler.overlayHeights
@@ -228,6 +320,7 @@ public final class MarkdownTextView: NSTextView {
 
     public override func layout() {
         super.layout()
+        positionHeader()
         if overlays.reposition() {
             // Width changed: reserve new heights on the next turn of the run loop.
             DispatchQueue.main.async { [weak self] in self?.overlaysChanged() }
@@ -360,8 +453,7 @@ public final class MarkdownTextView: NSTextView {
         linkTextAttributes = [.foregroundColor: palette.accent, .underlineStyle: NSUnderlineStyle.single.rawValue,
                               .underlineColor: palette.accent.withAlphaComponent(0.5), .cursor: NSCursor.pointingHand]
         typingAttributes = palette.baseAttributes
-        textContainerInset = NSSize(width: EditorMetrics.leftInset, height: palette.pitch * EditorMetrics.topLines)
-        measuredBaseline = nil
+        updateTopInset()
         needsDisplay = true
     }
 
@@ -392,20 +484,6 @@ public final class MarkdownTextView: NSTextView {
     }
 
     // MARK: Ruling
-
-    private func baselineOffset() -> CGFloat {
-        if let measuredBaseline { return measuredBaseline }
-        guard let tlm = textLayoutManager, let start = tlm.documentRange.location as NSTextLocation? else { return palette.pitch * 0.78 }
-        var result: CGFloat?
-        tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
-            if let line = fragment.textLineFragments.first {
-                result = line.glyphOrigin.y
-            }
-            return false
-        }
-        if let r = result, r > 0 { measuredBaseline = r }
-        return result ?? palette.pitch * 0.78
-    }
 
     public override func draw(_ dirtyRect: NSRect) {
         drawRuling(in: dirtyRect)
@@ -566,9 +644,10 @@ public final class MarkdownTextView: NSTextView {
     private func drawRuling(in rect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let pitch = palette.pitch
-        let top = textContainerInset.height
+        // Fixed to the page, not the text: a header above the text moves the text by whole lines.
+        let top = pitch * EditorMetrics.topLines
         // Rules sit just under the baseline of each line.
-        let ruleOffset = baselineOffset() + 3
+        let ruleOffset = PageRuling.ruleOffset(palette)
         ctx.saveGState()
         ctx.setLineWidth(0.8)
         let rule = palette.ruleColor.cgColor
@@ -582,14 +661,14 @@ public final class MarkdownTextView: NSTextView {
         case .lined:
             ctx.setStrokeColor(rule)
             for i in lines {
-                let y = top + ruleOffset + CGFloat(i) * pitch + 0.5
+                let y = top + ruleOffset + CGFloat(i) * pitch
                 ctx.move(to: CGPoint(x: rect.minX, y: y)); ctx.addLine(to: CGPoint(x: rect.maxX, y: y))
             }
             ctx.strokePath()
         case .grid:
             ctx.setStrokeColor(rule); ctx.setLineWidth(0.5)
             for i in lines {
-                let y = top + ruleOffset + CGFloat(i) * pitch + 0.5
+                let y = top + ruleOffset + CGFloat(i) * pitch
                 ctx.move(to: CGPoint(x: rect.minX, y: y)); ctx.addLine(to: CGPoint(x: rect.maxX, y: y))
             }
             var x = EditorMetrics.leftInset.truncatingRemainder(dividingBy: pitch) + 0.5

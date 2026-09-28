@@ -49,6 +49,13 @@ public final class TaskAggregator {
         tags = counts.keys.sorted { (counts[$0]!, $1) > (counts[$1]!, $0) }
     }
 
+    /// Every tag known anywhere: task tags (most used) first, then the given
+    /// note-only tags (the library's), for the tag pickers.
+    public func knownTags(adding noteTags: [String]) -> [String] {
+        var seen = Set<String>()
+        return (tags + noteTags).filter { seen.insert($0).inserted }
+    }
+
     /// Tags on tasks still to do, most used first: the Tasks tab filters only on these.
     public var openTags: [String] {
         var counts: [String: Int] = [:]

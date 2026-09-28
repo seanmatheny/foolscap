@@ -78,6 +78,7 @@ final class AppModel {
                 self.selectedSectionID = "daily"
                 daily.navigate(to: route)
             }
+            daily.taskAggregator = tasks.aggregator
             sections = [daily, tasks]
             tasksSection = tasks
             search.navigate = { [weak self] sectionID, route in
@@ -118,6 +119,9 @@ final class AppModel {
         if let day = flagValue("--day").flatMap(DayKey.init) {
             dailyNotes?.selectedDay = day
             selectedSectionID = "daily"
+        }
+        if let tab = flagValue("--tab"), sections.contains(where: { $0.id == tab }) {
+            selectedSectionID = tab
         }
         if let query = flagValue("--search") {
             search.open(with: query)

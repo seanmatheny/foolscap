@@ -106,6 +106,10 @@ final class OverlayController {
             overlays[key] = nil
             changed = true
         }
+        // The header's space follows the opening heading, as a picture's follows its line.
+        if let anchor = textView.headerAnchor, textView.headerReservation > 0 {
+            heights[anchor] = (heights[anchor] ?? textView.palette.pitch) + textView.headerReservation
+        }
         if heights != textView.styler.overlayHeights {
             textView.styler.overlayHeights = heights
             changed = true

@@ -14,6 +14,9 @@ public final class DailyNotesSection: NotebookSection {
     public var selectedDay: DayKey = .today
     /// Requested line to reveal after navigation (from search).
     public var pendingLine: Int?
+    /// The Tasks tab's aggregator, shared so today's page can head itself with
+    /// the tasks tagged #today and edit them in place.
+    public var taskAggregator: TaskAggregator?
 
     @ObservationIgnored private let _taskProvider: DailyNotesTaskProvider
     @ObservationIgnored private let _searchProvider: DailyNotesSearchProvider
@@ -91,6 +94,13 @@ struct DailyNotesPage: View {
     /// a new day creates a document, and that must not happen mid-render.
     @State private var document: NoteDocument?
 
+    /// Today's page lists the tasks tagged #today, from wherever they were
+    /// written, under its date.
+    private var todayHeader: AnyView? {
+        guard section.selectedDay == .today, let aggregator = section.taskAggregator else { return nil }
+        return AnyView(TodayTasksPanel(section: section, aggregator: aggregator))
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             // Holds the page's full size while the note loads, so the navigator stays in its corner.
@@ -99,7 +109,8 @@ struct DailyNotesPage: View {
             // editor appears once the text is in place, so nothing typed is overwritten.
             if let document, document.isLoaded {
                 MarkdownEditor(document: document, revealLine: section.pendingLine,
-                               tags: { [library = section.library] in library.knownTags }) { section.library.scheduleSave() }
+                               tags: { [library = section.library] in library.knownTags },
+                               header: todayHeader) { section.library.scheduleSave() }
                     // Keyed on the library generation too: a folder switch or a restore replaces every document.
                     .id("\(document.path)/\(section.library.generation)")
                     .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),

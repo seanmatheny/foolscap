@@ -42,6 +42,8 @@ enum NotebookMetrics {
     /// Beyond the page's inner edge: the fold, then this much of the facing
     /// page before the window ends. Nothing sits further in on that side.
     static let facingWidth: CGFloat = 40
+    /// The jester stamped in the leather above the page.
+    static let stampSize: CGFloat = 18
 
     /// Where the page sits inside the cover: the tabs on one side, the fold
     /// and the facing page on the other. Shared with the overlays laid on it.
@@ -133,6 +135,14 @@ public struct NotebookView<Page: View>: View {
                     ElasticBandView()
                         .padding(tabsLeft ? .leading : .trailing, 6)
                 }
+                // The cover's jester, stamped small in the leather above the page's top
+                // right corner, between the stitching and the page.
+                BlindStamp(shape: JesterShape())
+                    .frame(width: NotebookMetrics.stampSize, height: NotebookMetrics.stampSize)
+                    .padding(.top, 7 + (NotebookMetrics.topMargin - 7 - NotebookMetrics.stampSize) / 2)
+                    .padding(.trailing, tabsLeft ? NotebookMetrics.facingWidth : NotebookMetrics.sideMargin)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .allowsHitTesting(false)
                 // Leather band above the page: reveals the traffic lights and drags the window.
                 TrafficLightHoverZone()
                     .frame(height: NotebookMetrics.topMargin)

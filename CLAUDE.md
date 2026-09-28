@@ -27,7 +27,7 @@
   tasks through `TaskProvider`. Third-party sections should depend only on
   FoolscapCore (and FoolscapStore for files/index); `FoolscapScribe` is first-party
   and also uses FoolscapUI chrome.
-- Launch flags for verification: `--day=YYYY-MM-DD`, `--search=q`, `--export`,
+- Launch flags for verification: `--day=YYYY-MM-DD`, `--tab=id` (a section: `daily`, `tasks`, …), `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
   to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--highlights` (forces the Highlights tab on
   and opens it), `--flyleaf` (forces the tab on and shows the day's three on the
@@ -228,3 +228,10 @@
   at midnight (default) or every 24 h / 12 h / hour counted from the last draw, or
   each time the app opens. Timed draws are keyed "yyyy-MM-dd HH:mm:ss" in
   `daily.json` beside the plain day keys; `drawKey`/`drawnAt` there say what is up.
+- Today's page lists tasks tagged #today (`TodayTasksPanel`) under its date: `MarkdownEditor(header:)`
+  hosts a SwiftUI view in the text view (`headerView`), reserved as paragraph spacing after
+  the opening heading like an image overlay (or as extra top inset when the note has no
+  heading). Ruling geometry is shared (`PageRuling` in FoolscapEditor, `RulingView.marginRuleOffset`)
+  so the Tasks tab's rules land on the same pixels as the editor's; rows `pitch` tall move
+  down by `PageRuling.rowShift` to sit on them. The editor's NSScrollView must not adjust
+  its content insets automatically: the hidden title bar overlaps the page by ~2 pt.
