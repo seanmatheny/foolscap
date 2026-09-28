@@ -42,8 +42,15 @@ enum NotebookMetrics {
     /// Beyond the page's inner edge: the fold, then this much of the facing
     /// page before the window ends. Nothing sits further in on that side.
     static let facingWidth: CGFloat = 40
-    /// The jester stamped in the leather above the page.
-    static let stampSize: CGFloat = 18
+    /// Stitching runs this far inside the cover's edge.
+    static let stitchInset: CGFloat = 7
+    /// The first index tab starts this far below the page's top.
+    static let firstTabOffset: CGFloat = 22
+    /// The jester stamped in the leather's corner on the tabs' side.
+    static let stampSize: CGFloat = 32
+    /// Its centre, from the window's top and its tab-side edge: halfway between the
+    /// stitching and the page across, and between the stitching and the first tab down.
+    static let stampCentre = CGPoint(x: (stitchInset + sideMargin) / 2, y: (stitchInset + topMargin + firstTabOffset) / 2)
 
     /// Where the page sits inside the cover: the tabs on one side, the fold
     /// and the facing page on the other. Shared with the overlays laid on it.
@@ -98,7 +105,7 @@ public struct NotebookView<Page: View>: View {
                     // The drop shadow belongs to a plain shape behind the page: on the page
                     // itself it would put every photograph of the page through a blur.
                     .background {
-                        RoundedRectangle(cornerRadius: 3).fill(theme.page.paperColor.color)
+                        PageShape(spineOnRight: tabsLeft).fill(theme.page.paperColor.color)
                             .shadow(color: .black.opacity(0.25), radius: 3, x: tabsLeft ? -2 : 2, y: 0)
                     }
                     .overlay { PageSnapshotHost(anchor: anchor) }
@@ -118,7 +125,7 @@ public struct NotebookView<Page: View>: View {
                                 selection = id
                             }
                         }
-                        .padding(.top, 22)
+                        .padding(.top, NotebookMetrics.firstTabOffset)
                         .offset(x: tabsLeft ? -PaperTab.width : PaperTab.width)
                     }
                     .coordinateSpace(.named("page"))
@@ -135,13 +142,16 @@ public struct NotebookView<Page: View>: View {
                     ElasticBandView()
                         .padding(tabsLeft ? .leading : .trailing, 6)
                 }
-                // The cover's jester, stamped small in the leather above the page's top
-                // right corner, between the stitching and the page.
-                BlindStamp(shape: JesterShape())
+                // The cover's jester, stamped in the leather's corner on the tabs' side,
+                // centred between the page, the first tab and the stitching. With the tabs
+                // on the left that corner is the window buttons', so it steps aside for them.
+                Embossed(depth: 0.8) { JesterShape() }
                     .frame(width: NotebookMetrics.stampSize, height: NotebookMetrics.stampSize)
-                    .padding(.top, 7 + (NotebookMetrics.topMargin - 7 - NotebookMetrics.stampSize) / 2)
-                    .padding(.trailing, tabsLeft ? NotebookMetrics.facingWidth : NotebookMetrics.sideMargin)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(.top, NotebookMetrics.stampCentre.y - NotebookMetrics.stampSize / 2)
+                    .padding(tabsLeft ? .leading : .trailing, NotebookMetrics.stampCentre.x - NotebookMetrics.stampSize / 2)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topLeading : .topTrailing)
+                    .opacity(tabsLeft && windowState.trafficLightsShown ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.18), value: windowState.trafficLightsShown)
                     .allowsHitTesting(false)
                 // Leather band above the page: reveals the traffic lights and drags the window.
                 TrafficLightHoverZone()
@@ -254,7 +264,7 @@ struct CoverStitches: Shape {
     var square = false
     var spineOnRight = false
     func path(in r: CGRect) -> Path {
-        let inset: CGFloat = 7
+        let inset = NotebookMetrics.stitchInset
         let box = r.insetBy(dx: inset, dy: inset)
         let e = square ? 0 : NotebookMetrics.edgeRadius - inset
         var p = Path()

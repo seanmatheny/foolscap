@@ -209,7 +209,7 @@ public final class PageTurnWindow: NSWindow {
         CATransaction.setDisableActions(true)
         blank.frame = pageInWindow
         blank.backgroundColor = CGColor(srgbRed: paper.r, green: paper.g, blue: paper.b, alpha: 1)
-        blank.cornerRadius = 3
+        blank.cornerRadius = PageShape.foreRadius
         metalLayer.frame = root.bounds
         metalLayer.contentsScale = scale
         metalLayer.drawableSize = CGSize(width: root.bounds.width * scale, height: root.bounds.height * scale)
@@ -226,6 +226,8 @@ public final class PageTurnWindow: NSWindow {
 
     fileprivate func play(_ image: CGImage, pipeline: PageCurlRenderer.Pipeline, style: PageCurlStyle,
                           spineOnRight: Bool, paper: RGBA, duration: TimeInterval) {
+        // The blank sheet's rounded corners are on the fore edge, away from the spine.
+        blank.maskedCorners = spineOnRight ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
         metalLayer.device = pipeline.device
         metalLayer.colorspace = image.colorSpace
         let scale = Double(metalLayer.contentsScale)

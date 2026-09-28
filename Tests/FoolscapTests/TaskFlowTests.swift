@@ -24,7 +24,7 @@ import Foundation
         aggregator.setProviders([provider])
         await aggregator.reload()
         #expect(aggregator.tags == ["work"])
-        #expect(aggregator.tasks(status: .notStarted, tag: "work").count == 1)
+        #expect(aggregator.tasks(status: .notStarted, tags: ["work"]).count == 1)
 
         try await provider.setStatus(.inProgress, of: tasks[0])
         let text = try String(contentsOf: folder.url(for: day), encoding: .utf8)
@@ -87,7 +87,10 @@ import Foundation
 
         // All three dropped on #work: the third already has it and is left alone.
         aggregator.addTag("work", to: aggregator.tasks)
-        #expect(aggregator.tasks(status: .notStarted, tag: "work").count == 2)
+        #expect(aggregator.tasks(status: .notStarted, tags: ["work"]).count == 2)
+        // Several filters at once: only tasks carrying every one of them.
+        #expect(aggregator.tasks(status: .notStarted, tags: ["work", "home"]).map(\.title) == ["Two #home #work"])
+        #expect(aggregator.tasks(status: .notStarted).count == 2)
         for _ in 0..<50 {
             if try String(contentsOf: folder.url(for: day), encoding: .utf8).contains("Two #home #work") { break }
             try await Task.sleep(for: .milliseconds(20))

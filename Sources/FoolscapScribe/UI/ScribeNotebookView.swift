@@ -18,6 +18,10 @@ struct ScribeNotebookView: View {
     /// The PDF is on this Mac, so pages missing from the cache can be drawn.
     @State private var pdfReady = false
     @State private var copied = false
+    /// Scrolled to within a few lines of the end: the jump button then goes back to the top.
+    @State private var nearEnd = false
+    /// Notebooks this long get the jump button.
+    static let jumpPages = 3
 
     private var pitch: CGFloat { theme.linePitch }
     private var scale: CGFloat { theme.type.body.size / 15 }
@@ -31,6 +35,7 @@ struct ScribeNotebookView: View {
                     // Lazy, so only the pages on screen are drawn.
                     LazyVStack(alignment: .leading, spacing: 0) {
                         header
+                            .id(Self.topID)
                         if isPlaceholder {
                             Text("Downloading from iCloud…")
                                 .font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
@@ -42,8 +47,15 @@ struct ScribeNotebookView: View {
                                 .id(index + 1)
                         }
                         Spacer(minLength: pitch * 2)
+                            .id(Self.endID)
                     }
                     .padding(.top, pitch / 2)
+                }
+                .onScrollGeometryChange(for: Bool.self) { g in
+                    g.contentOffset.y + g.containerSize.height >= g.contentSize.height - pitch * 4
+                } action: { _, near in nearEnd = near }
+                .overlay(alignment: .bottomTrailing) {
+                    if pageSizes.count >= Self.jumpPages { jumpButton(proxy) }
                 }
                 .onChange(of: section.pendingPage) { _, page in scroll(to: page, proxy: proxy) }
                 .onChange(of: pageSizes.count) { _, _ in scroll(to: section.pendingPage, proxy: proxy) }
@@ -56,6 +68,33 @@ struct ScribeNotebookView: View {
     private func scroll(to page: Int?, proxy: ScrollViewProxy) {
         guard let page, pageSizes.indices.contains(page - 1) else { return }
         withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(page, anchor: .top) }
+    }
+
+    private static let topID = "top", endID = "end"
+
+    /// A small round button in the page's corner: to the last page of a long
+    /// notebook, and back to the top from there.
+    private func jumpButton(_ proxy: ScrollViewProxy) -> some View {
+        let toTop = nearEnd
+        return Button {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                if toTop { proxy.scrollTo(Self.topID, anchor: .top) } else { proxy.scrollTo(Self.endID, anchor: .bottom) }
+            }
+        } label: {
+            Image(systemName: toTop ? "arrow.up.to.line" : "arrow.down.to.line")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(theme.ink.color.opacity(0.6))
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(theme.page.paperColor.color.opacity(0.9))
+                    .shadow(color: .black.opacity(0.12), radius: 2, y: 1))
+                .overlay(Circle().stroke(theme.ink.color.opacity(0.12), lineWidth: 0.5))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(toTop ? "Back to the first page (⌘↑)" : "Skip to the last page (⌘↓)")
+        .keyboardShortcut(toTop ? .upArrow : .downArrow, modifiers: .command)
+        .padding(.trailing, 14).padding(.bottom, 14)
+        .transition(.opacity)
     }
 
     private var header: some View {

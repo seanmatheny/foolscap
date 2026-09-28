@@ -35,10 +35,24 @@ enum PageCurlRenderer {
         return float4(p * 2.0 - 1.0, 0.0, 1.0);
     }
 
-    // The flat photograph at a page coordinate (mirrored when the free edge is on the right).
+    // How much of the page covers a point: its corners are rounded, widely on the
+    // free edge (x = 0 here) and barely at the spine, as PageShape draws them.
+    static float coverage(constant CurlUniforms& u, float2 q) {
+        bool fore = q.x < u.size.x * 0.5;
+        float r = fore ? \(Float(PageShape.foreRadius)) : \(Float(PageShape.spineRadius));
+        // From the centre of the nearest corner's arc, outward; inside the page's
+        // straight edges one of the two is not positive.
+        float2 c = float2(fore ? r - q.x : q.x - (u.size.x - r),
+                          q.y < u.size.y * 0.5 ? r - q.y : q.y - (u.size.y - r));
+        if (c.x <= 0.0 || c.y <= 0.0) return 1.0;
+        return clamp(r - length(c) + 0.5, 0.0, 1.0);
+    }
+
+    // The flat photograph at a page coordinate (mirrored when the free edge is on the right),
+    // with the leather the photograph caught beyond the rounded corners left out.
     static half4 flatSample(texture2d<half> page, sampler smp, constant CurlUniforms& u, float2 q) {
         float2 p = float2(u.flip > 0.5 ? u.size.x - q.x : q.x, q.y);
-        return page.sample(smp, p / u.size);
+        return page.sample(smp, p / u.size) * half(coverage(u, q));
     }
 
     // The underside of the page: paper, with a ghost of the ink showing through.
@@ -55,10 +69,13 @@ enum PageCurlRenderer {
         float s = dot(rel, u.axis) - u.line;
 
         if (s > u.radius) {
-            // The page has lifted away here: only its shadow on whatever lies beneath.
+            // The page has lifted away here: only its shadow on the page beneath. Not on
+            // the leather around it, where its hard edge read as the cover itself turning.
+            bool inside = all(rel >= 0.0) && all(rel <= u.size);
+            float under = inside ? coverage(u, rel) : 0.0;
             float reach = u.radius * 1.5 + 20.0;
             float t = clamp((s - u.radius) / reach, 0.0, 1.0);
-            float a = 0.30 * (1.0 - t) * (1.0 - t);
+            float a = 0.30 * (1.0 - t) * (1.0 - t) * under;
             return half4(0.0h, 0.0h, 0.0h, half(a));
         }
         if (s >= 0.0) {

@@ -123,6 +123,10 @@ final class AppModel {
         if let tab = flagValue("--tab"), sections.contains(where: { $0.id == tab }) {
             selectedSectionID = tab
         }
+        // A page turn to watch: the tab changes once the window is up, as from the Go menu.
+        if let tab = flagValue("--turn-to"), sections.contains(where: { $0.id == tab }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.selectedSectionID = tab }
+        }
         if let query = flagValue("--search") {
             search.open(with: query)
         }

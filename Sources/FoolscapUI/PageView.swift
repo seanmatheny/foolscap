@@ -58,6 +58,26 @@ public struct RulingView: View {
     }
 }
 
+/// The page's outline: the fore edge (the tabs' side) rounded like a bound
+/// notebook's, the spine side nearly square where the page runs into the fold.
+/// Circular corners, so the page curl's shader can round its photograph to match.
+public struct PageShape: Shape {
+    public nonisolated static let foreRadius: CGFloat = 12
+    public nonisolated static let spineRadius: CGFloat = 3
+    public var spineOnRight: Bool
+
+    public init(spineOnRight: Bool) { self.spineOnRight = spineOnRight }
+
+    public func path(in rect: CGRect) -> Path {
+        let fore = Self.foreRadius, spine = Self.spineRadius
+        return UnevenRoundedRectangle(topLeadingRadius: spineOnRight ? fore : spine,
+                                      bottomLeadingRadius: spineOnRight ? fore : spine,
+                                      bottomTrailingRadius: spineOnRight ? spine : fore,
+                                      topTrailingRadius: spineOnRight ? spine : fore,
+                                      style: .circular).path(in: rect)
+    }
+}
+
 /// One paper page: paper colour, texture and the section's content on top.
 /// Sections draw their own ruling (see `RulingView`) so it can scroll with content.
 public struct PageView<Content: View>: View {
@@ -83,7 +103,7 @@ public struct PageView<Content: View>: View {
                 .allowsHitTesting(false)
             content
         }
-        .clipShape(RoundedRectangle(cornerRadius: 3))
-        .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.black.opacity(0.15), lineWidth: 0.5))
+        .clipShape(PageShape(spineOnRight: spineOnRight))
+        .overlay(PageShape(spineOnRight: spineOnRight).stroke(Color.black.opacity(0.15), lineWidth: 0.5))
     }
 }

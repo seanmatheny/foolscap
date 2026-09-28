@@ -44,6 +44,14 @@ public enum TaskLineParser {
         return out.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
     }
 
+    /// The title with `#tag` added at its end, unless it already carries that tag.
+    public static func addingTag(_ tag: String, to title: String) -> String {
+        let clean = tag.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased()
+        guard !clean.isEmpty, !tags(in: title).contains(clean) else { return title }
+        let trimmed = title.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "#" + clean : trimmed + " #" + clean
+    }
+
     /// The title without every `#tag` matching `tag` (case-insensitively), each taking
     /// one run of whitespace with it; the rest of the text is left as written.
     public static func removingTag(_ tag: String, from title: String) -> String {

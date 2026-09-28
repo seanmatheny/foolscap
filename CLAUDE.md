@@ -27,7 +27,8 @@
   tasks through `TaskProvider`. Third-party sections should depend only on
   FoolscapCore (and FoolscapStore for files/index); `FoolscapScribe` is first-party
   and also uses FoolscapUI chrome.
-- Launch flags for verification: `--day=YYYY-MM-DD`, `--tab=id` (a section: `daily`, `tasks`, …), `--search=q`, `--export`,
+- Launch flags for verification: `--day=YYYY-MM-DD`, `--tab=id` (a section: `daily`, `tasks`, …), `--turn-to=id` (turns to that tab 2.5 s after launch, to watch a curl;
+  with `FOOLSCAP_SLOW_OPEN=1`, capture with `screencapture`: the curl is a child window), `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
   to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--highlights` (forces the Highlights tab on
   and opens it), `--flyleaf` (forces the tab on and shows the day's three on the

@@ -75,26 +75,14 @@ struct ClosedCoverFace: View {
 /// Blind emboss: the shape pressed into the leather, lit from the top-left.
 struct Embossed<Content: View>: View {
     @Environment(\.notebookTheme) private var theme
+    /// How far the lit and shaded edges spread: less for a smaller stamp.
+    var depth: CGFloat = 1
     @ViewBuilder let content: Content
     var body: some View {
         ZStack {
-            content.foregroundStyle(Color.white.opacity(theme.isDark ? 0.35 : 0.18)).offset(x: 1.2, y: 1.2)
-            content.foregroundStyle(Color.black.opacity(0.55)).offset(x: -1, y: -1)
+            content.foregroundStyle(Color.white.opacity(theme.isDark ? 0.35 : 0.18)).offset(x: 1.2 * depth, y: 1.2 * depth)
+            content.foregroundStyle(Color.black.opacity(0.55)).offset(x: -depth, y: -depth)
             content.foregroundStyle(theme.cover.baseColor.color).brightness(-0.06)
-        }
-    }
-}
-
-/// A small blind stamp in the open cover's leather. It has no colour of its
-/// own, only a shade where the leather is pressed down and a lit lower edge, so
-/// the grain shows through as it does around it (a flat fill of the cover colour
-/// reads as a dark blot this small).
-struct BlindStamp<S: Shape>: View {
-    let shape: S
-    var body: some View {
-        ZStack {
-            shape.fill(Color.white.opacity(0.16)).offset(x: 0.6, y: 0.8)
-            shape.fill(Color.black.opacity(0.34))
         }
     }
 }

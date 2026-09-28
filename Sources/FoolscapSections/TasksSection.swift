@@ -28,7 +28,8 @@ public final class TasksSection: NotebookSection {
     public let aggregator = TaskAggregator()
     let library: NotebookLibrary
     let openNote: (SectionRoute) -> Void
-    var selectedTag: String?
+    /// The tag filters, in the order they were chosen: a task shows when it carries all of them.
+    var selectedTags: [String] = []
     /// Every tag known anywhere, task tags (most used) first, then note-only tags.
     private(set) var knownTags: [String] = []
 
@@ -79,13 +80,13 @@ struct TasksPage: View {
                         // The gap under the field is borrowed from the header and the
                         // space below the strip, so the task rows stay on the ruling.
                         Spacer().frame(height: Self.fieldGap * 2)
-                        CategoryStrip(tags: stripTags, selected: $section.selectedTag,
+                        CategoryStrip(tags: stripTags, selected: $section.selectedTags,
                                       onDropTasks: { items, tag in section.aggregator.addTag(tag, to: items); clearSelection() })
                             .frame(height: pitch)
                         Spacer().frame(height: pitch / 2 - Self.fieldGap)
                         ForEach(TaskStatus.allCases, id: \.self) { status in
                             TaskSectionView(status: status,
-                                            tasks: section.aggregator.tasks(status: status, tag: section.selectedTag),
+                                            tasks: section.aggregator.tasks(status: status, tags: section.selectedTags),
                                             allTags: section.knownTags,
                                             pitch: pitch,
                                             selection: $selection,
@@ -117,7 +118,7 @@ struct TasksPage: View {
                 Button("") { clearSelection() }.keyboardShortcut(.cancelAction).opacity(0)
             }
         }
-        .onChange(of: section.selectedTag) { _, _ in clearSelection() }
+        .onChange(of: section.selectedTags) { _, _ in clearSelection() }
         .task { await section.aggregator.reload(); section.refreshKnownTags() }
         .onChange(of: section.library.knownTags) { _, _ in section.refreshKnownTags() }
         .onChange(of: section.aggregator.tags) { _, _ in section.refreshKnownTags() }
@@ -138,7 +139,7 @@ struct TasksPage: View {
     private var newTaskField: some View {
         HStack(spacing: 8) {
             Image(systemName: "plus").font(.system(size: 12, weight: .semibold)).foregroundStyle(theme.dimInk.color)
-            TextField("Add a task, with #tags; start with !, !! or !!! for priority", text: $newTaskText)
+            TextField(newTaskPrompt, text: $newTaskText)
                 .font(.system(size: 14 * scale, design: .serif))
                 .textFieldStyle(.plain)
                 .focused($newTaskFocused)
@@ -154,11 +155,20 @@ struct TasksPage: View {
         .colorScheme(theme.isDark ? .dark : .light)
     }
 
-    /// Tags of tasks still to do; the chosen filter stays until it is cleared,
-    /// even once its last task is done.
+    /// Filtered by tags, the field says the new task will carry them.
+    private var newTaskPrompt: String {
+        if !section.selectedTags.isEmpty {
+            let tags = section.selectedTags.map { "#" + $0 }.joined(separator: " ")
+            return "Add a task tagged \(tags); more #tags, or start with ! for priority"
+        }
+        return "Add a task, with #tags; start with !, !! or !!! for priority"
+    }
+
+    /// Tags of tasks still to do; the chosen filters stay until they are cleared,
+    /// even once their last task is done.
     private var stripTags: [String] {
         var tags = section.aggregator.openTags
-        if let chosen = section.selectedTag, !tags.contains(chosen) { tags.append(chosen) }
+        for chosen in section.selectedTags where !tags.contains(chosen) { tags.append(chosen) }
         return tags
     }
 
@@ -172,32 +182,40 @@ struct TasksPage: View {
         selectionAnchor = nil
     }
 
+    /// A task added while the list is filtered by tags takes those tags, so it
+    /// shows up in the list it was typed into.
     private func submit() {
         guard !newTaskText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        section.addTask(newTaskText)
+        let text = section.selectedTags.reduce(newTaskText) { TaskLineParser.addingTag($1, to: $0) }
+        section.addTask(text)
         newTaskText = ""
         newTaskFocused = true
     }
 }
 
-/// The tag filter. Tasks dropped on a tag chip get that tag.
+/// The tag filters: any number at once, a task showing when it carries all of
+/// them. A chip toggles its tag; "All" clears them. Tasks dropped on a tag chip get that tag.
 struct CategoryStrip: View {
     let tags: [String]
-    @Binding var selected: String?
+    @Binding var selected: [String]
     let onDropTasks: ([TaskItem], String) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                CategoryChip(label: "All", isOn: selected == nil) { selected = nil }
+                CategoryChip(label: "All", isOn: selected.isEmpty) { selected = [] }
                 ForEach(tags, id: \.self) { tag in
-                    CategoryChip(label: "#" + tag, isOn: selected == tag,
-                                 onDrop: { onDropTasks($0, tag) }) { selected = selected == tag ? nil : tag }
+                    CategoryChip(label: "#" + tag, isOn: selected.contains(tag),
+                                 onDrop: { onDropTasks($0, tag) }) { toggle(tag) }
                 }
             }
             // Room for a targeted chip's scale ("All" leads and takes no drops).
             .padding(.trailing, 4).padding(.vertical, 2)
         }
+    }
+
+    private func toggle(_ tag: String) {
+        if let i = selected.firstIndex(of: tag) { selected.remove(at: i) } else { selected.append(tag) }
     }
 }
 

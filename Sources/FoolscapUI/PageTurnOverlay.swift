@@ -92,7 +92,7 @@ struct PageTurnEffect: ViewModifier, Animatable {
                 if progress > 0.5 {
                     theme.page.paperColor.color
                         .overlay(TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity, blend: theme.page.textureBlend))
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .clipShape(PageShape(spineOnRight: spineOnRight))
                 }
             }
             .overlay(Color.black.opacity(0.28 * progress))

@@ -64,10 +64,11 @@ public final class TaskAggregator {
     }
 
     /// Tasks in one status section, highest priority first, otherwise in note order.
-    public func tasks(status: TaskStatus, tag: String?) -> [TaskItem] {
+    /// Tasks with this status carrying every one of `tags` (all of them when it is empty).
+    public func tasks(status: TaskStatus, tags: [String] = []) -> [TaskItem] {
         // Priority is parsed from the title: once per task, not once per comparison.
         tasks.enumerated()
-            .filter { $0.element.status == status && (tag == nil || $0.element.tags.contains(tag!)) }
+            .filter { item in item.element.status == status && tags.allSatisfy { item.element.tags.contains($0) } }
             .map { (offset: $0.offset, task: $0.element, priority: $0.element.priority) }
             .sorted { a, b in a.priority != b.priority ? a.priority > b.priority : a.offset < b.offset }
             .map(\.task)

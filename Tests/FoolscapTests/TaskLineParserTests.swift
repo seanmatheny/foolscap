@@ -34,6 +34,14 @@ import Foundation
         #expect(TaskLineParser.removingTag("home", from: "Fix #bau") == "Fix #bau")
     }
 
+    @Test func addsTheFilterTagOnce() {
+        // A task typed into the Tasks tab while it is filtered by #mgmt.
+        #expect(TaskLineParser.addingTag("mgmt", to: "!! Slides for Wed ") == "!! Slides for Wed #mgmt")
+        #expect(TaskLineParser.addingTag("mgmt", to: "Slides #MGMT for Wed") == "Slides #MGMT for Wed")
+        #expect(TaskLineParser.addingTag("mgmt", to: "Slides #mgmt/board") == "Slides #mgmt/board #mgmt")
+        #expect(TaskLineParser.addingTag("#mgmt", to: "Call `#mgmt`") == "Call `#mgmt` #mgmt")
+    }
+
     @Test func escapedHashIsNotATag() {
         // Scribe transcripts escape recognised text; `\#budget` must not become a tag.
         #expect(TaskLineParser.tags(in: ##"\#budget is \#5 but #scribe/book-notes is"##) == ["scribe/book-notes"])

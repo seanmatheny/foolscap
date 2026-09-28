@@ -120,6 +120,8 @@ public final class WindowState {
     /// Height of the camera-housing strip to keep content below in full screen.
     public var fullScreenTopInset: CGFloat = 0
     public var isFullScreen = false
+    /// The window buttons are showing (the pointer is over the leather above the page).
+    public var trafficLightsShown = false
 }
 
 public enum TrafficLights {
@@ -129,6 +131,7 @@ public enum TrafficLights {
     public static func set(window: NSWindow?, visible: Bool, animated: Bool = true) {
         guard let window else { return }
         let views = buttons.compactMap { window.standardWindowButton($0) }
+        WindowState.shared.trafficLightsShown = visible
         if animated {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.18
