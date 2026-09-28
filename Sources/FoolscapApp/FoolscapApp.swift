@@ -109,7 +109,7 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var model = model
-        NotebookView(tabs: model.tabs, selection: $model.selectedSectionID) { id in
+        NotebookView(tabs: model.tabs, selection: $model.selectedSectionID, looseLeaf: $model.flyleafPresented) { id in
             if let section = model.section(id: id) {
                 section.makeRootView()
             } else {

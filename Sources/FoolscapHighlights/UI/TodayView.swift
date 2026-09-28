@@ -10,6 +10,9 @@ struct TodayView: View {
     let items: [HighlightItem]
     /// Whether a card's book can be opened (not on the flyleaf).
     var showsBooks: Bool
+    /// The flyleaf sets its title in the middle of the page; the quotes keep
+    /// their left rule in a column beneath it.
+    var centered = false
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
@@ -17,6 +20,7 @@ struct TodayView: View {
             Text(Self.dateLine(Date()))
                 .font(.system(size: 20 * scale, weight: .bold, design: .serif))
                 .highlighted(theme.highlighter[.inProgress])
+                .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
             if items.isEmpty {
                 Text("Nothing to show today. Un-hide a few highlights, or import more.")
                     .font(.system(size: 15, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
@@ -26,7 +30,7 @@ struct TodayView: View {
             }
         }
         .padding(.top, 4)
-        .frame(maxWidth: 720, alignment: .leading)
+        .frame(maxWidth: 720, alignment: centered ? .center : .leading)
     }
 
     static func dateLine(_ date: Date) -> String {
@@ -169,7 +173,8 @@ struct HighlightMenu: View {
     }
 }
 
-/// The page shown when the app opens: the day's three on a loose leaf.
+/// The page shown when the app opens: the day's three on a loose leaf, the
+/// jester from the cover printed small in its top corner.
 struct FlyleafView: View {
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: HighlightsSection
@@ -178,21 +183,28 @@ struct FlyleafView: View {
     var body: some View {
         GeometryReader { geo in
             ScrollView {
-                ZStack(alignment: .topLeading) {
+                ZStack(alignment: .top) {
                     Color.clear.frame(minHeight: geo.size.height)
-                    VStack(alignment: .leading, spacing: 0) {
+                    // Printed in the paper's own tone: a wash of ink thin enough for the grain
+                    // to come through, a shade darker on light paper and lighter on dark.
+                    JesterShape()
+                        .fill(theme.ink.color.opacity(0.08))
+                        .frame(width: pitch * 2.75, height: pitch * 2.75)
+                        .padding([.top, .trailing], pitch)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .allowsHitTesting(false)
+                    VStack(alignment: .center, spacing: 0) {
                         Spacer().frame(height: pitch * 1.5)
-                        TodayView(section: section, items: section.picks, showsBooks: false)
+                        TodayView(section: section, items: section.picks, showsBooks: false, centered: true)
                         Spacer().frame(height: pitch * 1.5)
                         Text("Click to turn the page")
                             .font(.system(size: 11.5, design: .serif)).italic()
                             .foregroundStyle(theme.dimInk.color.opacity(0.8))
                         Spacer(minLength: pitch)
                     }
-                    .padding(.leading, 58)
-                    .padding(.trailing, 44)
+                    .padding(.horizontal, 58)
                     .padding(.top, pitch)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
             }
         }

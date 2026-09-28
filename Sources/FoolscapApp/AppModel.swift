@@ -12,7 +12,11 @@ import FoolscapHighlights
 final class AppModel {
     var sections: [any NotebookSection] = []
     var selectedSectionID: String {
-        didSet { UserDefaults.standard.set(selectedSectionID, forKey: "selectedSection") }
+        didSet {
+            UserDefaults.standard.set(selectedSectionID, forKey: "selectedSection")
+            // Going somewhere (a tab, the Go menu, a search result) turns the flyleaf away.
+            if flyleafPresented { flyleafPresented = false }
+        }
     }
     var themeID: String {
         didSet { UserDefaults.standard.set(themeID, forKey: "themeID") }

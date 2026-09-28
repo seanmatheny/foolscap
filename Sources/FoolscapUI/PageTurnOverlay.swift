@@ -26,18 +26,19 @@ public struct PageTurnOverlay<Content: View>: View {
             let tabsLeft = tabEdge == .left
             // The hinge is the spine: on the right when the tabs are on the left.
             let spineOnRight = tabsLeft
-            let topInset = NotebookMetrics.topMargin + windowState.fullScreenTopInset
             ZStack {
                 PageView { content() }
                     .overlay { PageSnapshotHost(anchor: anchor) }
+                    // Only the page takes the click: the leather beside it, the index
+                    // tabs and the strip above stay the notebook's.
+                    .contentShape(Rectangle())
+                    .onTapGesture { location in
+                        let edge = anchor.pageHeight.map { location.y / max(1, $0) }
+                        turn(spineOnRight: spineOnRight, from: edge)
+                    }
                     .modifier(PageTurnEffect(angle: angle, spineOnRight: spineOnRight))
                     .padding(NotebookMetrics.pageInsets(tabsLeft: tabsLeft))
                     .padding(.top, windowState.fullScreenTopInset)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { location in
-                let edge = anchor.pageHeight.map { (location.y - topInset) / max(1, $0) }
-                turn(spineOnRight: spineOnRight, from: edge)
             }
             .background {
                 Button("") { turn(spineOnRight: spineOnRight, from: nil) }.keyboardShortcut(.defaultAction).opacity(0)

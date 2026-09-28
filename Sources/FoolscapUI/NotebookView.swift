@@ -62,6 +62,10 @@ public struct NotebookView<Page: View>: View {
     let tabs: [NotebookTabItem]
     @Binding var selection: String
     let page: (String) -> Page
+    /// Whether a loose leaf (the flyleaf) lies on the page. A tab click then
+    /// photographs the leaf with the page and turns it away, even when the tab
+    /// is the one the notebook is already open at.
+    let looseLeaf: Binding<Bool>?
     /// The page the notebook lies open at; `selection` only ever reaches it
     /// through `turnPage`, so the live page is never swapped before it has
     /// been photographed.
@@ -71,8 +75,9 @@ public struct NotebookView<Page: View>: View {
     /// and where along the page's edge the click was (0 at the top).
     @State private var pendingShot: (id: String, image: CGImage, size: CGSize, edge: CGFloat)?
 
-    public init(tabs: [NotebookTabItem], selection: Binding<String>, @ViewBuilder page: @escaping (String) -> Page) {
-        self.tabs = tabs; self._selection = selection; self.page = page
+    public init(tabs: [NotebookTabItem], selection: Binding<String>, looseLeaf: Binding<Bool>? = nil,
+                @ViewBuilder page: @escaping (String) -> Page) {
+        self.tabs = tabs; self._selection = selection; self.looseLeaf = looseLeaf; self.page = page
     }
 
     public var body: some View {
@@ -98,9 +103,18 @@ public struct NotebookView<Page: View>: View {
                     // Index tabs are glued to the page edge, behind it, sticking out sideways.
                     .background(alignment: tabsLeft ? .topLeading : .topTrailing) {
                         IndexTabsView(tabs: tabs, selection: $selection) { id, edge in
-                            // Photograph the page before the selection changes anything.
-                            if id != open, let shot = anchor.capture() { pendingShot = (open, shot.image, shot.size, edge) }
-                            selection = id
+                            // Photograph the page before the selection changes anything
+                            // (a leaf lying on it is in the photograph too).
+                            let leaf = looseLeaf?.wrappedValue == true
+                            if id != open || leaf, let shot = anchor.capture() { pendingShot = (open, shot.image, shot.size, edge) }
+                            if leaf { looseLeaf?.wrappedValue = false }
+                            if id == open {
+                                // Nothing to turn to: the leaf alone turns away, revealing this page.
+                                if leaf, let shot = pendingShot { curl(shot.image, edge: shot.edge) }
+                                pendingShot = nil
+                            } else {
+                                selection = id
+                            }
                         }
                         .padding(.top, 22)
                         .offset(x: tabsLeft ? -PaperTab.width : PaperTab.width)
@@ -152,9 +166,15 @@ public struct NotebookView<Page: View>: View {
             if pageTurnLogging { NSLog("Foolscap turn: main thread %.1f ms before the page swap", (CACurrentMediaTime() - clicked) * 1000) }
         }
         // Without a photograph or a curl to draw (the shader still compiling) the page just changes.
-        guard !reduceMotion, let image = shot?.image ?? anchor.capture()?.image else { return }
+        guard let image = shot?.image ?? anchor.capture()?.image else { return }
+        curl(image, edge: shot?.edge)
+    }
+
+    /// Curl `image`, a photograph of the page, away over the spine.
+    private func curl(_ image: CGImage, edge: CGFloat?) {
+        guard !reduceMotion else { return }
         let slow = ProcessInfo.processInfo.environment["FOOLSCAP_SLOW_OPEN"] != nil ? 4.0 : 1.0
-        _ = anchor.curl(image, style: PageCurlStyle.random(from: shot?.edge), spineOnRight: tabEdge == .left,
+        _ = anchor.curl(image, style: PageCurlStyle.random(from: edge), spineOnRight: tabEdge == .left,
                         paper: theme.page.paperColor, duration: 0.55 * slow)
     }
 }
