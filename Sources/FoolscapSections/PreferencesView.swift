@@ -129,14 +129,37 @@ public struct PreferencesView: View {
     }
 
     private var shortcutsTab: some View {
-        settingsForm(height: 260) {
+        settingsForm(height: 800) {
             Section("Shortcuts") {
                 LabeledContent("Quick task (anywhere)") { ShortcutRecorder(name: "quickTaskHotKey", defaultCombo: .quickTaskDefault) }
                 Text("Opens a small panel over any app; ↩ adds the task to the Tasks tab.")
                     .font(.caption).foregroundStyle(.secondary)
                 LabeledContent("Tabs") { Text(tabsSummary).foregroundStyle(.secondary) }
             }
+            Section("Writing") {
+                shortcutRow("Bold · Italic · Strikethrough · Inline code", "⌘B · ⌘I · ⇧⌘X · ⇧⌘C")
+                shortcutRow("Link (a URL on the clipboard fills the address)", "⌘K")
+                shortcutRow("Heading 1–6 (again for plain text)", "⌘1 – ⌘6")
+                shortcutRow("Bulleted list · Numbered list · Task", "⇧⌘L · ⌥⌘L · ⌥⌘T")
+                shortcutRow("Mark task done", "⌘↩")
+                shortcutRow("Block quote · Code block · Horizontal rule", "⌘' · ⌥⌘C · ⌥⌘-")
+                shortcutRow("Next list item, task or quote line", "↩")
+                shortcutRow("Plain new line inside a list", "⇧↩")
+                shortcutRow("Indent · outdent a list item", "⇥ · ⇧⇥")
+                Text("↩ on an empty item ends the list; on a nested one it steps out a level.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Sections") {
+                shortcutRow("Fold · unfold the section at the caret", "⌥⌘← · ⌥⌘→")
+                shortcutRow("Fold · unfold every section", "⌥⇧⌘← · ⌥⇧⌘→")
+                Text("A heading's chevron in the margin folds it too; folded sections stay folded when the note is reopened.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
+    }
+
+    private func shortcutRow(_ label: String, _ keys: String) -> some View {
+        LabeledContent(label) { Text(keys).foregroundStyle(.secondary).monospacedDigit() }
     }
 
     private var scribeTab: some View {

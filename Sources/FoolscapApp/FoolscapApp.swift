@@ -5,6 +5,7 @@ import FoolscapStore
 import FoolscapUI
 import FoolscapSections
 import FoolscapHighlights
+import FoolscapEditor
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -69,6 +70,34 @@ struct FoolscapApp: App {
                 Button("Find Previous") { FindCommands.perform(.previousMatch) }.keyboardShortcut("g", modifiers: [.command, .shift])
                 Divider()
                 Button("Search Notebook…") { model.search.open() }.keyboardShortcut("f", modifiers: [.command, .shift])
+            }
+            CommandMenu("Format") {
+                Button(EditorCommand.bold.title) { EditorCommand.bold.perform() }.keyboardShortcut("b")
+                Button(EditorCommand.italic.title) { EditorCommand.italic.perform() }.keyboardShortcut("i")
+                Button(EditorCommand.strikethrough.title) { EditorCommand.strikethrough.perform() }.keyboardShortcut("x", modifiers: [.command, .shift])
+                Button(EditorCommand.code.title) { EditorCommand.code.perform() }.keyboardShortcut("c", modifiers: [.command, .shift])
+                Button(EditorCommand.link.title) { EditorCommand.link.perform() }.keyboardShortcut("k")
+                Divider()
+                Menu("Heading") {
+                    Button(EditorCommand.heading1.title) { EditorCommand.heading1.perform() }.keyboardShortcut("1")
+                    Button(EditorCommand.heading2.title) { EditorCommand.heading2.perform() }.keyboardShortcut("2")
+                    Button(EditorCommand.heading3.title) { EditorCommand.heading3.perform() }.keyboardShortcut("3")
+                    Button(EditorCommand.heading4.title) { EditorCommand.heading4.perform() }.keyboardShortcut("4")
+                    Button(EditorCommand.heading5.title) { EditorCommand.heading5.perform() }.keyboardShortcut("5")
+                    Button(EditorCommand.heading6.title) { EditorCommand.heading6.perform() }.keyboardShortcut("6")
+                }
+                Button(EditorCommand.bulletList.title) { EditorCommand.bulletList.perform() }.keyboardShortcut("l", modifiers: [.command, .shift])
+                Button(EditorCommand.numberedList.title) { EditorCommand.numberedList.perform() }.keyboardShortcut("l", modifiers: [.command, .option])
+                Button(EditorCommand.task.title) { EditorCommand.task.perform() }.keyboardShortcut("t", modifiers: [.command, .option])
+                Button(EditorCommand.toggleTaskDone.title) { EditorCommand.toggleTaskDone.perform() }.keyboardShortcut(.return, modifiers: [.command])
+                Button(EditorCommand.quote.title) { EditorCommand.quote.perform() }.keyboardShortcut("'", modifiers: [.command])
+                Button(EditorCommand.codeBlock.title) { EditorCommand.codeBlock.perform() }.keyboardShortcut("c", modifiers: [.command, .option])
+                Button(EditorCommand.horizontalRule.title) { EditorCommand.horizontalRule.perform() }.keyboardShortcut("-", modifiers: [.command, .option])
+                Divider()
+                Button(EditorCommand.foldSection.title) { EditorCommand.foldSection.perform() }.keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                Button(EditorCommand.unfoldSection.title) { EditorCommand.unfoldSection.perform() }.keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                Button(EditorCommand.foldAll.title) { EditorCommand.foldAll.perform() }.keyboardShortcut(.leftArrow, modifiers: [.command, .option, .shift])
+                Button(EditorCommand.unfoldAll.title) { EditorCommand.unfoldAll.perform() }.keyboardShortcut(.rightArrow, modifiers: [.command, .option, .shift])
             }
             CommandMenu("Go") {
                 ForEach(model.sections, id: \.id) { section in

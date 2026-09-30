@@ -24,6 +24,101 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     /// It collapses again as soon as the selection leaves it.
     private(set) var forcedRevealLine: Int?
 
+    // MARK: Folding
+
+    /// Headings folded shut, by their line text (trimmed); the lines they hide
+    /// are worked out again after every scan, so edits above a fold keep it.
+    var foldedHeadings: Set<String> = []
+    private(set) var hiddenLines: Set<Int> = []
+    /// Called when the set of folded headings changes, to remember it.
+    var onFoldsChanged: (() -> Void)?
+    /// A hidden line takes this much height, so a folded section reads as gone
+    /// while the ruling below it drifts by under a point per hundred lines.
+    static let hiddenLineHeight: CGFloat = 0.01
+
+    static func foldKey(_ line: ScannedLine) -> String { line.text.trimmingCharacters(in: .whitespaces) }
+
+    /// One past the last line a fold of the heading at `index` hides: the next
+    /// heading of the same or a higher level, or the end of the note.
+    func sectionEnd(afterHeading index: Int) -> Int { Self.sectionEnd(afterHeading: index, in: blockMap) }
+
+    static func sectionEnd(afterHeading index: Int, in map: BlockMap) -> Int {
+        guard index < map.lines.count, case .heading(let level) = map.lines[index].kind else { return index + 1 }
+        var i = index + 1
+        while i < map.lines.count {
+            if case .heading(let l) = map.lines[i].kind, l <= level { break }
+            i += 1
+        }
+        return i
+    }
+
+    func isFolded(heading index: Int) -> Bool {
+        guard index < blockMap.lines.count, case .heading = blockMap.lines[index].kind else { return false }
+        return foldedHeadings.contains(Self.foldKey(blockMap.lines[index])) && sectionEnd(afterHeading: index) > index + 1
+    }
+
+    func isHidden(line index: Int) -> Bool { hiddenLines.contains(index) }
+
+    /// Lines the caret may not rest on: collapsed image/URL lines and folded-away text.
+    func skipsCaret(line index: Int) -> Bool { isCollapsed(line: index) || hiddenLines.contains(index) }
+
+    /// True while the line's syntax is showing (the selection is on it).
+    func isRevealed(line index: Int) -> Bool { activeLines.contains(index) }
+
+    private func recomputeHidden() {
+        var hidden: Set<Int> = []
+        if !foldedHeadings.isEmpty {
+            for line in blockMap.lines {
+                guard case .heading = line.kind, foldedHeadings.contains(Self.foldKey(line)) else { continue }
+                for i in (line.index + 1)..<Self.sectionEnd(afterHeading: line.index, in: blockMap) { hidden.insert(i) }
+            }
+        }
+        hiddenLines = hidden
+    }
+
+    /// Fold or unfold one heading's section (and any other heading with the same text).
+    func setFolded(_ folded: Bool, heading index: Int) {
+        guard index < blockMap.lines.count, case .heading = blockMap.lines[index].kind else { return }
+        let key = Self.foldKey(blockMap.lines[index])
+        if folded {
+            guard sectionEnd(afterHeading: index) > index + 1 else { return }
+            foldedHeadings.insert(key)
+        } else {
+            foldedHeadings.remove(key)
+        }
+        applyFoldChange()
+    }
+
+    func setAllFolded(_ folded: Bool) {
+        if folded {
+            for line in blockMap.lines {
+                guard case .heading = line.kind, Self.sectionEnd(afterHeading: line.index, in: blockMap) > line.index + 1 else { continue }
+                foldedHeadings.insert(Self.foldKey(line))
+            }
+        } else {
+            foldedHeadings = []
+        }
+        applyFoldChange()
+    }
+
+    /// Open whatever hides `line`, so it can be shown (a search result, a task's line).
+    func unfold(toReveal line: Int) {
+        guard hiddenLines.contains(line) else { return }
+        for h in 0..<line where isFolded(heading: h) && sectionEnd(afterHeading: h) > line {
+            foldedHeadings.remove(Self.foldKey(blockMap.lines[h]))
+        }
+        applyFoldChange()
+    }
+
+    private func applyFoldChange() {
+        let before = hiddenLines
+        recomputeHidden()
+        var changed = before.symmetricDifference(hiddenLines)
+        for line in blockMap.lines { if case .heading = line.kind { changed.insert(line.index) } }
+        restyle(lines: Array(changed))
+        onFoldsChanged?()
+    }
+
     init(palette: EditorPalette) {
         self.palette = palette
     }
@@ -37,6 +132,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     func restyleAll() {
         guard let storage else { return }
         blockMap = BlockMap.scan(storage.string)
+        recomputeHidden()
         previousFenceLines = fenceLineCount(blockMap)
         activeLines = linesUnderSelection(blockMap)
         style(range: NSRange(location: 0, length: storage.length), map: blockMap)
@@ -54,17 +150,19 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         return out
     }
 
-    /// Reveal syntax on the caret's line and hide it elsewhere.
-    func selectionChanged() {
+    /// Reveal syntax on the caret's line and hide it elsewhere. Returns the lines whose look changed.
+    @discardableResult
+    func selectionChanged() -> Set<Int> {
         let now = linesUnderSelection(blockMap)
         var changed = now.symmetricDifference(activeLines)
         if let forced = forcedRevealLine, !now.contains(forced) {
             forcedRevealLine = nil
             changed.insert(forced)
         }
-        guard !changed.isEmpty else { return }
+        guard !changed.isEmpty else { return [] }
         activeLines = now
         restyle(lines: Array(changed))
+        return changed
     }
 
     /// Show the markdown of an image/URL line (from its badge) until the caret leaves it.
@@ -96,8 +194,11 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             let fenceNow = fenceLineCount(newMap)
             let touchesFence = touchesFenceLine(newMap, range: paragraphRange) || touchesFenceLine(blockMap, range: NSRange(location: paragraphRange.location, length: max(0, paragraphRange.length - delta)))
             blockMap = newMap
+            // Folded sections move with the text above them: their lines are re-hidden after every edit.
+            let hiddenBefore = hiddenLines
+            recomputeHidden()
             let restyle: NSRange
-            if fenceNow != previousFenceLines || touchesFence {
+            if fenceNow != previousFenceLines || touchesFence || hiddenLines != hiddenBefore {
                 restyle = NSRange(location: paragraphRange.location, length: text.length - paragraphRange.location)
             } else {
                 restyle = paragraphRange
@@ -207,6 +308,21 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         let ps = NSMutableParagraphStyle()
         ps.minimumLineHeight = p.pitch
         ps.maximumLineHeight = p.pitch
+        // A line inside a folded section: no ink, (almost) no height. Code fences
+        // still set the language for lines that follow them.
+        if hiddenLines.contains(line.index) {
+            if case .fenceOpen(let lang) = line.kind { language = lang; inBlockComment = false }
+            ps.minimumLineHeight = Self.hiddenLineHeight
+            ps.maximumLineHeight = Self.hiddenLineHeight
+            ps.paragraphSpacing = 0
+            var hidden = p.hiddenAttributes
+            hidden[.paragraphStyle] = ps
+            hidden[.backgroundColor] = NSColor.clear
+            hidden[.strikethroughStyle] = 0
+            hidden[.underlineStyle] = 0
+            storage.setAttributes(hidden, range: para)
+            return
+        }
         // Overlay lines (image, URL) collapse to a hairline unless the caret is on them;
         // the reserved block height stays a whole number of ruled lines either way.
         let isOverlay: Bool = { if case .imageLine = line.kind { return true }; if case .urlLine = line.kind { return true }; return false }()
@@ -268,6 +384,11 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             }
             inlineRange = NSRange(location: marker.length, length: text.length - marker.length)
         case .task(let status):
+            if let parsed = TaskLineParser.parse(line.text) {
+                // Wrapped lines hang under the title, not the mark.
+                ps.headIndent = (text.substring(to: parsed.markOffset + 2) as NSString).size(withAttributes: [.font: p.mono]).width
+                    + (" " as NSString).size(withAttributes: [.font: p.body]).width
+            }
             storage.setAttributes(base, range: para)
             if let parsed = TaskLineParser.parse(line.text) {
                 let prefix = NSRange(location: 0, length: parsed.markOffset + 2)
@@ -291,10 +412,21 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
                 inlineRange = title
             }
         case .listItem:
+            let prefix = LinePrefix.parse(line.text)
+            if let prefix {
+                // Wrapped lines hang under the item's text.
+                ps.headIndent = (text.substring(to: prefix.length) as NSString).size(withAttributes: [.font: p.body]).width
+            }
             storage.setAttributes(base, range: para)
             let bullet = Self.match(Self.listMarker, in: line.text)
             if bullet.location != NSNotFound {
                 set([.foregroundColor: p.accent], bullet)
+                // A dash, star or plus is drawn as a dot by the view (see `drawBullets`); the
+                // character itself shows, dimmed, only while the caret is on the line.
+                if let prefix, case .bullet = prefix.kind {
+                    let marker = NSRange(location: (prefix.indent as NSString).length, length: 1)
+                    set(reveal ? [.foregroundColor: p.dimInk] : [.foregroundColor: NSColor.clear], marker)
+                }
                 inlineRange = NSRange(location: bullet.length, length: text.length - bullet.length)
             }
         case .imageLine:

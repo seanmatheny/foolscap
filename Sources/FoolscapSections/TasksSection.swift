@@ -340,6 +340,8 @@ struct TaskSectionView: View {
             }
             Spacer().frame(height: pitch)
         }
+        // Every status box spans the column, so their drop outlines line up whatever they hold.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture { selection = []; selectionAnchor = nil }
         .background(

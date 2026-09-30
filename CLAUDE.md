@@ -236,3 +236,21 @@
   so the Tasks tab's rules land on the same pixels as the editor's; rows `pitch` tall move
   down by `PageRuling.rowShift` to sit on them. The editor's NSScrollView must not adjust
   its content insets automatically: the hidden title bar overlaps the page by ~2 pt.
+- Verification against a scratch notebook: `open Foolscap.app --args -notesFolder /path/to/notes
+  …` (the `-key value` argument domain overrides the `notesFolder` default for that launch
+  without touching the real preference, and AppKit does not mistake the pair for a file to
+  open). `-foldedSections '{"Daily/2026-09-30.md" = ("## Afternoon");}'` pre-folds a section
+  the same way.
+- Section folding (`Folding.swift`, `MarkdownStyler.foldedHeadings`): a fold hides the lines
+  after a heading up to the next heading of the same or a higher level by giving them the
+  hidden attributes and a 0.01 pt line height (TextKit 2 honours it; the ruling below drifts
+  under a point per hundred lines). Fold state lives in the `foldedSections` default keyed on
+  note path + heading text (`FoldMemory`), never in the file. The caret skips hidden runs like
+  collapsed image lines (`skipsCaret`); overlays and code/quote decorations skip hidden lines.
+- After `super.draw` TextKit 2 leaves the context clipped to the text container, so anything
+  drawn in the margin (the fold chevrons) must be drawn before it; list bullets (a `•` drawn as
+  text over the clear `-`) go after. Bullets and chevrons are ours, so lines whose reveal state
+  changes with the caret are invalidated by hand (`invalidate(lines:)`).
+- Return continues lists, tasks and quotes (`LinePrefix`, `MarkdownCommands.swift`); ⇧↩/⌥↩ do
+  not; Tab/⇧Tab indent list lines by two spaces. The Format menu sends `EditorCommand`
+  selectors down the responder chain to `MarkdownTextView`.

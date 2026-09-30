@@ -72,6 +72,7 @@ public struct MarkdownEditor: NSViewRepresentable {
             let map = textView.styler.blockMap
             if line < map.lines.count {
                 let range = map.lines[line].range
+                textView.styler.unfold(toReveal: line)
                 DispatchQueue.main.async {
                     textView.setSelectedRange(range)
                     textView.scrollRangeToVisible(range)

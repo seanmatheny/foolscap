@@ -1,5 +1,6 @@
 import AppKit
 import LinkPresentation
+import UniformTypeIdentifiers
 import FoolscapCore
 import FoolscapStore
 
@@ -74,7 +75,8 @@ final class OverlayController {
             occurrences[target] = n + 1
             return Key(target: target, occurrence: n)
         }
-        for line in map.lines {
+        // Pictures and cards inside a folded section go with it.
+        for line in map.lines where !textView.styler.isHidden(line: line.index) {
             switch line.kind {
             case .imageLine(let alt, let path):
                 wanted.append((key("img:" + path), line, BlockMap.imageAlt(alt).width.map { CGFloat($0) }))
@@ -102,6 +104,7 @@ final class OverlayController {
             heights[line.index] = reserved(for: overlay.displaySize(availableWidth: availableWidth()).height)
         }
         for (key, overlay) in overlays where !seen.contains(key) {
+            if overlay.view === selectedImage { select(nil) }
             overlay.view.removeFromSuperview()
             overlays[key] = nil
             changed = true
@@ -130,8 +133,15 @@ final class OverlayController {
             let image = imageCache.object(forKey: path as NSString)
             guard let size = image?.size ?? imageSize(path) else { return nil }
             let iv = ResizableImageView(image: image, size: size, path: path)
+            iv.selectionColor = textView.palette.accent
             iv.onResize = { [weak self] width in self?.commitWidth(width, key: key) }
             iv.onReveal = { [weak self] in self?.revealLine(forKey: key) }
+            iv.onCopy = { [weak self] in self?.copyImage(path: path) ?? false }
+            iv.onShowInFinder = { [weak self] in self?.showInFinder(path: path) }
+            iv.onSelect = { [weak self, weak iv] in
+                self?.textView.window?.makeFirstResponder(self?.textView)
+                self?.select(iv)
+            }
             if image == nil { decode(path) }
             return Overlay(key: key, view: iv, lineIndex: line.index, naturalSize: size, isImage: true,
                            requestedWidth: BlockMap.imageAlt(alt).width.map { CGFloat($0) })
@@ -162,6 +172,48 @@ final class OverlayController {
 
     private func availableWidth() -> CGFloat {
         max(120, textView.bounds.width - textView.textContainerInset.width * 2)
+    }
+
+    // MARK: Selecting and copying images
+
+    /// The picture last clicked, outlined in the accent colour; ⌘C copies it.
+    /// A click in the text or a caret move lets it go.
+    private(set) var selectedImage: ResizableImageView?
+
+    func select(_ image: ResizableImageView?) {
+        guard image !== selectedImage else { return }
+        selectedImage?.isSelected = false
+        selectedImage = image
+        image?.isSelected = true
+    }
+
+    /// Put the picture on the clipboard: the file's own bytes under its type (PNG,
+    /// JPEG…), a TIFF for apps that only take that, and the file's URL so Finder
+    /// and Mail can paste it as a file. Returns false when the file cannot be read.
+    @discardableResult
+    func copyImage(path: String) -> Bool {
+        let url = fileURL(path)
+        guard let data = try? Data(contentsOf: url) else { return false }
+        let item = NSPasteboardItem()
+        if let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) {
+            item.setData(data, forType: NSPasteboard.PasteboardType(type.identifier))
+        }
+        if let tiff = NSImage(data: data)?.tiffRepresentation { item.setData(tiff, forType: .tiff) }
+        item.setString(url.absoluteString, forType: .fileURL)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([item])
+        return true
+    }
+
+    /// Copy the selected picture, if there is one. False when nothing was selected.
+    func copySelectedImage() -> Bool {
+        guard let selected = selectedImage else { return false }
+        return copyImage(path: selected.path)
+    }
+
+    func showInFinder(path: String) {
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL(path)])
     }
 
     // MARK: Images
@@ -387,17 +439,34 @@ final class LinkCardView: NSView {
     override func mouseExited(with event: NSEvent) { copyButton.isHidden = true; revealButton.isHidden = true }
 }
 
-/// An image with hover badges: a resize grip (bottom-right, drag to scale)
-/// and a path badge (top-right, tooltip shows the file; click reveals the markdown).
+/// An image with hover badges: a resize grip (bottom-right, drag to scale), a
+/// copy badge and a path badge (top-right; the tooltip shows the file, a click
+/// reveals the markdown). A click selects the picture for ⌘C; a right click
+/// offers the same in a menu.
 final class ResizableImageView: NSView {
     let imageView = NSImageView()
     let path: String
     var onResize: ((CGFloat) -> Void)?
     var onReveal: (() -> Void)?
+    /// Copies the picture to the clipboard; false when the file could not be read.
+    var onCopy: (() -> Bool)?
+    var onShowInFinder: (() -> Void)?
+    var onSelect: (() -> Void)?
     private var dragStart: (point: NSPoint, width: CGFloat)?
     private var trackingArea: NSTrackingArea?
     private let resizeBadge = BadgeView(symbol: "arrow.up.left.and.arrow.down.right")
     private let pathBadge = BadgeView(symbol: "doc.text")
+    private let copyBadge = BadgeView(symbol: "doc.on.doc")
+
+    /// Outlined in the accent colour while selected (set by the overlay controller).
+    var isSelected = false {
+        didSet {
+            guard isSelected != oldValue else { return }
+            layer?.borderWidth = isSelected ? 2 : 0.5
+            layer?.borderColor = isSelected ? selectionColor.cgColor : NSColor.black.withAlphaComponent(0.15).cgColor
+        }
+    }
+    var selectionColor: NSColor = .controlAccentColor
 
     /// `image` may be nil while the thumbnail is decoded; `size` reserves its frame.
     init(image: NSImage?, size: NSSize, path: String) {
@@ -413,10 +482,12 @@ final class ResizableImageView: NSView {
         imageView.autoresizingMask = [.width, .height]
         imageView.frame = bounds
         addSubview(imageView)
-        for badge in [resizeBadge, pathBadge] { badge.isHidden = true; addSubview(badge) }
+        for badge in [resizeBadge, pathBadge, copyBadge] { badge.isHidden = true; addSubview(badge) }
         resizeBadge.toolTip = "Drag to resize"
         pathBadge.toolTip = path
         pathBadge.onClick = { [weak self] in self?.onReveal?() }
+        copyBadge.toolTip = "Copy image"
+        copyBadge.onClick = { [weak self] in self?.copy(nil) }
         layoutBadges()
         updateTrackingAreas()
     }
@@ -426,6 +497,28 @@ final class ResizableImageView: NSView {
     private func layoutBadges() {
         resizeBadge.frame = NSRect(x: bounds.maxX - 28, y: bounds.minY + 6, width: 22, height: 22)
         pathBadge.frame = NSRect(x: bounds.maxX - 28, y: bounds.maxY - 28, width: 22, height: 22)
+        copyBadge.frame = NSRect(x: bounds.maxX - 56, y: bounds.maxY - 28, width: 22, height: 22)
+    }
+
+    // MARK: Copying
+
+    /// ⌘C (with the picture selected), the copy badge or the menu.
+    @objc func copy(_ sender: Any?) {
+        guard onCopy?() == true else { NSSound.beep(); return }
+        copyBadge.symbol = "checkmark"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.copyBadge.symbol = "doc.on.doc" }
+    }
+
+    @objc private func showInFinder(_ sender: Any?) { onShowInFinder?() }
+    @objc private func revealMarkdown(_ sender: Any?) { onReveal?() }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        onSelect?()
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Copy Image", action: #selector(copy(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Show in Finder", action: #selector(showInFinder(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Show Markdown", action: #selector(revealMarkdown(_:)), keyEquivalent: "").target = self
+        return menu
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -448,14 +541,23 @@ final class ResizableImageView: NSView {
         addCursorRect(handleRect, cursor: NSCursor.frameResize(position: .bottomRight, directions: .all))
     }
 
-    override func mouseEntered(with event: NSEvent) { resizeBadge.isHidden = false; pathBadge.isHidden = false }
+    private func setBadgesHidden(_ hidden: Bool) {
+        for badge in [resizeBadge, pathBadge, copyBadge] { badge.isHidden = hidden }
+    }
+
+    override func mouseEntered(with event: NSEvent) { setBadgesHidden(false) }
     override func mouseExited(with event: NSEvent) {
-        if dragStart == nil { resizeBadge.isHidden = true; pathBadge.isHidden = true }
+        if dragStart == nil { setBadgesHidden(true) }
     }
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        guard handleRect.contains(p) else { super.mouseDown(with: event); return }
+        guard handleRect.contains(p) else {
+            // A click on the picture selects it (for ⌘C); a second click, like the
+            // text's own, just keeps it selected.
+            onSelect?()
+            return
+        }
         dragStart = (convert(event.locationInWindow, to: nil), frame.width)
     }
 
@@ -477,7 +579,14 @@ final class ResizableImageView: NSView {
     final class BadgeView: NSView {
         var onClick: (() -> Void)?
         private let symbolView = NSImageView()
+        var symbol: String {
+            didSet {
+                let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+                symbolView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+            }
+        }
         init(symbol: String) {
+            self.symbol = symbol
             super.init(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
             wantsLayer = true
             layer?.backgroundColor = NSColor.black.withAlphaComponent(0.5).cgColor

@@ -73,6 +73,11 @@ public final class MarkdownTextView: NSTextView {
     private let tagPopup = TagCompletionPopup()
     /// The `#tag` the open list would replace.
     private var popupPartial: TagCompletion.Partial?
+    /// Folding: the "n lines" pills drawn after folded headings (for clicks), the
+    /// heading under the pointer, and the tracking area that follows it.
+    var foldPills: [Int: NSRect] = [:]
+    var hoverHeading: Int?
+    var foldTracking: NSTrackingArea?
 
     public init(document: NoteDocument, palette: EditorPalette) {
         self.palette = palette
@@ -90,6 +95,18 @@ public final class MarkdownTextView: NSTextView {
         configure()
         styler.onStyled = { [weak self] in self?.overlaysChanged() }
         styler.textView = self
+        // Sections folded on an earlier visit stay folded; toggles are remembered by
+        // the note's path and the heading's text (never written into the file).
+        styler.foldedHeadings = FoldMemory.folded(for: document.path)
+        styler.onFoldsChanged = { [weak self] in
+            guard let self else { return }
+            let present = Set(self.styler.blockMap.lines.compactMap { line -> String? in
+                if case .heading = line.kind { return MarkdownStyler.foldKey(line) }
+                return nil
+            })
+            FoldMemory.save(self.styler.foldedHeadings.intersection(present), for: self.document.path)
+            self.needsDisplay = true
+        }
         styler.attach(to: document.textStorage)
         registerForDraggedTypes(registeredDraggedTypes + [.fileURL, .png, .tiff])
     }
@@ -106,24 +123,38 @@ public final class MarkdownTextView: NSTextView {
 
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         var ranges = ranges
-        // A caret can't rest on a collapsed image/URL line: step over it in the
-        // direction of travel, so clicks and arrow keys never expand the markdown.
+        // A caret can't rest on a collapsed image/URL line or inside a folded section:
+        // step over the whole run in the direction of travel, so clicks and arrow keys
+        // never expand the markdown or land in hidden text.
         if ranges.count == 1, ranges[0].rangeValue.length == 0 {
             let caret = ranges[0].rangeValue.location
-            if let line = styler.blockMap.line(at: caret), styler.isCollapsed(line: line.index) {
+            let lines = styler.blockMap.lines
+            if let line = styler.blockMap.line(at: caret), styler.skipsCaret(line: line.index) {
                 let length = (string as NSString).length
                 let forward = caret >= lastCaret
-                let lineEnd = line.range.location + line.range.length
-                let target = forward ? min(length, lineEnd + 1) : max(0, line.range.location - 1)
+                var first = line.index, last = line.index
+                while first > 0, styler.skipsCaret(line: first - 1) { first -= 1 }
+                while last + 1 < lines.count, styler.skipsCaret(line: last + 1) { last += 1 }
+                let runEnd = lines[last].range.location + lines[last].range.length
+                let target: Int
+                if forward, last + 1 < lines.count {
+                    target = runEnd + 1
+                } else if forward, styler.isCollapsed(line: last) {
+                    // The note ends on the image or link line: there is no line below it to
+                    // land on, so make one (after this selection change has finished).
+                    target = length
+                    DispatchQueue.main.async { [weak self] in self?.addLineAfterLastOverlay() }
+                } else if first > 0 {
+                    target = lines[first].range.location - 1
+                } else {
+                    target = min(length, runEnd + 1)
+                }
                 ranges = [NSValue(range: NSRange(location: target, length: 0))]
-                // The note ends on the image or link line: there is no line below it to
-                // land on, so make one (after this selection change has finished).
-                if forward, lineEnd >= length { DispatchQueue.main.async { [weak self] in self?.addLineAfterLastOverlay() } }
             }
         }
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         if ranges.count == 1, ranges[0].rangeValue.length == 0 { lastCaret = ranges[0].rangeValue.location }
-        styler.selectionChanged()
+        invalidate(lines: styler.selectionChanged())
         scheduleTagListUpdate(open: false)
     }
 
@@ -463,11 +494,30 @@ public final class MarkdownTextView: NSTextView {
         styler.restyleAll()
     }
 
+    // MARK: Copying a picture
+
+    /// ⌘C with a picture selected (clicked) copies the picture, not the text.
+    public override func copy(_ sender: Any?) {
+        if overlays.copySelectedImage() { return }
+        super.copy(sender)
+    }
+
+    public override func keyDown(with event: NSEvent) {
+        overlays.select(nil)
+        super.keyDown(with: event)
+    }
+
     // MARK: Clicks
 
     /// Clicking a task's checkbox cycles its status; clicks on links open them.
     public override func mouseDown(with event: NSEvent) {
+        overlays.select(nil)
         let point = convert(event.locationInWindow, from: nil)
+        if event.clickCount == 1, let heading = foldControl(at: point) {
+            toggleFold(heading: heading)
+            needsDisplay = true
+            return
+        }
         let index = characterIndexForInsertion(at: point)
         if event.clickCount == 1, let line = styler.blockMap.line(at: index), case .task = line.kind,
            let parsed = TaskLineParser.parse(line.text) {
@@ -490,7 +540,80 @@ public final class MarkdownTextView: NSTextView {
         let visible = decorations(in: dirtyRect)
         drawCodeBlocks(visible)
         drawQuoteBars(visible)
+        // Before the text: TextKit leaves the context clipped to the text container,
+        // and the chevrons sit in the margin outside it.
+        drawFoldControls(in: dirtyRect)
         super.draw(dirtyRect)
+        drawBullets(in: dirtyRect)
+    }
+
+    /// Redraw whole line bands (margin included) for lines whose look changed
+    /// with the selection: bullets and chevrons are ours, not TextKit's.
+    func invalidate(lines: Set<Int>) {
+        let map = styler.blockMap
+        for i in lines where i < map.lines.count {
+            guard let r = fragmentRect(for: map.lines[i].range) else { continue }
+            setNeedsDisplay(NSRect(x: 0, y: r.minY - 2, width: bounds.width, height: r.height + 4))
+        }
+    }
+
+    // MARK: List bullets
+
+    /// The dot standing in for a `-`, `*` or `+` (drawn as text in the body font so
+    /// it shares the line's baseline); nested items get a ring, then a small square.
+    private func drawBullets(in rect: NSRect) {
+        guard let span = characterSpan(under: rect) else { return }
+        let lines = styler.blockMap.lines
+        let ps = NSMutableParagraphStyle()
+        ps.minimumLineHeight = palette.pitch; ps.maximumLineHeight = palette.pitch
+        ps.alignment = .center
+        var i = styler.blockMap.line(at: span.first)?.index ?? 0
+        while i < lines.count, lines[i].range.location <= span.last {
+            defer { i += 1 }
+            let line = lines[i]
+            guard case .listItem = line.kind, !styler.isHidden(line: i), !styler.isRevealed(line: i),
+                  let prefix = LinePrefix.parse(line.text), case .bullet = prefix.kind else { continue }
+            let marker = NSRange(location: line.range.location + (prefix.indent as NSString).length, length: 1)
+            guard let glyph = characterRect(for: marker), glyph.intersects(rect) else { continue }
+            let level = prefix.indent.reduce(0) { $0 + ($1 == "\t" ? 2 : 1) } / 2
+            let dot = level == 0 ? "•" : level == 1 ? "◦" : "▪"
+            let attrs: [NSAttributedString.Key: Any] = [.font: palette.body, .foregroundColor: palette.accent, .paragraphStyle: ps]
+            let width = (dot as NSString).size(withAttributes: [.font: palette.body]).width + 2
+            NSAttributedString(string: dot, attributes: attrs)
+                .draw(in: NSRect(x: glyph.midX - width / 2, y: glyph.minY, width: width, height: glyph.height))
+        }
+    }
+
+    /// The frame of one character (in view coordinates), from the existing layout.
+    func characterRect(for range: NSRange) -> NSRect? {
+        guard let tlm = textLayoutManager, let cm = tlm.textContentManager,
+              let start = cm.location(tlm.documentRange.location, offsetBy: range.location),
+              let end = cm.location(start, offsetBy: range.length),
+              let textRange = NSTextRange(location: start, end: end) else { return nil }
+        var rect: NSRect?
+        tlm.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
+            rect = frame
+            return false
+        }
+        guard var r = rect else { return nil }
+        r.origin.x += textContainerInset.width
+        r.origin.y += textContainerInset.height
+        return r
+    }
+
+    /// The UTF-16 offsets whose laid-out text lies under `rect` (plus a margin),
+    /// looked up in the existing layout so drawing never lays out the rest of the note.
+    func characterSpan(under rect: NSRect) -> (first: Int, last: Int)? {
+        guard let tlm = textLayoutManager, let cm = tlm.textContentManager, !styler.blockMap.lines.isEmpty else { return nil }
+        let doc = tlm.documentRange
+        let margin = palette.pitch * 2
+        let top = CGPoint(x: 0, y: max(0, rect.minY - margin - textContainerInset.height))
+        let bottom = CGPoint(x: 0, y: rect.maxY + margin - textContainerInset.height)
+        let first = tlm.textLayoutFragment(for: top).map { cm.offset(from: doc.location, to: $0.rangeInElement.location) } ?? 0
+        let last = tlm.textLayoutFragment(for: bottom).map { cm.offset(from: doc.location, to: $0.rangeInElement.endLocation) }
+            ?? cm.offset(from: doc.location, to: doc.endLocation)
+        guard first <= last else { return nil }
+        return (first, last)
     }
 
     // MARK: Code backdrops and quote bars
@@ -514,22 +637,14 @@ public final class MarkdownTextView: NSTextView {
     /// under the rect (plus a margin) are measured, so drawing never lays out the
     /// rest of the document; a block that runs on past them is extended beyond it.
     func decorations(in rect: NSRect) -> [Decoration] {
-        guard let tlm = textLayoutManager, let cm = tlm.textContentManager else { return [] }
         let lines = styler.blockMap.lines
-        guard !lines.isEmpty else { return [] }
-        let doc = tlm.documentRange
+        guard let (first, last) = characterSpan(under: rect) else { return [] }
         let pitch = palette.pitch
-        let margin = pitch * 2
-        // Character span under the rect, looked up in the existing layout (no layout forced).
-        let top = CGPoint(x: 0, y: max(0, rect.minY - margin - textContainerInset.height))
-        let bottom = CGPoint(x: 0, y: rect.maxY + margin - textContainerInset.height)
-        let first = tlm.textLayoutFragment(for: top).map { cm.offset(from: doc.location, to: $0.rangeInElement.location) } ?? 0
-        let last = tlm.textLayoutFragment(for: bottom).map { cm.offset(from: doc.location, to: $0.rangeInElement.endLocation) }
-            ?? cm.offset(from: doc.location, to: doc.endLocation)
-        guard first <= last else { return [] }
 
         var out: [Decoration] = []
         func add(from i: Int, to j: Int, code: String?) {
+            // A block inside a folded section is hidden with it (folds end only at headings, so blocks are never cut).
+            guard !styler.isHidden(line: i) else { return }
             let start = lines[i].range.location, end = lines[j].range.location + lines[j].range.length
             guard end >= first, start <= last else { return }
             let clipStart = max(start, first), clipEnd = min(end, last)
