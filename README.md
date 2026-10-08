@@ -34,8 +34,9 @@ notes (links welcome):
   are saved to `Attachments/` and shown inline; drag the corner handle to resize
   (stored as `![alt|width](path)`). Bare URLs get link-preview cards.
   ⌘[ / ⌘] flip days, ⌘T is today.
-- Tasks: every `- [ ]` line from every note, grouped by status. Drag a task
-  between sections or click its checkbox; double-click (or the pencil) opens an
+- Tasks: every `- [ ]` line from every note, laid out as a desk: Today across
+  the top, To do beside Someday (ideas, parked), Completed folded away. Drag a
+  task between them or click its checkbox; double-click (or the pencil) opens an
   editor for its one-line text and its notes; the tag button or the context menu
   adds `#tags`. Every change is written back into the note. `+` adds a task to
   `Tasks.md`.

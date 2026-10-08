@@ -84,23 +84,16 @@ struct TasksPage: View {
                                       onDropTasks: { items, tag in section.aggregator.addTag(tag, to: items); clearSelection() })
                             .frame(height: pitch)
                         Spacer().frame(height: pitch / 2 - Self.fieldGap)
-                        ForEach(TaskStatus.allCases, id: \.self) { status in
-                            TaskSectionView(status: status,
-                                            tasks: section.aggregator.tasks(status: status, tags: section.selectedTags),
-                                            allTags: section.knownTags,
-                                            pitch: pitch,
-                                            selection: $selection,
-                                            selectionAnchor: $selectionAnchor,
-                                            selectedTasks: selectedTasks,
-                                            onMove: { items, target in section.aggregator.move(items, to: target); clearSelection() },
-                                            onToggle: { section.aggregator.move($0, to: $0.status.toggled) },
-                                            onOpen: { section.openNote(SectionRoute(path: $0.source.path, line: $0.source.line)) },
-                                            onRename: { section.aggregator.rename($0, to: $1) },
-                                            onUpdate: { section.aggregator.update($0, title: $1, notes: $2) },
-                                            onAddTag: { section.aggregator.addTag($1, to: $0) },
-                                            onRemoveTag: { section.aggregator.removeTag($1, from: $0) },
-                                            onSetPriority: { section.aggregator.setPriority($1, of: $0) })
+                        // The desk: what is in hand across the top, then what is
+                        // next beside what is parked, and the done pile folded away.
+                        group(.today, symbol: "sun.max")
+                        HStack(alignment: .top, spacing: 0) {
+                            group(.notStarted)
+                            Rectangle().fill(theme.ink.color.opacity(0.12)).frame(width: 0.5)
+                                .padding(.horizontal, 14).padding(.vertical, 4)
+                            group(.someday)
                         }
+                        group(.completed)
                         Spacer(minLength: pitch * 2)
                     }
                     .padding(.leading, PageRuling.textLeft)
@@ -122,6 +115,24 @@ struct TasksPage: View {
         .task { await section.aggregator.reload(); section.refreshKnownTags() }
         .onChange(of: section.library.knownTags) { _, _ in section.refreshKnownTags() }
         .onChange(of: section.aggregator.tags) { _, _ in section.refreshKnownTags() }
+    }
+
+    private func group(_ status: TaskStatus, symbol: String? = nil) -> TaskSectionView {
+        TaskSectionView(status: status, symbol: symbol,
+                        tasks: section.aggregator.tasks(status: status, tags: section.selectedTags),
+                        allTags: section.knownTags,
+                        pitch: pitch,
+                        selection: $selection,
+                        selectionAnchor: $selectionAnchor,
+                        selectedTasks: selectedTasks,
+                        onMove: { items, target in section.aggregator.move(items, to: target); clearSelection() },
+                        onToggle: { section.aggregator.move($0, to: $0.status.toggled) },
+                        onOpen: { section.openNote(SectionRoute(path: $0.source.path, line: $0.source.line)) },
+                        onRename: { section.aggregator.rename($0, to: $1) },
+                        onUpdate: { section.aggregator.update($0, title: $1, notes: $2) },
+                        onAddTag: { section.aggregator.addTag($1, to: $0) },
+                        onRemoveTag: { section.aggregator.removeTag($1, from: $0) },
+                        onSetPriority: { section.aggregator.setPriority($1, of: $0) })
     }
 
     private var header: some View {
@@ -245,6 +256,8 @@ struct CategoryChip: View {
 struct TaskSectionView: View {
     @Environment(\.notebookTheme) private var theme
     let status: TaskStatus
+    /// A symbol beside the heading (the sun on Today, as on the daily page).
+    let symbol: String?
     let tasks: [TaskItem]
     let allTags: [String]
     let pitch: CGFloat
@@ -265,18 +278,19 @@ struct TaskSectionView: View {
     @State private var showAll = false
     static let recentLimit = 8
 
-    init(status: TaskStatus, tasks: [TaskItem], allTags: [String], pitch: CGFloat,
+    init(status: TaskStatus, symbol: String? = nil, tasks: [TaskItem], allTags: [String], pitch: CGFloat,
          selection: Binding<Set<String>>, selectionAnchor: Binding<String?>, selectedTasks: [TaskItem],
          onMove: @escaping ([TaskItem], TaskStatus) -> Void, onToggle: @escaping (TaskItem) -> Void, onOpen: @escaping (TaskItem) -> Void,
          onRename: @escaping (TaskItem, String) -> Void, onUpdate: @escaping (TaskItem, String, String?) -> Void,
          onAddTag: @escaping (TaskItem, String) -> Void, onRemoveTag: @escaping (TaskItem, String) -> Void,
          onSetPriority: @escaping (TaskItem, TaskPriority) -> Void) {
-        self.status = status; self.tasks = tasks; self.allTags = allTags; self.pitch = pitch
+        self.status = status; self.symbol = symbol; self.tasks = tasks; self.allTags = allTags; self.pitch = pitch
         _selection = selection; _selectionAnchor = selectionAnchor; self.selectedTasks = selectedTasks
         self.onMove = onMove; self.onToggle = onToggle; self.onOpen = onOpen
         self.onRename = onRename; self.onUpdate = onUpdate; self.onAddTag = onAddTag; self.onRemoveTag = onRemoveTag
         self.onSetPriority = onSetPriority
-        _folded = AppStorage(wrappedValue: false, "fold." + status.rawValue)
+        // The done pile starts folded; the lanes start open.
+        _folded = AppStorage(wrappedValue: status == .completed, "fold." + status.rawValue)
     }
 
     /// Completed tasks pile up: show the most recent few unless asked for all.
@@ -293,6 +307,11 @@ struct TaskSectionView: View {
                     .foregroundStyle(theme.dimInk.color)
                     .rotationEffect(.degrees(folded ? 0 : 90))
                     .frame(width: 12)
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(theme.dimInk.color)
+                }
                 Text(status.title)
                     .font(.system(size: 17 * scale, weight: .bold, design: .serif))
                     .highlighted(theme.highlighter[status])
@@ -303,7 +322,7 @@ struct TaskSectionView: View {
             .onTapGesture { withAnimation(.easeInOut(duration: 0.18)) { folded.toggle() } }
             if !folded {
                 if tasks.isEmpty {
-                    Text(targeted ? "Drop here" : "Nothing here")
+                    Text(targeted ? "Drop here" : emptyText)
                         .font(.system(size: 13, design: .serif)).italic()
                         .foregroundStyle(theme.dimInk.color)
                         .frame(height: pitch)
@@ -354,6 +373,14 @@ struct TaskSectionView: View {
             return true
         } isTargeted: { targeted = $0 }
         .animation(.easeInOut(duration: 0.15), value: targeted)
+    }
+
+    private var emptyText: String {
+        switch status {
+        case .today: return "Nothing for today; drag tasks here"
+        case .someday: return "Nothing parked"
+        default: return "Nothing here"
+        }
     }
 
     /// What dragging or re-filing `task` moves: the whole selection when the
