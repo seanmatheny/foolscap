@@ -39,7 +39,8 @@ public final class ScribeSection: NotebookSection {
     /// notebooks outside any folder).
     public var selectedFolderID: String?
     public var selectedNotebookID: String?
-    /// A page to scroll to once the notebook is shown (from search).
+    /// A page to scroll to once the notebook is shown (from search, or the page
+    /// being read when the app last quit). The notebook view clears it on arrival.
     public var pendingPage: Int?
 
     @ObservationIgnored let renderer = ScribePageRenderer()
@@ -66,6 +67,8 @@ public final class ScribeSection: NotebookSection {
     /// Folders the user has closed in the contents column, by Amazon id.
     public private(set) var collapsedFolderIDs: Set<String>
     static let collapsedFoldersKey = "scribeCollapsedFolders"
+    /// The notebook and page last read, so the tab opens where it was left.
+    static let lastNotebookKey = "scribeLastNotebook", lastPageKey = "scribeLastPage"
 
     @ObservationIgnored private let stateURL: URL
     @ObservationIgnored private let cacheDirectory: URL
@@ -81,7 +84,37 @@ public final class ScribeSection: NotebookSection {
         state = loaded
         tree = ScribeTree(loaded)
         collapsedFolderIDs = Set(defaults.stringArray(forKey: Self.collapsedFoldersKey) ?? [])
+        restoreLastRead()
         selectDefaultsIfNeeded()
+    }
+
+    /// Back to the notebook and page that were open when the app last quit, if
+    /// the notebook is still on the Kindle.
+    private func restoreLastRead() {
+        guard let id = defaults.string(forKey: Self.lastNotebookKey), let item = state.items[id], !item.isFolder else { return }
+        selectedFolderID = topFolder(of: item)
+        selectedNotebookID = id
+        reveal(notebook: id)
+        let page = defaults.integer(forKey: Self.lastPageKey)
+        pendingPage = page > 1 ? page : nil
+    }
+
+    private func rememberSelection() {
+        defaults.set(selectedNotebookID, forKey: Self.lastNotebookKey)
+        defaults.removeObject(forKey: Self.lastPageKey)
+    }
+
+    /// The notebook view's report of the page at the top of its scroll. A page
+    /// still being scrolled to (`pendingPage`) is not overtaken by the ones
+    /// passing on the way. The notebook is saved here too: the one picked by
+    /// default is being read as much as one that was clicked.
+    public func reading(page: Int) {
+        if let pending = pendingPage {
+            guard page == pending else { return }
+            pendingPage = nil
+        }
+        defaults.set(selectedNotebookID, forKey: Self.lastNotebookKey)
+        defaults.set(page, forKey: Self.lastPageKey)
     }
 
     // MARK: Settings
@@ -340,11 +373,13 @@ public final class ScribeSection: NotebookSection {
         selectedNotebookID = nil
         pendingPage = nil
         selectDefaultsIfNeeded()
+        rememberSelection()
     }
 
     public func select(notebook id: String) {
         selectedNotebookID = id
         pendingPage = nil
+        rememberSelection()
     }
 
     /// Keep a valid sub-tab and notebook selected: the first visible notebook,
@@ -388,6 +423,7 @@ public final class ScribeSection: NotebookSection {
         selectedNotebookID = item.id
         reveal(notebook: item.id)
         pendingPage = nil
+        rememberSelection()
         guard let line = route.line else { return }
         // Coordinated read off the main actor: iCloud can hold it for seconds.
         let url = library.folder.url(forRelativePath: route.path)

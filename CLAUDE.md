@@ -7,6 +7,11 @@
 - Build with `make app-debug` / `make test`, never bare `swift`: `swift` on PATH is
   python-swiftclient. The Makefile uses Xcode's toolchain (`DEVELOPER_DIR`) when
   its licence is accepted, else the Command Line Tools plus Xcode's macro plugins.
+  Xcode is not installed (disk space): SwiftUI's `@State` macro plugin
+  (`libSwiftUIMacros.dylib`) ships only inside Xcode, so a copy of Xcode's
+  `…/MacOSX.platform/Developer/usr/lib/swift/host/plugins` lives in
+  `~/bin/Xcode/plugins` (`SAVED_PLUGINS` in the Makefile). It must match the
+  Command Line Tools' compiler: after a tools update, copy it afresh.
 - Verify UI changes visually: `make run && sleep 3 && Tools/window-shot.sh` then
   read the PNG.
 - `make install` puts a release build in /Applications: that copy is production,
@@ -143,7 +148,17 @@
   and fetch every notebook in the window (a Sync Now during a paced pass queues one).
 - Amazon sign-in is a WKWebView window with the Android user agent (the notebook
   web app is only served to phones); cookies are copied to `HTTPCookieStorage.shared`
-  for URLSession. The client refuses redirects: a 3xx means signed out.
+  for URLSession. The client refuses redirects: a 3xx means signed out. `renderPage`
+  serves at most 10 pages a request (400 "exceed the maximum of 10 pages" beyond
+  that) and numbers every tar's images from `img_0.png`, so `fetchPages` fetches
+  runs of ten and joins them; a rapid second `openNotebook` gets 400 "Rate exceeded".
+- The Scribe tab reopens on the notebook and page last read (`scribeLastNotebook`,
+  `scribeLastPage` defaults; `ScribeSection.reading(page:)`, `pendingPage`). The
+  notebook view's page stack is a plain `VStack` with `scrollPosition(id:)`: a
+  `LazyVStack` guesses unlaid-out heights and a scroll to a page by id landed a page
+  off or at the end. `scrollTargetLayout` addresses the `ForEach` identity, so the
+  blocks are keyed on the page number. `PageFacsimile` holds its bitmap only while
+  `onScrollVisibilityChange` says it is on screen.
 - Heuristics (`ScribeLayout`, `SequenceMatcher`) are line-for-line ports of
   notes_sync.py. `ScribeTodos` has diverged (the Python tool is retired): its markers
   accept a spaced, colonless "TO DO" because Vision drops the colon. Bump

@@ -5,7 +5,10 @@ import FoolscapStore
 import FoolscapUI
 
 /// One notebook: every page as a facsimile with its transcript beneath,
-/// stacked down a scrolling page.
+/// stacked down a scrolling page. The stack is not lazy: a lazy stack guesses
+/// the heights of pages it has not laid out, so scrolling to a page by id
+/// landed anywhere from a page off to the end of the notebook. The bitmaps
+/// are what cost, and `PageFacsimile` only holds one while on screen.
 struct ScribeNotebookView: View {
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: ScribeSection
@@ -20,6 +23,9 @@ struct ScribeNotebookView: View {
     @State private var copied = false
     /// Scrolled to within a few lines of the end: the jump button then goes back to the top.
     @State private var nearEnd = false
+    /// The block at the top of the view: a page number, `topID` or `endID`.
+    /// Setting it scrolls there; SwiftUI updates it as the user scrolls.
+    @State private var position: Int?
     /// Notebooks this long get the jump button.
     static let jumpPages = 3
 
@@ -30,56 +36,67 @@ struct ScribeNotebookView: View {
 
     var body: some View {
         GeometryReader { geo in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    // Lazy, so only the pages on screen are drawn.
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        header
-                            .id(Self.topID)
-                        if isPlaceholder {
-                            Text("Downloading from iCloud…")
-                                .font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
-                                .padding(.top, pitch)
-                        }
-                        let pageWidth = min(600, max(200, geo.size.width - 8))
-                        ForEach(Array(pageSizes.enumerated()), id: \.offset) { index, size in
-                            pageBlock(index: index, size: size, width: pageWidth)
-                                .id(index + 1)
-                        }
-                        Spacer(minLength: pitch * 2)
-                            .id(Self.endID)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                        .id(Self.topID)
+                    if isPlaceholder {
+                        Text("Downloading from iCloud…")
+                            .font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
+                            .padding(.top, pitch)
                     }
-                    .padding(.top, pitch / 2)
+                    let pageWidth = min(600, max(200, geo.size.width - 8))
+                    // Keyed on the page number: `scrollPosition` addresses the
+                    // ForEach identity, not an `.id` put on the block.
+                    ForEach(Array(pageSizes.indices.map { $0 + 1 }), id: \.self) { number in
+                        pageBlock(index: number - 1, size: pageSizes[number - 1], width: pageWidth)
+                    }
+                    Spacer(minLength: pitch * 2)
+                        .id(Self.endID)
                 }
-                .onScrollGeometryChange(for: Bool.self) { g in
-                    g.contentOffset.y + g.containerSize.height >= g.contentSize.height - pitch * 4
-                } action: { _, near in nearEnd = near }
-                .overlay(alignment: .bottomTrailing) {
-                    if pageSizes.count >= Self.jumpPages { jumpButton(proxy) }
-                }
-                .onChange(of: section.pendingPage) { _, page in scroll(to: page, proxy: proxy) }
-                .onChange(of: pageSizes.count) { _, _ in scroll(to: section.pendingPage, proxy: proxy) }
+                .padding(.top, pitch / 2)
+                .scrollTargetLayout()
             }
+            .scrollPosition(id: $position, anchor: .top)
+            .onScrollGeometryChange(for: Bool.self) { g in
+                g.contentOffset.y + g.containerSize.height >= g.contentSize.height - pitch * 4
+            } action: { _, near in nearEnd = near }
+            .overlay(alignment: .bottomTrailing) {
+                if pageSizes.count >= Self.jumpPages { jumpButton }
+            }
+            .onChange(of: position) { _, block in
+                guard let block, !pageSizes.isEmpty else { return }
+                // The header counts as page 1, the end spacer as the last page.
+                section.reading(page: min(max(block, 1), pageSizes.count))
+            }
+            .onChange(of: section.pendingPage) { _, page in scroll(to: page) }
         }
         .foregroundStyle(theme.ink.color)
         .task(id: "\(notebook.id)|\(version)|\(notebook.transcribedHash ?? "")") { await load() }
     }
 
-    private func scroll(to page: Int?, proxy: ScrollViewProxy) {
-        guard let page, pageSizes.indices.contains(page - 1) else { return }
-        withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(page, anchor: .top) }
+    private func scroll(to page: Int?, animated: Bool = true) {
+        guard let page, !pageSizes.isEmpty else { return }
+        guard pageSizes.indices.contains(page - 1) else {
+            // The notebook has shrunk since: nothing to wait for.
+            section.pendingPage = nil
+            return
+        }
+        if animated {
+            withAnimation(.easeInOut(duration: 0.3)) { position = page }
+        } else {
+            position = page
+        }
     }
 
-    private static let topID = "top", endID = "end"
+    private static let topID = 0, endID = Int.max
 
     /// A small round button in the page's corner: to the last page of a long
     /// notebook, and back to the top from there.
-    private func jumpButton(_ proxy: ScrollViewProxy) -> some View {
+    private var jumpButton: some View {
         let toTop = nearEnd
         return Button {
-            withAnimation(.easeInOut(duration: 0.35)) {
-                if toTop { proxy.scrollTo(Self.topID, anchor: .top) } else { proxy.scrollTo(Self.endID, anchor: .bottom) }
-            }
+            withAnimation(.easeInOut(duration: 0.35)) { position = toTop ? Self.topID : Self.endID }
         } label: {
             Image(systemName: toTop ? "arrow.up.to.line" : "arrow.down.to.line")
                 .font(.system(size: 11, weight: .semibold))
@@ -210,6 +227,9 @@ struct ScribeNotebookView: View {
         pdfReady = true
         pageSizes = await renderer.pageSizes(id: notebook.id, url: pdf, version: version)
         show(await transcript.value)
+        // Everything is laid out: open where the notebook was left (or where a
+        // search hit points), straight there without animation.
+        scroll(to: section.pendingPage, animated: false)
     }
 
     private func show(_ read: ScribeTranscript.Parsed?) {
@@ -218,9 +238,10 @@ struct ScribeNotebookView: View {
     }
 }
 
-/// The page image, drawn once the cell is on screen; its space is reserved
-/// from the PDF's page size so the stack does not jump. The bitmap is drawn at
-/// the width rounded up to a 50 pt step and scaled down to fit, so resizing the
+/// The page image, drawn while the cell is on screen and dropped when it
+/// scrolls off (the renderer keeps it in its cache); its space is reserved from
+/// the PDF's page size so the stack never jumps. The bitmap is drawn at the
+/// width rounded up to a 50 pt step and scaled down to fit, so resizing the
 /// window does not draw and cache a bitmap at every width it passes through.
 struct PageFacsimile: View {
     let renderer: ScribePageRenderer
@@ -232,6 +253,7 @@ struct PageFacsimile: View {
     let width: CGFloat
     let aspect: CGFloat
     @State private var image: NSImage?
+    @State private var isVisible = false
     static let widthStep: CGFloat = 50
 
     private var renderWidth: CGFloat { (width / Self.widthStep).rounded(.up) * Self.widthStep }
@@ -247,7 +269,9 @@ struct PageFacsimile: View {
         .clipShape(RoundedRectangle(cornerRadius: 2))
         .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.black.opacity(0.18), lineWidth: 0.5))
         .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
-        .task(id: "\(id)|\(version)|\(page)|\(Int(renderWidth))|\(pdfReady)") {
+        .onScrollVisibilityChange(threshold: 0.01) { isVisible = $0 }
+        .task(id: "\(id)|\(version)|\(page)|\(Int(renderWidth))|\(pdfReady)|\(isVisible)") {
+            guard isVisible else { image = nil; return }
             let backing = NSScreen.main?.backingScaleFactor ?? 2
             if let cached = await renderer.cachedImage(id: id, version: version, page: page, width: renderWidth, backingScale: backing) {
                 image = cached.image

@@ -209,4 +209,57 @@ final class MemorySink: TaskSink, @unchecked Sendable {
         section.select(folder: ScribeSection.looseFolderID)
         #expect(section.contentsRows.map(\.id) == ["n0"] && section.selectedNotebookID == "n0")
     }
+
+    /// The tab reopens on the notebook and page last read, with its folders opened.
+    @Test func reopensWhereItWasLeft() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-scribe-reopen-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp.appendingPathComponent("Notes"))
+        try folder.ensureLayout()
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
+        let suite = "foolscap-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        var state = ScribeState()
+        state.items["f1"] = ScribeItem(id: "f1", name: "Work", path: "Work", isFolder: true, parentID: nil, order: 0)
+        state.items["n1"] = ScribeItem(id: "n1", name: "Daily", path: "Work/Daily", isFolder: false, parentID: "f1", order: 0)
+        state.items["f2"] = ScribeItem(id: "f2", name: "Personal", path: "Personal", isFolder: true, parentID: nil, order: 1)
+        state.items["f3"] = ScribeItem(id: "f3", name: "Gabe", path: "Personal/Gabe", isFolder: true, parentID: "f2", order: 0)
+        state.items["n2"] = ScribeItem(id: "n2", name: "Ideas", path: "Personal/Gabe/Ideas", isFolder: false, parentID: "f3", order: 0)
+        let stateURL = tmp.appendingPathComponent("state.json")
+        try state.save(to: stateURL)
+
+        // Nothing remembered: the first notebook of the first folder.
+        let first = ScribeSection(library: library, stateURL: stateURL, defaults: defaults)
+        #expect(first.selectedFolderID == "f1" && first.selectedNotebookID == "n1" && first.pendingPage == nil)
+
+        // Read Ideas down to page 3, close its folder, and quit.
+        first.select(folder: "f2")
+        first.select(notebook: "n2")
+        first.reading(page: 1)
+        first.reading(page: 3)
+        first.toggle(folder: "f3")
+        #expect(defaults.string(forKey: "scribeLastNotebook") == "n2" && defaults.integer(forKey: "scribeLastPage") == 3)
+
+        let again = ScribeSection(library: library, stateURL: stateURL, defaults: defaults)
+        #expect(again.selectedFolderID == "f2" && again.selectedNotebookID == "n2" && again.pendingPage == 3)
+        #expect(again.contentsRows.map(\.id) == ["f3", "n2"])
+        // Pages passed on the way to page 3 are not remembered; arriving clears the wait.
+        again.reading(page: 1)
+        #expect(again.pendingPage == 3 && defaults.integer(forKey: "scribeLastPage") == 3)
+        again.reading(page: 3)
+        #expect(again.pendingPage == nil)
+        again.reading(page: 4)
+        #expect(defaults.integer(forKey: "scribeLastPage") == 4)
+
+        // Choosing another notebook starts it from the top.
+        again.select(notebook: "n1")
+        #expect(defaults.string(forKey: "scribeLastNotebook") == "n1" && defaults.object(forKey: "scribeLastPage") == nil)
+
+        // A remembered notebook that has left the Kindle falls back to the defaults.
+        defaults.set("gone", forKey: "scribeLastNotebook")
+        let fallback = ScribeSection(library: library, stateURL: stateURL, defaults: defaults)
+        #expect(fallback.selectedFolderID == "f1" && fallback.selectedNotebookID == "n1")
+    }
 }
