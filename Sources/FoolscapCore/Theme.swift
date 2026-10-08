@@ -221,7 +221,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x2A2622), dimInk: .hex(0x2A2622, alpha: 0.4), accent: .hex(0x9A3B2E),
-        tabColors: [.hex(0xC9A66B), .hex(0x8FA88B), .hex(0xA98BA1), .hex(0x7E9DB8)],
+        tabColors: [.hex(0xC9A66B), .hex(0x8FA88B), .hex(0xA98BA1), .hex(0x7E9DB8), .hex(0x9FA389)],
         highlighter: highlighterDefaults)
 
     /// Oxblood leather, cream paper.
@@ -236,7 +236,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "SF Mono", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x2E2420), dimInk: .hex(0x2E2420, alpha: 0.4), accent: .hex(0x7A2E31),
-        tabColors: [.hex(0xB08A4A), .hex(0x6F8F6B), .hex(0x8B6F86), .hex(0x5F7F9E)],
+        tabColors: [.hex(0xB08A4A), .hex(0x6F8F6B), .hex(0x8B6F86), .hex(0x5F7F9E), .hex(0x8E8F6E)],
         highlighter: highlighterDefaults)
 
     /// Kraft card cover, soft white paper.
@@ -251,7 +251,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x26221E), dimInk: .hex(0x26221E, alpha: 0.4), accent: .hex(0x9C4A1A),
-        tabColors: [.hex(0xD9A441), .hex(0x6E9E7A), .hex(0xC96B4E), .hex(0x5B87A8)],
+        tabColors: [.hex(0xD9A441), .hex(0x6E9E7A), .hex(0xC96B4E), .hex(0x5B87A8), .hex(0x9DA86B)],
         highlighter: highlighterDefaults)
 
     /// Dark mode: pale leather around true-black (OLED) paper with white ink.
@@ -266,7 +266,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0xF4F1EA), dimInk: .hex(0xF4F1EA, alpha: 0.45), accent: .hex(0xE0B95A),
-        tabColors: [.hex(0xC9B58F), .hex(0x9FB89E), .hex(0xB59FB0), .hex(0x94AEC4)],
+        tabColors: [.hex(0xC9B58F), .hex(0x9FB89E), .hex(0xB59FB0), .hex(0x94AEC4), .hex(0xB0B49A)],
         highlighter: [
             .today:      .hex(0xE0B95A, alpha: 0.28),
             .notStarted: .hex(0x000000, alpha: 0),
@@ -287,7 +287,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x24291F), dimInk: .hex(0x24291F, alpha: 0.42), accent: .hex(0x8A5A1E),
-        tabColors: [.hex(0xC9A85A), .hex(0x7FA07E), .hex(0xB07D6A), .hex(0x6F8FA6)],
+        tabColors: [.hex(0xC9A85A), .hex(0x7FA07E), .hex(0xB07D6A), .hex(0x6F8FA6), .hex(0x9AA07C)],
         highlighter: highlighterDefaults)
 
     /// Navy leather, cool white paper, muted tabs.
@@ -302,7 +302,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "SF Mono", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x1F2430), dimInk: .hex(0x1F2430, alpha: 0.42), accent: .hex(0x2F5C8F),
-        tabColors: [.hex(0xB9A57A), .hex(0x8AA58C), .hex(0xA48CA0), .hex(0x6E8DAF)],
+        tabColors: [.hex(0xB9A57A), .hex(0x8AA58C), .hex(0xA48CA0), .hex(0x6E8DAF), .hex(0x9FA384)],
         highlighter: highlighterDefaults)
 
     /// Tan full-grain leather with its creases showing, ivory paper.
@@ -317,7 +317,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x2B2119), dimInk: .hex(0x2B2119, alpha: 0.42), accent: .hex(0xA0522D),
-        tabColors: [.hex(0xD2A24C), .hex(0x8AA37E), .hex(0xC07A5B), .hex(0x6F93B0)],
+        tabColors: [.hex(0xD2A24C), .hex(0x8AA37E), .hex(0xC07A5B), .hex(0x6F93B0), .hex(0xA3AC75)],
         highlighter: highlighterDefaults)
 
     /// Charcoal full-grain leather, pale grey paper: dark without being black.
@@ -332,7 +332,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "SF Mono", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x22252A), dimInk: .hex(0x22252A, alpha: 0.42), accent: .hex(0x9C4B3A),
-        tabColors: [.hex(0xBFA46F), .hex(0x8AA391), .hex(0xA995A6), .hex(0x7C97B0)],
+        tabColors: [.hex(0xBFA46F), .hex(0x8AA391), .hex(0xA995A6), .hex(0x7C97B0), .hex(0x9EA486)],
         highlighter: highlighterDefaults)
 
     public static let builtIn: [NotebookTheme] = [.classicBlack, .oxblood, .kraft, .midnight, .forest, .navy, .saddle, .slate]

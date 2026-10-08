@@ -5,6 +5,7 @@ import FoolscapUI
 import FoolscapSections
 import FoolscapScribe
 import FoolscapHighlights
+import FoolscapJira
 
 /// Wires the store, the section registry and user preferences together.
 @MainActor
@@ -48,6 +49,11 @@ final class AppModel {
     private(set) var highlightsSection: HighlightsSection?
     /// The day's highlights lie on a loose page over the notebook until clicked away.
     var flyleafPresented = false
+    /// The Jira tab is a hard toggle: off means no section, no requests.
+    private(set) var jiraEnabled = false
+    /// `--jira` keeps the tab on for this launch whatever Settings says.
+    private var jiraForced = false
+    private(set) var jiraSection: JiraSection?
 
     var theme: NotebookTheme {
         (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).scaled(by: textScale).onPaper(paperTexture).ruled(ruling, marginRule: marginRule)
@@ -90,6 +96,8 @@ final class AppModel {
             setHighlightsEnabled(highlightsForced || defaults.bool(forKey: "highlightsEnabled"))
             scribeForced = CommandLine.arguments.contains { $0 == "--scribe" || $0.hasPrefix("--scribe=") }
             setScribeEnabled(scribeForced || defaults.bool(forKey: "scribeEnabled"))
+            jiraForced = CommandLine.arguments.contains("--jira")
+            setJiraEnabled(jiraForced || defaults.bool(forKey: "jiraEnabled"))
             rewireSections()
             // Today's page once listed tasks tagged #today; now it lists the Today status.
             if !defaults.bool(forKey: "todayTagMigrated") {
@@ -97,6 +105,7 @@ final class AppModel {
             }
         }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
+        if jiraForced { selectedSectionID = JiraSection.sectionID }
         // `--highlights` opens the tab; `--highlights=books` on the shelf, `--highlights=Highlights/<Title>.md` on a book.
         if highlightsForced, let highlights = highlightsSection {
             if CommandLine.arguments.contains(where: { $0.hasPrefix("--highlights") }) { selectedSectionID = HighlightsSection.sectionID }
@@ -238,6 +247,8 @@ final class AppModel {
                 if !self.scribeForced, scribe != self.scribeEnabled { self.setScribeEnabled(scribe) }
                 let highlights = defaults.bool(forKey: "highlightsEnabled")
                 if !self.highlightsForced, highlights != self.highlightsEnabled { self.setHighlightsEnabled(highlights) }
+                let jira = defaults.bool(forKey: "jiraEnabled")
+                if !self.jiraForced, jira != self.jiraEnabled { self.setJiraEnabled(jira) }
             }
         }
     }
@@ -266,6 +277,10 @@ final class AppModel {
         if highlightsEnabled {
             setHighlightsEnabled(false)
             setHighlightsEnabled(true)
+        }
+        if jiraEnabled {
+            setJiraEnabled(false)
+            setJiraEnabled(true)
         }
         tasksSection?.aggregator.scheduleReload()
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
@@ -310,6 +325,26 @@ final class AppModel {
             library.indexesHighlights = false
             flyleafPresented = false
             if selectedSectionID == HighlightsSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
+        }
+        rewireSections()
+    }
+
+    /// Add or remove the Jira section at runtime; it sits right after Tasks.
+    /// Nothing is indexed: it writes only task lines, through the library.
+    func setJiraEnabled(_ on: Bool) {
+        guard on != jiraEnabled, let library else { return }
+        jiraEnabled = on
+        if on {
+            let jira = JiraSection(library: library)
+            let after = sections.firstIndex { $0.id == "tasks" }.map { $0 + 1 } ?? sections.endIndex
+            sections.insert(jira, at: after)
+            jiraSection = jira
+            jira.start()
+        } else {
+            jiraSection?.stop()
+            jiraSection = nil
+            sections.removeAll { $0.id == JiraSection.sectionID }
+            if selectedSectionID == JiraSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
         }
         rewireSections()
     }

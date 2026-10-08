@@ -33,6 +33,7 @@ public struct PreferencesView: View {
     @AppStorage("exportIncludeAttachments") private var exportAttachments = true
     @AppStorage("scribeEnabled") private var scribeEnabled = false
     @AppStorage("highlightsEnabled") private var highlightsEnabled = false
+    @AppStorage("jiraEnabled") private var jiraEnabled = false
     @AppStorage("flyleafOnOpen") private var flyleafOnOpen = false
     @AppStorage(BackupManager.intervalKey) private var backupInterval = BackupInterval.off.rawValue
     @AppStorage(BackupManager.keepKey) private var backupKeep = 10
@@ -57,7 +58,8 @@ public struct PreferencesView: View {
             shortcutsTab.tabItem { Label("Shortcuts", systemImage: "keyboard") }.tag("shortcuts")
             scribeTab.tabItem { Label("Scribe", systemImage: "pencil.and.scribble") }.tag("scribe")
             highlightsTab.tabItem { Label("Highlights", systemImage: "highlighter") }.tag("highlights")
-            ForEach(sectionPanes.filter { !["scribe", "highlights"].contains($0.id) }) { pane in
+            jiraTab.tabItem { Label("Jira", systemImage: "checkmark.rectangle.stack") }.tag("jira")
+            ForEach(sectionPanes.filter { !["scribe", "highlights", "jira"].contains($0.id) }) { pane in
                 settingsForm(height: 420) { Section(pane.title) { pane.view } }
                     .tabItem { Label(pane.title, systemImage: "puzzlepiece.extension") }.tag(pane.id)
             }
@@ -184,6 +186,17 @@ public struct PreferencesView: View {
                 Text("The cover opens onto a loose page with the day's three; a click turns it to the notebook.")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(sectionPanes.filter { $0.id == "highlights" }) { pane in pane.view }
+            }
+        }
+    }
+
+    private var jiraTab: some View {
+        settingsForm(height: 560) {
+            Section("Jira") {
+                Toggle("Connect to Jira Cloud", isOn: $jiraEnabled)
+                Text("Adds a Jira tab listing the issues assigned to you. Off, nothing runs: no requests, no tab.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(sectionPanes.filter { $0.id == "jira" }) { pane in pane.view }
             }
         }
     }

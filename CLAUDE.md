@@ -35,7 +35,7 @@
 - Launch flags for verification: `--day=YYYY-MM-DD`, `--tab=id` (a section: `daily`, `tasks`, …), `--turn-to=id` (turns to that tab 2.5 s after launch, to watch a curl;
   with `FOOLSCAP_SLOW_OPEN=1`, capture with `screencapture`: the curl is a child window), `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
-  to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--highlights` (forces the Highlights tab on
+  to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--jira` (forces the Jira tab on and opens it), `--highlights` (forces the Highlights tab on
   and opens it), `--flyleaf` (forces the tab on and shows the day's three on the
   opening page),
   `--type=text` (posts key events into the focused text after 2s, e.g. to show tag
@@ -104,6 +104,18 @@
   environment): the whole cover mirrors, so the spine, its crease, the page's inner
   shadow, the tab shapes and the opening-animation hinge all read `notebookTabEdge`.
   Every tab is as long as the longest label.
+- Jira (`FoolscapJira`): a hard toggle like Scribe (`jiraEnabled`, `AppModel.setJiraEnabled`,
+  the tab sits after Tasks with the fifth tab colour). `JiraCloudClient` reads
+  `/rest/api/3/search/jql` with basic auth on an API token; the token is the only secret
+  and lives in the login keychain (`KeychainTokenStore`, service
+  `com.seanmatheny.foolscap.jira`, account = email), site and email in the `jiraSite` /
+  `jiraEmail` defaults. Nothing is indexed and no files are written except task lines: the
+  sun on an issue appends `- [/] KEY summary #jira` + the issue URL to Tasks.md through
+  `addStandaloneTask(status: .today, skipIfPresent:)`, and the ledger in
+  Application Support/Foolscap/Jira/state.json (issue key → content key) lets the next sync
+  tick the task once Jira closes the issue (found by content key, else by the "KEY " prefix).
+  One-way: ticking locally does not transition Jira. Sync is hourly by default
+  (`jiraSyncMinutes`, 0 = manual) on a `PeriodicScheduler`, plus a pass 3 s after launch.
 - Task statuses (`TaskStatus`, declaration order is display order): today `[/]`,
   notStarted `[ ]` ("To do"), someday `[>]`, completed `[x]`. The index stores the
   case name; `v5-today-status` renamed the old `inProgress` rows. Today's page lists
@@ -241,7 +253,7 @@
   cannot be photographed.
 - Settings is a `TabView` (Notebook, Shortcuts, Scribe, Highlights, plug-in panes,
   Files); each tab is a grouped form of fixed height. `--prefs-tab=name` opens a tab
-  (`notebook`, `shortcuts`, `scribe`, `highlights`, `files`); `--prefs-bottom` and
+  (`notebook`, `shortcuts`, `scribe`, `highlights`, `jira`, `files`); `--prefs-bottom` and
   `--prefs-scroll` scroll the open tab's form.
 - The spine reads faint on purpose (`SpineRidge`, `FoldShadow`, the facing-page and
   page inner shades are all in the 0.1–0.3 range): a heavier crease grabbed the eye.
