@@ -247,10 +247,24 @@ public actor ScribeSyncEngine {
         entry.transcribedHash = transcriptKey
     }
 
+    /// Amazon serves at most `maxPagesPerRender` pages a request and numbers each
+    /// tar's images from zero, so a long notebook is fetched in runs and joined.
     private func fetchPages(token: String, pageCount: Int) async throws -> [Data] {
+        var pages: [Data] = []
+        var start = 0
+        repeat {
+            let end = min(max(pageCount, 1), start + AmazonScribeClient.maxPagesPerRender)
+            if start > 0 { await sleep(.seconds(1)) }
+            pages += try await fetchPages(token: token, range: start..<end)
+            start = end
+        } while start < pageCount
+        return pages
+    }
+
+    private func fetchPages(token: String, range: Range<Int>) async throws -> [Data] {
         var lastError: Error = ScribeClientError.notATar
         for attempt in 0..<Self.renderAttempts {
-            let data = try await client.renderPages(token: token, pageCount: pageCount)
+            let data = try await client.renderPages(token: token, pages: range)
             do {
                 return PDFBuilder.orderedPages(try TarReader.members(in: data))
             } catch {

@@ -63,8 +63,9 @@ public enum ScribeClientError: Error, Equatable {
 public protocol ScribeClient: Sendable {
     func listNotebooks() async throws -> [RemoteItem]
     func openNotebook(id: String) async throws -> OpenedNotebook
-    /// A tar of one PNG per page.
-    func renderPages(token: String, pageCount: Int) async throws -> Data
+    /// A tar of one PNG per page of `pages`, named from `img_0.png` whatever the
+    /// range starts at. Amazon answers 400 to more than `maxPagesPerRender` pages.
+    func renderPages(token: String, pages: Range<Int>) async throws -> Data
 }
 
 /// The Kindle notebook web API, as KindleScribeSync.py drives it. Amazon only
@@ -80,6 +81,8 @@ public final class AmazonScribeClient: NSObject, ScribeClient, URLSessionTaskDel
     public static let renderTokenHeader = "x-amzn-karamel-notebook-rendering-token"
     public static let cookieDomainSuffix = "amazon.com"
     static let renderWidth = 1200, renderHeight = 2500, renderDPI = 160
+    /// The most pages `renderPage` serves in one request.
+    public static let maxPagesPerRender = 10
 
     private let session: URLSession
     private let sleep: @Sendable (Duration) async -> Void
@@ -151,8 +154,8 @@ public final class AmazonScribeClient: NSObject, ScribeClient, URLSessionTaskDel
         throw lastError
     }
 
-    public func renderPages(token: String, pageCount: Int) async throws -> Data {
-        let query = ["startPage": "0", "endPage": String(max(0, pageCount - 1)),
+    public func renderPages(token: String, pages: Range<Int>) async throws -> Data {
+        let query = ["startPage": String(pages.lowerBound), "endPage": String(max(pages.lowerBound, pages.upperBound - 1)),
                      "width": String(Self.renderWidth), "height": String(Self.renderHeight), "dpi": String(Self.renderDPI)]
         return try await fetch(request(Self.renderURL, query: query, headers: [Self.renderTokenHeader: token]))
     }

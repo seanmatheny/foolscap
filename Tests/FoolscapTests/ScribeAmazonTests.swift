@@ -208,10 +208,12 @@ final class FakeScribeClient: ScribeClient, @unchecked Sendable {
         guard let o = opened[id] else { throw ScribeClientError.http(404) }
         return o
     }
-    func renderPages(token: String, pageCount: Int) async throws -> Data {
+    func renderPages(token: String, pages range: Range<Int>) async throws -> Data {
         renders += 1
+        if range.count > AmazonScribeClient.maxPagesPerRender { throw ScribeClientError.http(400) }
         if badTarsFirst > 0 { badTarsFirst -= 1; return Data("<html>nope</html>".utf8) }
-        let pngs = pages[token] ?? []
+        let all = pages[token] ?? []
+        let pngs = Array(all[range.clamped(to: 0..<all.count)])
         return TarBuilder.simple(pngs.enumerated().map { ("img_\($0.offset).png", $0.element) })
     }
 }
@@ -285,6 +287,30 @@ func makePacingEngine(in tmp: URL, clock: TestClock) -> (ScribeSyncEngine, FakeS
         let again = try await engine.syncOnce(notesRoot: folder.root, languages: ["en-US"])
         #expect(again == SyncReport())
         #expect(client.renders == 2)
+    }
+
+    /// Amazon refuses more than ten pages a request and numbers each tar from zero.
+    @Test func longNotebookIsFetchedInRunsOfTen() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-scribe-long-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = tmp.appendingPathComponent("Notes")
+        let client = FakeScribeClient()
+        let pages = (0..<23).map { makePNG(width: 40 + $0, height: 40) }
+        client.listing = [RemoteItem(id: "n1", title: "Long", type: "notebook")]
+        client.opened["n1"] = OpenedNotebook(renderingToken: "t1", metadata: .init(modificationTime: 1, totalPages: 23))
+        client.pages["t1"] = pages
+        let engine = ScribeSyncEngine(client: client, ocr: FakeOCR(observations: []),
+                                      cache: OCRCache(directory: tmp.appendingPathComponent("OCR")),
+                                      stateURL: tmp.appendingPathComponent("state.json"), sink: MemorySink(),
+                                      now: { Date(timeIntervalSince1970: 1_700_000_000) }, sleep: { _ in })
+
+        let report = try await engine.syncOnce(notesRoot: root, languages: ["en-US"])
+        #expect(report.errors.isEmpty && report.rendered == 1 && client.renders == 3)
+        let pdf = PDFDocument(url: root.appendingPathComponent("Scribe/Long.pdf"))
+        #expect(pdf?.pageCount == 23)
+        #expect((0..<23).map { Int(pdf?.page(at: $0)?.bounds(for: .mediaBox).width.rounded() ?? 0) }
+                == (0..<23).map { Int((Double(40 + $0) * 72 / 96).rounded()) })
+        #expect(await engine.state.items["n1"]?.contentHash == PDFBuilder.contentHash(pages))
     }
 
     @Test func recheckRenameAndPrune() async throws {

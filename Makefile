@@ -21,8 +21,14 @@ ifeq ($(XCODE_OK),yes)
 endif
 # The macOS 26 SDK implements SwiftUI's @State etc. as compiler macros whose
 # plugin ships only inside Xcode. When building with the Command Line Tools we
-# point the compiler at Xcode's copy.
+# point the compiler at Xcode's copy, or, with Xcode uninstalled, at a copy of
+# that folder kept in SAVED_PLUGINS (it must match the Command Line Tools'
+# compiler: copy it afresh from Xcode after a tools update).
+SAVED_PLUGINS ?= $(HOME)/bin/Xcode/plugins
 XCODE_PLUGINS := $(XCODE_DEV)/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins
+ifeq ($(wildcard $(XCODE_PLUGINS)),)
+  XCODE_PLUGINS := $(SAVED_PLUGINS)
+endif
 ifeq ($(XCODE_OK),yes)
   SWIFT_FLAGS :=
 else ifneq ($(wildcard $(XCODE_PLUGINS)),)
