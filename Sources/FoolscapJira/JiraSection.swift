@@ -50,6 +50,8 @@ public final class JiraSection: NotebookSection {
     public static let tag = JiraSyncEngine.tag
     public static let defaultSyncMinutes = 60
     public static let siteKey = "jiraSite", emailKey = "jiraEmail", minutesKey = "jiraSyncMinutes"
+    public static let projectKey = "jiraProjectKey", epicKey = "jiraEpicKey", boardKey = "jiraBoardID"
+    public static let defaultProject = "CPAS", defaultEpic = "CPAS-2", defaultBoard = 1045
 
     public let id = JiraSection.sectionID
     /// The fifth tab colour is its own: the others are taken by the built-in tabs.
@@ -71,6 +73,12 @@ public final class JiraSection: NotebookSection {
     @ObservationIgnored private var startupTask: Task<Void, Never>?
     /// Bumped by every pass and by stop, so a cancelled pass reports nothing when it unwinds.
     @ObservationIgnored private var passID = 0
+    /// Issues with a write in flight: their row's controls wait.
+    public private(set) var busyKeys: Set<String> = []
+    public private(set) var isCreating = false
+    /// The moves each issue may make, fetched as its row is hovered; cleared by a sync.
+    public private(set) var transitionCache: [String: [JiraTransition]] = [:]
+    @ObservationIgnored private var transitionFetches: Set<String> = []
 
     public init(library: NotebookLibrary, client: any JiraClient = JiraCloudClient(), store: any JiraTokenStore = KeychainTokenStore(),
                 stateURL: URL = JiraPaths.stateURL, defaults: UserDefaults = .standard) {
@@ -82,6 +90,25 @@ public final class JiraSection: NotebookSection {
 
     public var site: String { defaults.string(forKey: Self.siteKey) ?? "" }
     public var email: String { defaults.string(forKey: Self.emailKey) ?? "" }
+
+    /// Where a `+` task lands: project, epic and the board whose open sprint it joins.
+    public var newTaskDefaults: JiraNewTaskDefaults {
+        let project = defaults.string(forKey: Self.projectKey).flatMap { $0.isEmpty ? nil : $0 } ?? Self.defaultProject
+        // An epic left blank in Settings means none; only an unset key takes the default.
+        let epic: String? = defaults.object(forKey: Self.epicKey) == nil
+            ? Self.defaultEpic : defaults.string(forKey: Self.epicKey).flatMap { $0.isEmpty ? nil : $0 }
+        let board = defaults.object(forKey: Self.boardKey) == nil ? Self.defaultBoard : defaults.integer(forKey: Self.boardKey)
+        return JiraNewTaskDefaults(projectKey: project, epicKey: epic, boardID: board > 0 ? board : nil)
+    }
+
+    /// The `+` field's prompt names what the task will get.
+    public var newTaskPrompt: String {
+        let d = newTaskDefaults
+        var parts = ["New \(d.projectKey) task, assigned to you"]
+        if let epic = d.epicKey { parts.append("in epic \(epic)") }
+        if d.boardID != nil { parts.append("in the open sprint") }
+        return parts.joined(separator: ", ")
+    }
 
     /// Minutes between checks; 0 means only when asked.
     public var syncMinutes: Int {
@@ -231,6 +258,7 @@ public final class JiraSection: NotebookSection {
             let newState = await engine.state
             guard passID == pass else { return }
             state = newState
+            transitionCache = [:]
             status.lastRun = Date()
             status.lastReport = report
             status.isOffline = false
@@ -268,6 +296,79 @@ public final class JiraSection: NotebookSection {
     /// Whether the issue has a task in Today that Jira has not closed yet.
     public func isPulled(_ issue: JiraIssue) -> Bool {
         state.ledger[issue.key].map { $0.resolvedAt == nil } ?? false
+    }
+
+    // MARK: Writes
+
+    /// Fetch the issue's transitions once per pass, for the status menu.
+    public func prefetchTransitions(for issue: JiraIssue) {
+        guard let credentials, transitionCache[issue.key] == nil, !transitionFetches.contains(issue.key) else { return }
+        transitionFetches.insert(issue.key)
+        let client = self.client
+        Task { [weak self] in
+            let list = try? await client.transitions(for: issue.key, credentials)
+            guard let self else { return }
+            self.transitionFetches.remove(issue.key)
+            if let list { self.transitionCache[issue.key] = list }
+        }
+    }
+
+    /// One write at a time per issue, its outcome in the status line.
+    @discardableResult
+    private func write(key: String?, phase: String, _ work: @escaping @Sendable (JiraSyncEngine, JiraCredentials) async throws -> Void)
+        -> Task<Bool, Never> {
+        guard let credentials else { status.needsCredentials = true; return Task { false } }
+        if let key { busyKeys.insert(key) }
+        let engine = engineForSync()
+        status.lastError = nil
+        status.phase = phase
+        return Task { [weak self] in
+            var ok = false
+            do {
+                try await work(engine, credentials)
+                ok = true
+            } catch let error as JiraClientError {
+                self?.status.lastError = error.message
+            } catch where JiraClientError.isOffline(error) {
+                self?.status.isOffline = true
+            } catch {
+                self?.status.lastError = "\(error)"
+            }
+            guard let self else { return ok }
+            self.state = await engine.state
+            if let key { self.busyKeys.remove(key); self.transitionCache[key] = nil }
+            if self.status.phase == phase { self.status.phase = nil }
+            return ok
+        }
+    }
+
+    @discardableResult
+    public func setStatus(_ issue: JiraIssue, to transition: JiraTransition) -> Task<Bool, Never> {
+        let task = write(key: issue.key, phase: "Moving \(issue.key) to \(transition.toStatusName)…") { engine, credentials in
+            try await engine.setStatus(issue, to: transition, credentials)
+        }
+        if transition.toCategory == .done, isPulled(issue) {
+            Task { [weak self] in if await task.value { await self?.library.rescan() } }
+        }
+        return task
+    }
+
+    @discardableResult
+    public func createTask(summary: String) -> Task<Bool, Never> {
+        isCreating = true
+        let defaults = newTaskDefaults
+        let task = write(key: nil, phase: "Creating the task…") { engine, credentials in
+            _ = try await engine.create(summary: summary, defaults: defaults, credentials)
+        }
+        Task { [weak self] in _ = await task.value; self?.isCreating = false }
+        return task
+    }
+
+    @discardableResult
+    public func comment(_ issue: JiraIssue, body: String) -> Task<Bool, Never> {
+        write(key: issue.key, phase: "Posting a comment on \(issue.key)…") { engine, credentials in
+            try await engine.comment(issue, body: body, credentials)
+        }
     }
 
     public func open(_ issue: JiraIssue) {

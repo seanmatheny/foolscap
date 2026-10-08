@@ -114,8 +114,17 @@
   `addStandaloneTask(status: .today, skipIfPresent:)`, and the ledger in
   Application Support/Foolscap/Jira/state.json (issue key → content key) lets the next sync
   tick the task once Jira closes the issue (found by content key, else by the "KEY " prefix).
-  One-way: ticking locally does not transition Jira. Sync is hourly by default
+  Ticking locally does not transition Jira. Sync is hourly by default
   (`jiraSyncMinutes`, 0 = manual) on a `PeriodicScheduler`, plus a pass 3 s after launch.
+  Writes from the tab (`JiraSyncEngine.setStatus/create/comment`, each an explicit click):
+  the status chip lists the issue's transitions (`GET …/transitions`, prefetched on hover,
+  cached per pass; into a done category a resolution "Done" is sent and dropped on a
+  "resolution" refusal), the `+` field makes a Task via `POST /rest/api/3/issue` (project,
+  epic as `parent`, assignee from `/myself`, issue type id from createmeta, all cached in
+  state) then `POST /rest/agile/1.0/sprint/{id}/issue` for the board's active sprint
+  (`jiraProjectKey`/`jiraEpicKey`/`jiraBoardID` defaults, blank epic = none, board 0 = no
+  sprint), and the bubble posts an ADF comment. Jira's refusals (`errorMessages`/`errors`)
+  surface as `JiraClientError.rejected` in the status line.
 - Task statuses (`TaskStatus`, declaration order is display order): today `[/]`,
   notStarted `[ ]` ("To do"), someday `[>]`, completed `[x]`. The index stores the
   case name; `v5-today-status` renamed the old `inProgress` rows. Today's page lists

@@ -43,10 +43,23 @@ public struct LibraryJiraTaskSink: JiraTaskSink {
     }
 }
 
+/// Where a new task lands: the project, the epic it sits under and the board
+/// whose open sprint it joins.
+public struct JiraNewTaskDefaults: Equatable, Sendable {
+    public var projectKey: String
+    public var epicKey: String?
+    public var boardID: Int?
+    public init(projectKey: String, epicKey: String? = nil, boardID: Int? = nil) {
+        self.projectKey = projectKey; self.epicKey = epicKey; self.boardID = boardID
+    }
+}
+
 /// One pass: fetch the open issues assigned to the user, then notice which
-/// pulled issues Jira has closed and tick their tasks.
+/// pulled issues Jira has closed and tick their tasks. Also the writes the
+/// page makes: a status change, a new task, a comment.
 public actor JiraSyncEngine {
     public static let tag = "jira"
+    static let taskTypeName = "Task"
 
     let client: any JiraClient
     let stateURL: URL
@@ -73,16 +86,19 @@ public actor JiraSyncEngine {
         if !pending.isEmpty {
             progress?("Checking closed issues…")
             let closed = try await client.issues(keys: pending, credentials).filter { $0.statusCategory == .done }
-            for issue in closed {
-                guard let pulled = state.ledger[issue.key] else { continue }
-                if await sink.complete(key: issue.key, contentKey: pulled.contentKey) { report.resolved += 1 }
-                // Stamped either way: ticked, or already gone from the notes.
-                state.ledger[issue.key]?.resolvedAt = now()
-            }
+            for issue in closed { await resolve(issue.key, report: &report) }
         }
         state.lastSync = now()
         try? state.save(to: stateURL)
         return report
+    }
+
+    /// Jira closed a pulled issue: tick its task and stamp the ledger either
+    /// way (ticked, or already gone from the notes).
+    private func resolve(_ key: String, report: inout JiraSyncReport) async {
+        guard let pulled = state.ledger[key], pulled.resolvedAt == nil else { return }
+        if await sink.complete(key: key, contentKey: pulled.contentKey) { report.resolved += 1 }
+        state.ledger[key]?.resolvedAt = now()
     }
 
     /// The sun button: the issue becomes a Today task in Tasks.md with a link
@@ -103,5 +119,60 @@ public actor JiraSyncEngine {
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
         return "\(issue.key) \(summary) #\(tag)"
+    }
+
+    // MARK: Writes
+
+    /// Move the issue along its workflow. Into a done status, a pulled issue's
+    /// Today task is ticked at once; the issue then leaves the list.
+    public func setStatus(_ issue: JiraIssue, to transition: JiraTransition, _ credentials: JiraCredentials) async throws {
+        let done = transition.toCategory == .done
+        try await client.transition(issue.key, to: transition.id, resolution: done ? "Done" : nil, credentials)
+        var report = JiraSyncReport()
+        if done { await resolve(issue.key, report: &report) }
+        let fresh = try await client.issues(keys: [issue.key], credentials).first
+        if let fresh, fresh.statusCategory != .done {
+            state.issues = state.issues.map { $0.key == fresh.key ? fresh : $0 }
+        } else {
+            state.issues.removeAll { $0.key == issue.key }
+        }
+        try? state.save(to: stateURL)
+    }
+
+    /// A new task from its title alone: in the project, under the epic,
+    /// assigned to the token's user, in the board's open sprint when there is one.
+    public func create(summary: String, defaults: JiraNewTaskDefaults, _ credentials: JiraCredentials) async throws -> JiraIssue {
+        let title = summary.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        guard !title.isEmpty else { throw JiraClientError.rejected("a task needs a title") }
+        if state.accountID == nil { state.accountID = try await client.myself(credentials) }
+        var typeIDs = state.issueTypeIDs ?? [:]
+        if typeIDs[defaults.projectKey] == nil {
+            guard let id = try await client.issueTypeID(named: Self.taskTypeName, project: defaults.projectKey, credentials) else {
+                throw JiraClientError.rejected("project \(defaults.projectKey) has no \(Self.taskTypeName) issue type")
+            }
+            typeIDs[defaults.projectKey] = id
+            state.issueTypeIDs = typeIDs
+        }
+        var sprint: Int?
+        if let board = defaults.boardID { sprint = try await client.activeSprintID(board: board, credentials) }
+        let draft = JiraTaskDraft(summary: title, projectKey: defaults.projectKey, issueTypeID: typeIDs[defaults.projectKey]!,
+                                  epicKey: defaults.epicKey, assigneeAccountID: state.accountID, sprintID: sprint)
+        let issue = try await client.createTask(draft, credentials)
+        state.issues.insert(issue, at: 0)
+        try? state.save(to: stateURL)
+        return issue
+    }
+
+    public func comment(_ issue: JiraIssue, body: String, _ credentials: JiraCredentials) async throws {
+        let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        try await client.comment(issue.key, body: text, credentials)
+        state.issues = state.issues.map {
+            guard $0.key == issue.key else { return $0 }
+            var updated = $0
+            updated.commentCount = ($0.commentCount ?? 0) + 1
+            return updated
+        }
+        try? state.save(to: stateURL)
     }
 }

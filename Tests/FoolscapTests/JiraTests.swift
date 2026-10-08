@@ -10,6 +10,15 @@ final class FakeJiraClient: JiraClient, @unchecked Sendable {
     var offline = false
     var unauthorised = false
     var keyQueries: [[String]] = []
+    var transitionsByKey: [String: [JiraTransition]] = [:]
+    var transitioned: [(key: String, id: String, resolution: String?)] = []
+    var rejectTransition: String?
+    var created: [JiraTaskDraft] = []
+    var comments: [(key: String, body: String)] = []
+    var accountID = "acc-1"
+    var taskTypeID: String? = "10008"
+    var sprintID: Int? = 13779
+    var nextKey = 100
 
     func assignedIssues(_ credentials: JiraCredentials) async throws -> [JiraIssue] {
         if offline { throw URLError(.notConnectedToInternet) }
@@ -20,6 +29,27 @@ final class FakeJiraClient: JiraClient, @unchecked Sendable {
         keyQueries.append(keys)
         return keys.compactMap { byKey[$0] }
     }
+    func transitions(for key: String, _ credentials: JiraCredentials) async throws -> [JiraTransition] { transitionsByKey[key] ?? [] }
+    func transition(_ key: String, to transitionID: String, resolution: String?, _ credentials: JiraCredentials) async throws {
+        if let rejectTransition { throw JiraClientError.rejected(rejectTransition) }
+        transitioned.append((key, transitionID, resolution))
+        if var issue = byKey[key], let t = transitionsByKey[key]?.first(where: { $0.id == transitionID }) {
+            issue.statusName = t.toStatusName; issue.statusCategory = t.toCategory
+            byKey[key] = issue
+        }
+    }
+    func createTask(_ draft: JiraTaskDraft, _ credentials: JiraCredentials) async throws -> JiraIssue {
+        created.append(draft)
+        nextKey += 1
+        let issue = JiraIssue(key: "\(draft.projectKey)-\(nextKey)", summary: draft.summary, statusName: "Open", statusCategory: .new,
+                              issueType: "Task", parentKey: draft.epicKey, commentCount: 0)
+        byKey[issue.key] = issue
+        return issue
+    }
+    func comment(_ key: String, body: String, _ credentials: JiraCredentials) async throws { comments.append((key, body)) }
+    func myself(_ credentials: JiraCredentials) async throws -> String { accountID }
+    func issueTypeID(named name: String, project: String, _ credentials: JiraCredentials) async throws -> String? { taskTypeID }
+    func activeSprintID(board: Int, _ credentials: JiraCredentials) async throws -> Int? { sprintID }
 }
 
 final class MemoryTokenStore: JiraTokenStore, @unchecked Sendable {
@@ -74,6 +104,38 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         let title = JiraSyncEngine.taskTitle(for: issue("CPAS-9", "Fix the #thing\n  now"))
         #expect(title == "CPAS-9 Fix the thing now #jira")
     }
+
+    @Test func commentBecomesParagraphsOfADF() throws {
+        let doc = JiraADF.document(from: "First line\nsecond line\n\nSecond paragraph\n")
+        let json = try JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys])
+        let text = String(decoding: json, as: UTF8.self)
+        #expect(text == #"{"content":[{"content":[{"text":"First line","type":"text"},{"type":"hardBreak"},{"text":"second line","type":"text"}],"type":"paragraph"},{"content":[{"text":"Second paragraph","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}"#)
+    }
+
+    @Test func writeRequestsCarryTheirBodies() throws {
+        let r = JiraCloudClient.request(site: credentials.site, path: "rest/api/3/issue/CPAS-1/transitions", method: "POST",
+                                        json: ["transition": ["id": "21"]], credentials: credentials)
+        #expect(r.httpMethod == "POST" && r.url?.path == "/rest/api/3/issue/CPAS-1/transitions")
+        #expect(r.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        let body = try JSONSerialization.jsonObject(with: try #require(r.httpBody)) as? [String: [String: String]]
+        #expect(body == ["transition": ["id": "21"]])
+        // Jira's refusals are read from its error body.
+        let refusal = Data(#"{"errorMessages":["Transition is not valid"],"errors":{"resolution":"Resolution is required."}}"#.utf8)
+        #expect(JiraCloudClient.rejection(in: refusal) == "Transition is not valid resolution: Resolution is required.")
+        #expect(JiraClientError.rejected("x").message == "Jira said: x")
+    }
+
+    @Test func decodesTransitionsAndSprints() throws {
+        let transitions = try JSONDecoder().decode(JiraTransitionsPage.self, from: Data("""
+        {"transitions":[{"id":"21","name":"In Progress","to":{"name":"In Progress","statusCategory":{"key":"indeterminate"}}},
+                        {"id":"51","name":"Resolved","to":{"name":"Resolved","statusCategory":{"key":"done"}}}]}
+        """.utf8)).transitions.map(JiraTransition.init)
+        #expect(transitions.map(\.id) == ["21", "51"] && transitions[1].toCategory == .done && transitions[0].toStatusName == "In Progress")
+        let sprints = try JSONDecoder().decode(JiraSprintPage.self, from: Data(#"{"values":[{"id":13779,"name":"2026Q3","state":"active"}]}"#.utf8))
+        #expect(sprints.values.first?.id == 13779)
+        let types = try JSONDecoder().decode(JiraIssueTypesPage.self, from: Data(#"{"issueTypes":[{"id":"10000","name":"Epic"},{"id":"10008","name":"Task"}]}"#.utf8))
+        #expect(types.issueTypes.first { $0.name == "Task" }?.id == "10008")
+    }
 }
 
 @Suite @MainActor struct JiraSyncEngineTests {
@@ -122,6 +184,50 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         // The closed one is not asked about again; the reassigned one is.
         _ = try await engine.syncOnce(credentials)
         #expect(client.keyQueries.last == ["CPAS-1050"])
+    }
+
+    @Test func statusChangeCreateAndCommentWriteThrough() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-jira-writes-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp.appendingPathComponent("Notes"))
+        try folder.ensureLayout()
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
+        let client = FakeJiraClient()
+        let engine = JiraSyncEngine(client: client, stateURL: tmp.appendingPathComponent("state.json"),
+                                    sink: LibraryJiraTaskSink(library: library), now: { Date(timeIntervalSince1970: 1_700_000_000) })
+        let fix = issue("CPAS-1027", "Fix the thing", status: "Open")
+        client.open = [fix]
+        client.byKey[fix.key] = fix
+        client.transitionsByKey[fix.key] = [JiraTransition(id: "21", name: "In Progress", toStatusName: "In Progress", toCategory: .indeterminate),
+                                            JiraTransition(id: "51", name: "Resolved", toStatusName: "Resolved", toCategory: .done)]
+        _ = try await engine.syncOnce(credentials)
+        _ = await engine.pull(fix, site: credentials.site)
+
+        // Into In Progress: the row follows Jira's answer.
+        try await engine.setStatus(fix, to: client.transitionsByKey[fix.key]![0], credentials)
+        #expect(client.transitioned.map(\.id) == ["21"] && client.transitioned[0].resolution == nil)
+        let moved = await engine.state
+        #expect(moved.issues.first?.statusName == "In Progress")
+
+        // Into Resolved: a resolution goes with it, the Today task is ticked and the issue leaves the list.
+        try await engine.setStatus(fix, to: client.transitionsByKey[fix.key]![1], credentials)
+        #expect(client.transitioned.last?.resolution == "Done")
+        let resolved = await engine.state
+        #expect(resolved.issues.isEmpty && resolved.ledger[fix.key]?.resolvedAt != nil)
+        #expect(try String(contentsOf: folder.tasksFile, encoding: .utf8).contains("- [x] CPAS-1027 Fix the thing #jira"))
+
+        // A new task takes the defaults, the user's account and the open sprint, and heads the list.
+        let made = try await engine.create(summary: "  Rotate   the secret ", defaults: JiraNewTaskDefaults(projectKey: "CPAS", epicKey: "CPAS-2", boardID: 1045), credentials)
+        #expect(client.created == [JiraTaskDraft(summary: "Rotate the secret", projectKey: "CPAS", issueTypeID: "10008", epicKey: "CPAS-2",
+                                                 assigneeAccountID: "acc-1", sprintID: 13779)])
+        let created = await engine.state
+        #expect(made.key == "CPAS-101" && created.issues.first?.key == "CPAS-101")
+        #expect(created.accountID == "acc-1" && created.issueTypeIDs?["CPAS"] == "10008")
+
+        // A comment is posted and counted.
+        try await engine.comment(made, body: "On it.\n", credentials)
+        let commented = await engine.state
+        #expect(client.comments.map(\.body) == ["On it."] && commented.issues.first?.commentCount == 1)
     }
 }
 
@@ -188,5 +294,35 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
 
         section.clearCredentials()
         #expect(section.credentials == nil && store.tokens.isEmpty && section.status.needsCredentials)
+    }
+
+    @Test func rejectedWritesShowJirasReason() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-jira-reject-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let client = FakeJiraClient(), store = MemoryTokenStore()
+        var state = JiraState()
+        let fix = issue("CPAS-7", "Seven", status: "Open")
+        state.issues = [fix]
+        let (section, defaults) = try makeSection(tmp, client: client, store: store, state: state)
+        try section.saveCredentials(site: "x.atlassian.net", email: "a@b.c", token: "tok")
+        await section.runSync()
+        client.byKey[fix.key] = fix
+        client.transitionsByKey[fix.key] = [JiraTransition(id: "21", name: "In Progress", toStatusName: "In Progress", toCategory: .indeterminate)]
+        client.open = [fix]
+        await section.runSync()
+        client.rejectTransition = "Transition is not valid"
+        #expect(await section.setStatus(fix, to: client.transitionsByKey[fix.key]![0]).value == false)
+        #expect(section.status.lastError == "Jira said: Transition is not valid" && section.state.issues.first?.statusName == "Open")
+        #expect(section.busyKeys.isEmpty)
+
+        client.rejectTransition = nil
+        #expect(await section.setStatus(fix, to: client.transitionsByKey[fix.key]![0]).value)
+        #expect(section.status.lastError == nil && section.state.issues.first?.statusName == "In Progress")
+
+        defaults.set("", forKey: JiraSection.epicKey)
+        defaults.set(0, forKey: JiraSection.boardKey)
+        #expect(section.newTaskDefaults == JiraNewTaskDefaults(projectKey: "CPAS", epicKey: nil, boardID: nil))
+        #expect(await section.createTask(summary: "A task").value && section.state.issues.first?.summary == "A task" && !section.isCreating)
+        #expect(await section.comment(fix, body: "hi").value && client.comments.count == 1)
     }
 }

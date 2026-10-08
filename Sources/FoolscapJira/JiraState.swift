@@ -11,6 +11,10 @@ public struct JiraState: Codable, Equatable, Sendable {
     public var lastSync: Date?
     /// Issue key → the task written for it.
     public var ledger: [String: Pulled] = [:]
+    /// Looked up once for creating tasks: the token's user and the Task type's id
+    /// per project. (Optional so a state file from before them still loads.)
+    public var accountID: String?
+    public var issueTypeIDs: [String: String]?
 
     public struct Pulled: Codable, Equatable, Sendable {
         /// `TaskItem.contentKey` of the task line, its identity across moves.

@@ -18,6 +18,9 @@ extension JiraSection {
 struct JiraSettingsPane: View {
     @Bindable var section: JiraSection
     @AppStorage(JiraSection.minutesKey) private var syncMinutes = JiraSection.defaultSyncMinutes
+    @AppStorage(JiraSection.projectKey) private var projectKey = JiraSection.defaultProject
+    @AppStorage(JiraSection.epicKey) private var epicKey = JiraSection.defaultEpic
+    @AppStorage(JiraSection.boardKey) private var boardID = JiraSection.defaultBoard
     @State private var site = ""
     @State private var email = ""
     @State private var token = ""
@@ -70,7 +73,12 @@ struct JiraSettingsPane: View {
                 Text(section.statusText).foregroundStyle(.secondary).lineLimit(2)
             }
         }
-        Text("The sun on an issue adds `- [/] KEY summary #jira` to Tasks.md with a link to the issue, so it sits under today's date. When Jira marks the issue Done, the next sync ticks the task. Ticking the task here does not change Jira.")
+        Text("The sun on an issue adds `- [/] KEY summary #jira` to Tasks.md with a link to the issue, so it sits under today's date. When Jira marks the issue Done, the next sync ticks the task. Ticking the task here does not change Jira; the status menu on the Jira tab does.")
+            .font(.caption).foregroundStyle(.secondary)
+        TextField("New tasks: project", text: $projectKey, prompt: Text("CPAS"))
+        TextField("Epic", text: $epicKey, prompt: Text("CPAS-2, or blank for none"))
+        TextField("Board", value: $boardID, format: .number, prompt: Text("1045, or 0 to skip the sprint"))
+        Text("A task typed into the Jira tab's + field is a Task in this project, under this epic, assigned to you, in the board's open sprint.")
             .font(.caption).foregroundStyle(.secondary)
         .onAppear {
             site = section.site
