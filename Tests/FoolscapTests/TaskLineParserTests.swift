@@ -3,11 +3,23 @@ import Foundation
 @testable import FoolscapCore
 
 @Suite struct TaskLineParserTests {
-    @Test func parsesThreeStatuses() {
+    @Test func parsesFourStatuses() {
         #expect(TaskLineParser.parse("- [ ] Buy milk")?.status == .notStarted)
-        #expect(TaskLineParser.parse("  * [/] Write plan")?.status == .inProgress)
+        #expect(TaskLineParser.parse("  * [/] Write plan")?.status == .today)
+        #expect(TaskLineParser.parse("- [>] One day")?.status == .someday)
         #expect(TaskLineParser.parse("1. [x] Done")?.status == .completed)
         #expect(TaskLineParser.parse("- [X] Done")?.status == .completed)
+        #expect(TaskLineParser.parse("- [?] Not a mark") == nil)
+    }
+
+    /// The Tasks tab and the menus follow the declaration order; the editor's
+    /// checkbox walks to do → today → done, and starts a parked task.
+    @Test func statusOrderAndCycle() {
+        #expect(TaskStatus.allCases == [.today, .notStarted, .someday, .completed])
+        #expect(TaskStatus.allCases.map(\.mark) == ["/", " ", ">", "x"])
+        #expect(TaskStatus.notStarted.next == .today && TaskStatus.today.next == .completed)
+        #expect(TaskStatus.completed.next == .notStarted && TaskStatus.someday.next == .today)
+        #expect(TaskStatus.someday.isOpen && !TaskStatus.completed.isOpen)
     }
 
     @Test func rejectsNonTasks() {
@@ -55,7 +67,8 @@ import Foundation
     }
 
     @Test func replacesStatusByteExact() {
-        #expect(TaskLineParser.replacingStatus(in: "\t- [ ]  Two  spaces #a", with: .inProgress) == "\t- [/]  Two  spaces #a")
+        #expect(TaskLineParser.replacingStatus(in: "\t- [ ]  Two  spaces #a", with: .today) == "\t- [/]  Two  spaces #a")
+        #expect(TaskLineParser.replacingStatus(in: "- [/] Park it", with: .someday) == "- [>] Park it")
     }
 
     @Test func contentKeyIgnoresWhitespaceAndCase() {

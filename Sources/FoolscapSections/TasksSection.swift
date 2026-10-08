@@ -409,7 +409,7 @@ struct TaskRow: View {
             Button(action: onToggle) {
                 Image(systemName: symbol)
                     .font(.system(size: 14 * scale, weight: .regular))
-                    .foregroundStyle(task.status == .notStarted ? theme.dimInk.color : theme.accent.color)
+                    .foregroundStyle(task.status == .notStarted || task.status == .someday ? theme.dimInk.color : theme.accent.color)
                     .frame(width: 20)
             }
             .buttonStyle(.plain)
@@ -499,8 +499,9 @@ struct TaskRow: View {
 
     private var symbol: String {
         switch task.status {
+        case .today: return "circle.lefthalf.filled"
         case .notStarted: return "circle"
-        case .inProgress: return "circle.lefthalf.filled"
+        case .someday: return "circle.dotted"
         case .completed: return "checkmark.circle.fill"
         }
     }

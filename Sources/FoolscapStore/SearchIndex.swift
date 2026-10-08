@@ -111,6 +111,10 @@ public final class SearchIndex: Sendable {
             // Book files indexed before this version (a restored backup) are re-read on the next scan.
             try db.execute(sql: "UPDATE notes SET hash = '' WHERE path LIKE 'Highlights/%'")
         }
+        migrator.registerMigration("v5-today-status") { db in
+            // "In Progress" became "Today"; the mark in the files ([/]) did not change.
+            try db.execute(sql: "UPDATE tasks SET status = 'today' WHERE status = 'inProgress'")
+        }
         try migrator.migrate(db)
     }
 

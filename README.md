@@ -15,13 +15,15 @@ Attachments/2026-09-23/*.png      pasted screenshots and images
 Tasks.md                          tasks added from the Tasks tab or quick-task panel
 ```
 
-Tasks are ordinary markdown checkboxes, with the Obsidian convention for
-"in progress". Indented lines under a task are its notes (links welcome):
+Tasks are ordinary markdown checkboxes, with Obsidian's marks for "in progress"
+(here, Today) and "deferred" (Someday). Indented lines under a task are its
+notes (links welcome):
 
 ```
-- [ ] Not started #category
+- [/] Today: in hand, listed under the date on today's page
+- [ ] To do #category
   Notes for the task, see https://example.com
-- [/] In progress
+- [>] Someday: an idea, parked
 - [x] Completed
 ```
 

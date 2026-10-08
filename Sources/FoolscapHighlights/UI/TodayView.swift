@@ -19,7 +19,7 @@ struct TodayView: View {
         VStack(alignment: .leading, spacing: 34) {
             Text(Self.dateLine(Date()))
                 .font(.system(size: 20 * scale, weight: .bold, design: .serif))
-                .highlighted(theme.highlighter[.inProgress])
+                .highlighted(theme.highlighter[.today])
                 .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
             if items.isEmpty {
                 Text("Nothing to show today. Un-hide a few highlights, or import more.")

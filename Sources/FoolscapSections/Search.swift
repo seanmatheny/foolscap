@@ -256,7 +256,7 @@ struct SearchHitRow: View {
         var run = ""
         func flush() {
             var a = AttributedString(run)
-            if bold { a.font = .system(size: 12.5, weight: .bold, design: .serif); a.backgroundColor = theme.highlighter[.inProgress]?.color }
+            if bold { a.font = .system(size: 12.5, weight: .bold, design: .serif); a.backgroundColor = theme.highlighter[.today]?.color }
             out += a; run = ""
         }
         let collapsed = hit.snippet.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)

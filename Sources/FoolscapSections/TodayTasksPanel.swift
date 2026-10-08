@@ -3,19 +3,18 @@ import FoolscapCore
 import FoolscapStore
 import FoolscapUI
 
-/// Tasks tagged #today, from any note, gathered at the head of today's page.
+/// Tasks marked today (`[/]`), from any note, gathered at the head of today's page.
 public enum TodayTasks {
-    public static let tag = "today"
-
-    /// The tasks that head today's page: those tagged #today and still to do,
-    /// highest priority first, leaving out the ones written on today's own note
-    /// (they are on the page already). A done task stays while its id is in
-    /// `keep`, so a tick does not whip the row away; done ones sit last.
+    /// The tasks that head today's page: those in the Today status, highest
+    /// priority first, leaving out the ones written on today's own note (they
+    /// are on the page already). A task moved on while its id is in `keep`
+    /// (ticked done on this visit) stays, so a tick does not whip the row away;
+    /// those sit last.
     public static func select(from tasks: [TaskItem], today: DayKey, keep: Set<String> = []) -> [TaskItem] {
         tasks.enumerated()
-            .filter { $0.element.tags.contains(tag) && $0.element.source.day != today.string
-                && ($0.element.status != .completed || keep.contains($0.element.id)) }
-            .map { (offset: $0.offset, task: $0.element, priority: $0.element.priority, done: $0.element.status == .completed) }
+            .filter { $0.element.source.day != today.string
+                && ($0.element.status == .today || keep.contains($0.element.id)) }
+            .map { (offset: $0.offset, task: $0.element, priority: $0.element.priority, done: $0.element.status != .today) }
             .sorted { a, b in
                 if a.done != b.done { return !a.done }
                 return a.priority != b.priority ? a.priority > b.priority : a.offset < b.offset
@@ -24,9 +23,9 @@ public enum TodayTasks {
     }
 }
 
-/// The #today list under the day's date, laid out like a section of the Tasks
-/// tab (tick, priority, tags, notes and a way back to the note each task came
-/// from). The editor lays it on the ruling in whole lines, one per row.
+/// The Today list under the day's date, laid out like the Today band of the
+/// Tasks tab (tick, priority, tags, notes and a way back to the note each task
+/// came from). The editor lays it on the ruling in whole lines, one per row.
 struct TodayTasksPanel: View {
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: DailyNotesSection
@@ -44,7 +43,7 @@ struct TodayTasksPanel: View {
         Group {
             if !tasks.isEmpty {
                 let allTags = aggregator.knownTags(adding: section.library.knownTags)
-                let open = tasks.filter { $0.status != .completed }.count
+                let open = tasks.filter { $0.status == .today }.count
                 VStack(alignment: .leading, spacing: 0) {
                     // The Tasks tab's section heading, with a sun where its fold chevron is.
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -54,8 +53,7 @@ struct TodayTasksPanel: View {
                             .frame(width: 12)
                         Text("Today")
                             .font(.system(size: 17 * scale, weight: .bold, design: .serif))
-                            .highlighted(theme.highlighter[.inProgress])
-                        TagChip(tag: TodayTasks.tag, scale: scale, removable: false) {}
+                            .highlighted(theme.highlighter[.today])
                         Text("\(open)").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
                     }
                     .frame(height: pitch)

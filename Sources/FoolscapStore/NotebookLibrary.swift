@@ -157,14 +157,37 @@ public final class NotebookLibrary {
     /// sync relies on this after its own state is lost). Returns whether a line
     /// was written.
     @discardableResult
-    public func addStandaloneTask(_ text: String, notes: String? = nil, skipIfPresent: Bool = false) async -> Bool {
+    public func addStandaloneTask(_ text: String, status: TaskStatus = .notStarted, notes: String? = nil,
+                                  skipIfPresent: Bool = false) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         let doc = await loadedDocument(atRelativePath: NotesFolder.tasksFileName)
         if skipIfPresent, doc.containsTask(withKey: TaskItem.contentKey(for: trimmed)) { return false }
-        doc.appendTaskLine(trimmed, notes: notes)
+        doc.appendTaskLine(trimmed, status: status, notes: notes)
         await save()
         return true
+    }
+
+    /// One-off, for the Today panel's change from the `#today` tag to the `[/]`
+    /// status: every open task tagged #today gets the mark and loses the tag.
+    /// Completed ones are history and keep it. Idempotent; returns the number
+    /// of lines rewritten.
+    @discardableResult
+    public func migrateTodayTagToStatus() async -> Int {
+        await rescan()
+        let index = self.index
+        let tasks = await Task.detached(priority: .utility) { (try? index.tasks()) ?? [] }.value
+        var changed = 0
+        for task in tasks where task.tags.contains("today") && task.status.isOpen {
+            let doc = await loadedDocument(atRelativePath: task.source.path)
+            // The mark first (the content key is unchanged by it), then the title.
+            guard (try? doc.replaceTaskMark(line: task.source.line, expectedKey: task.contentKey, with: .today)) != nil else { continue }
+            try? doc.replaceTaskTitle(line: task.source.line, expectedKey: task.contentKey,
+                                      with: TaskLineParser.removingTag("today", from: task.title))
+            changed += 1
+        }
+        if changed > 0 { await save() }
+        return changed
     }
 
     /// Whether `rescan` indexes the Scribe transcripts under `Scribe/`. Off by

@@ -104,6 +104,11 @@
   environment): the whole cover mirrors, so the spine, its crease, the page's inner
   shadow, the tab shapes and the opening-animation hinge all read `notebookTabEdge`.
   Every tab is as long as the longest label.
+- Task statuses (`TaskStatus`, declaration order is display order): today `[/]`,
+  notStarted `[ ]` ("To do"), someday `[>]`, completed `[x]`. The index stores the
+  case name; `v5-today-status` renamed the old `inProgress` rows. Today's page lists
+  tasks in the Today status; the `#today` tag it once used was converted one time by
+  `NotebookLibrary.migrateTodayTagToStatus` (`todayTagMigrated` default).
 - Task priority is `!`/`!!`/`!!!` at the start of the task text (`TaskPriority`,
   `TaskLineParser.priority`). It stays inside `TaskItem.title` so files round-trip,
   but `contentKey` strips it: changing priority keeps the task's identity.

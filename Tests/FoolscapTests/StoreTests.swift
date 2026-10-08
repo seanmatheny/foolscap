@@ -55,7 +55,7 @@ import Foundation
         let doc = NoteDocument(path: "Daily/x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)
         doc.setText("- [ ] Buy milk\n- [ ] Buy eggs\n")
         let key = TaskItem.contentKey(for: "Buy eggs")
-        try doc.replaceTaskMark(line: 1, expectedKey: key, with: .inProgress)
+        try doc.replaceTaskMark(line: 1, expectedKey: key, with: .today)
         #expect(doc.text == "- [ ] Buy milk\n- [/] Buy eggs\n")
         #expect(doc.isDirty)
         // Line moved: found by content key.

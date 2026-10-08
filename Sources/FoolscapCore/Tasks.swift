@@ -2,13 +2,17 @@ import Foundation
 import CryptoKit
 
 public enum TaskStatus: String, Codable, CaseIterable, Sendable, Hashable {
-    case notStarted, inProgress, completed
+    /// Declaration order is the Tasks tab's and the menus' order: what is in hand
+    /// today, what is next, what is parked, what is done.
+    case today, notStarted, someday, completed
 
-    /// The character inside the brackets in markdown: `[ ]`, `[/]`, `[x]`.
+    /// The character inside the brackets in markdown: `[/]`, `[ ]`, `[>]`, `[x]`
+    /// (Obsidian's marks for in progress and deferred).
     public var mark: Character {
         switch self {
+        case .today: return "/"
         case .notStarted: return " "
-        case .inProgress: return "/"
+        case .someday: return ">"
         case .completed: return "x"
         }
     }
@@ -16,7 +20,8 @@ public enum TaskStatus: String, Codable, CaseIterable, Sendable, Hashable {
     public init?(mark: Character) {
         switch mark {
         case " ": self = .notStarted
-        case "/": self = .inProgress
+        case "/": self = .today
+        case ">": self = .someday
         case "x", "X": self = .completed
         default: return nil
         }
@@ -24,20 +29,27 @@ public enum TaskStatus: String, Codable, CaseIterable, Sendable, Hashable {
 
     public var title: String {
         switch self {
-        case .notStarted: return "Not Started"
-        case .inProgress: return "In Progress"
+        case .today: return "Today"
+        case .notStarted: return "To do"
+        case .someday: return "Someday"
         case .completed: return "Completed"
         }
     }
 
+    /// Still to do, whichever lane it sits in.
+    public var isOpen: Bool { self != .completed }
+
     /// A click on a task's circle in the Tasks tab: straight to done, or back to not started.
     public var toggled: TaskStatus { self == .completed ? .notStarted : .completed }
 
+    /// A click on the checkbox in the editor. Someday is reached only by drag or
+    /// menu; clicking a parked task's box starts it today.
     public var next: TaskStatus {
         switch self {
-        case .notStarted: return .inProgress
-        case .inProgress: return .completed
+        case .notStarted: return .today
+        case .today: return .completed
         case .completed: return .notStarted
+        case .someday: return .today
         }
     }
 }

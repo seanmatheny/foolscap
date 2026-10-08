@@ -23,7 +23,7 @@ public enum LinePrefix {
 
     // ^(indent)(bullet | number delimiter)(spaces)([mark] spaces)?
     private static let listRegex = try! NSRegularExpression(
-        pattern: #"^([ \t]*)(?:([-*+])|(\d+)([.)]))([ \t]+)(?:\[([ xX/])\](?:[ \t]+|$))?"#)
+        pattern: #"^([ \t]*)(?:([-*+])|(\d+)([.)]))([ \t]+)(?:\[([ xX/>])\](?:[ \t]+|$))?"#)
     private static let quoteRegex = try! NSRegularExpression(pattern: #"^>[ ]?"#)
     private static let headingRegex = try! NSRegularExpression(pattern: #"^#{1,6}[ \t]+"#)
 

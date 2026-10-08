@@ -15,7 +15,7 @@ public final class DailyNotesSection: NotebookSection {
     /// Requested line to reveal after navigation (from search).
     public var pendingLine: Int?
     /// The Tasks tab's aggregator, shared so today's page can head itself with
-    /// the tasks tagged #today and edit them in place.
+    /// the tasks marked today and edit them in place.
     public var taskAggregator: TaskAggregator?
 
     @ObservationIgnored private let _taskProvider: DailyNotesTaskProvider
@@ -94,8 +94,8 @@ struct DailyNotesPage: View {
     /// a new day creates a document, and that must not happen mid-render.
     @State private var document: NoteDocument?
 
-    /// Today's page lists the tasks tagged #today, from wherever they were
-    /// written, under its date.
+    /// Today's page lists the tasks marked today (`[/]`), from wherever they
+    /// were written, under its date.
     private var todayHeader: AnyView? {
         guard section.selectedDay == .today, let aggregator = section.taskAggregator else { return nil }
         return AnyView(TodayTasksPanel(section: section, aggregator: aggregator))

@@ -91,6 +91,10 @@ final class AppModel {
             scribeForced = CommandLine.arguments.contains { $0 == "--scribe" || $0.hasPrefix("--scribe=") }
             setScribeEnabled(scribeForced || defaults.bool(forKey: "scribeEnabled"))
             rewireSections()
+            // Today's page once listed tasks tagged #today; now it lists the Today status.
+            if !defaults.bool(forKey: "todayTagMigrated") {
+                Task { await library.migrateTodayTagToStatus(); defaults.set(true, forKey: "todayTagMigrated") }
+            }
         }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
         // `--highlights` opens the tab; `--highlights=books` on the shelf, `--highlights=Highlights/<Title>.md` on a book.

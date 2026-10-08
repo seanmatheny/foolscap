@@ -26,10 +26,10 @@ import Foundation
         #expect(aggregator.tags == ["work"])
         #expect(aggregator.tasks(status: .notStarted, tags: ["work"]).count == 1)
 
-        try await provider.setStatus(.inProgress, of: tasks[0])
+        try await provider.setStatus(.today, of: tasks[0])
         let text = try String(contentsOf: folder.url(for: day), encoding: .utf8)
         #expect(text == "# Day\n\n- [/] Ship it #work\n- [x] Old\n")
-        #expect(try library.index.tasks().first?.status == .inProgress)
+        #expect(try library.index.tasks().first?.status == .today)
 
         // Appending a task from the Tasks tab lands in the note under ## Tasks.
         let doc = await library.loadedDocument(forDay: day)
@@ -57,7 +57,7 @@ import Foundation
         #expect(aggregator.openTags == ["work", "home"])
 
         #expect(TaskStatus.notStarted.toggled == .completed)
-        #expect(TaskStatus.inProgress.toggled == .completed)
+        #expect(TaskStatus.today.toggled == .completed && TaskStatus.someday.toggled == .completed)
         #expect(TaskStatus.completed.toggled == .notStarted)
 
         let open = aggregator.tasks.filter { $0.status != .completed }

@@ -392,7 +392,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             storage.setAttributes(base, range: para)
             if let parsed = TaskLineParser.parse(line.text) {
                 let prefix = NSRange(location: 0, length: parsed.markOffset + 2)
-                set([.font: p.mono, .foregroundColor: status == .notStarted ? p.dimInk : p.accent], prefix)
+                set([.font: p.mono, .foregroundColor: status == .notStarted || status == .someday ? p.dimInk : p.accent], prefix)
                 let titleStart = prefix.location + prefix.length
                 let title = NSRange(location: titleStart, length: text.length - titleStart)
                 // The priority marker (`!`, `!!`, `!!!`) shows in its light's colour.

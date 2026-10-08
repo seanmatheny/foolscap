@@ -2,7 +2,7 @@ import Foundation
 import Markdown
 
 /// Converts note markdown to HTML using swift-markdown, with Foolscap's task
-/// marks (`[/]`) understood.
+/// marks (`[/]` today, `[>]` someday) understood.
 public enum MarkdownExporter {
     public static func html(fromMarkdown text: String, title: String) -> String {
         let document = Document(parsing: text)
@@ -20,6 +20,7 @@ public enum MarkdownExporter {
         .task { list-style: none; margin-left: -1.2em; }
         .task.done { color: #8a847a; text-decoration: line-through; }
         .task.doing { background: rgba(247,216,66,0.45); }
+        .task.someday { color: #8a847a; }
         .tag { color: #9a3b2e; background: rgba(154,59,46,0.12); border-radius: 8px; padding: 0 0.4em; }
         hr { border: 0; border-top: 1px solid #d8d0c0; }
         </style></head><body>
@@ -79,7 +80,8 @@ struct HTMLWalker: MarkupWalker {
     mutating func visitUnorderedList(_ l: UnorderedList) { output += "<ul>\n"; descendInto(l); output += "</ul>\n" }
     mutating func visitOrderedList(_ l: OrderedList) { output += "<ol>\n"; descendInto(l); output += "</ol>\n" }
     mutating func visitListItem(_ item: ListItem) {
-        // Task items: GFM gives us [ ] and [x]; our [/] arrives as literal text.
+        // Task items: GFM gives us [ ] and [x]; our [/] and [>] arrive as literal
+        // text (the > already escaped by visitText).
         var status: String? = nil
         var body = ""
         if let checkbox = item.checkbox { status = checkbox == .checked ? "done" : "todo" }
@@ -87,8 +89,9 @@ struct HTMLWalker: MarkupWalker {
         for child in item.children { inner.visit(child) }
         body = inner.output
         if status == nil, body.hasPrefix("<p>[/] ") { status = "doing"; body = "<p>" + body.dropFirst("<p>[/] ".count) }
+        if status == nil, body.hasPrefix("<p>[&gt;] ") { status = "someday"; body = "<p>" + body.dropFirst("<p>[&gt;] ".count) }
         if let status {
-            let box = status == "done" ? "☑" : status == "doing" ? "◐" : "☐"
+            let box = status == "done" ? "☑" : status == "doing" ? "◐" : status == "someday" ? "◌" : "☐"
             output += "<li class=\"task \(status)\">\(box) \(body)</li>\n"
         } else {
             output += "<li>\(body)</li>\n"

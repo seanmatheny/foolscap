@@ -204,8 +204,9 @@ public struct NotebookTheme: Codable, Identifiable, Hashable, Sendable {
 
 extension NotebookTheme {
     static let highlighterDefaults: [TaskStatus: RGBA] = [
+        .today:      .hex(0xF7D842, alpha: 0.55),
         .notStarted: .hex(0x000000, alpha: 0),
-        .inProgress: .hex(0xF7D842, alpha: 0.55),
+        .someday:    .hex(0xB9C6EA, alpha: 0.50),
         .completed:  .hex(0x8ED081, alpha: 0.55),
     ]
 
@@ -267,8 +268,9 @@ extension NotebookTheme {
         ink: .hex(0xF4F1EA), dimInk: .hex(0xF4F1EA, alpha: 0.45), accent: .hex(0xE0B95A),
         tabColors: [.hex(0xC9B58F), .hex(0x9FB89E), .hex(0xB59FB0), .hex(0x94AEC4)],
         highlighter: [
+            .today:      .hex(0xE0B95A, alpha: 0.28),
             .notStarted: .hex(0x000000, alpha: 0),
-            .inProgress: .hex(0xE0B95A, alpha: 0.28),
+            .someday:    .hex(0x8EA2D8, alpha: 0.28),
             .completed:  .hex(0x6FBF7A, alpha: 0.28),
         ],
         isDark: true)
