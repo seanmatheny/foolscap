@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "FoolscapUI", targets: ["FoolscapUI"]),
         .library(name: "FoolscapScribe", targets: ["FoolscapScribe"]),
         .library(name: "FoolscapHighlights", targets: ["FoolscapHighlights"]),
+        .library(name: "FoolscapJira", targets: ["FoolscapJira"]),
         .executable(name: "Foolscap", targets: ["FoolscapApp"]),
     ],
     dependencies: [
@@ -57,6 +58,12 @@ let package = Package(
             dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI", .product(name: "GRDB", package: "GRDB.swift")],
             resources: [.copy("Resources/kfx_extract.py")]
         ),
+        // Jira Cloud section: the issues assigned to the user, pulled into Today as
+        // `#jira` tasks. Writes nothing to the notebook but those task lines.
+        .target(
+            name: "FoolscapJira",
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI", "FoolscapEditor"]
+        ),
         // The OCR helper, bundled as Contents/MacOS/scribe-ocr. A separate process so
         // Vision's recognition models are unloaded again when a run finishes.
         .executableTarget(
@@ -65,12 +72,12 @@ let package = Package(
         ),
         .executableTarget(
             name: "FoolscapApp",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights"],
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira"],
             exclude: ["Info.plist"]
         ),
         .testTarget(
             name: "FoolscapTests",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights"]
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira"]
         ),
     ]
 )
