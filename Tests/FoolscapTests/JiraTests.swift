@@ -144,6 +144,7 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         var state = JiraState()
         state.issues = [
             issue("CPAS-1", "Epic", status: "Open", type: "Epic"),
+            issue("CPAS-6", "Waiting", status: "Awaiting - Internal", category: .indeterminate),
             issue("CPAS-2", "Low open", status: "Open", priority: "Minor", updated: Date(timeIntervalSince1970: 10)),
             issue("CPAS-3", "Doing", status: "In Progress", category: .indeterminate),
             issue("CPAS-4", "Big open", status: "Open", priority: "Major", updated: Date(timeIntervalSince1970: 5)),
@@ -152,11 +153,12 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         state.ledger["CPAS-3"] = JiraState.Pulled(contentKey: "k", title: "t", pulledAt: Date())
         state.ledger["CPAS-4"] = JiraState.Pulled(contentKey: "k", title: "t", pulledAt: Date(), resolvedAt: Date())
         let (section, _) = try makeSection(tmp, client: FakeJiraClient(), store: MemoryTokenStore(), state: state)
-        #expect(section.groups.map(\.name) == ["In Progress", "Open"])
-        #expect(section.groups.map(\.isActive) == [true, false])
-        #expect(section.groups[1].issues.map(\.key) == ["CPAS-4", "CPAS-5", "CPAS-2"])
-        #expect(section.openCount == 4)
-        #expect(section.isPulled(state.issues[2]) && !section.isPulled(state.issues[3]) && !section.isPulled(state.issues[1]))
+        // Awaiting shares Jira's in-progress category but is neither first nor highlighted.
+        #expect(section.groups.map(\.name) == ["In Progress", "Awaiting - Internal", "Open"])
+        #expect(section.groups.map(\.isActive) == [true, false, false])
+        #expect(section.groups[2].issues.map(\.key) == ["CPAS-4", "CPAS-5", "CPAS-2"])
+        #expect(section.openCount == 5)
+        #expect(section.isPulled(state.issues[3]) && !section.isPulled(state.issues[4]) && !section.isPulled(state.issues[2]))
     }
 
     @Test func credentialsStatusAndErrors() async throws {

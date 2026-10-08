@@ -283,8 +283,8 @@ public final class JiraSection: NotebookSection {
         public var id: String { name }
     }
 
-    /// Issues by Jira status, the in-progress statuses first, then the rest in
-    /// the order Jira listed them; epics are containers, not work, and are left
+    /// Issues by Jira status, "In Progress" first, then the rest in the order
+    /// Jira listed them; epics are containers, not work, and are left
     /// out. Within a group, priority first, then the latest change.
     public var groups: [Group] {
         var order: [String] = []
@@ -293,7 +293,11 @@ public final class JiraSection: NotebookSection {
         for issue in state.issues where !issue.isEpic {
             if byStatus[issue.statusName] == nil { order.append(issue.statusName) }
             byStatus[issue.statusName, default: []].append(issue)
-            if issue.statusCategory == .indeterminate { active.insert(issue.statusName) }
+            // Jira files waiting statuses ("Awaiting - Internal") under the in-progress
+            // category too; only a status that says it is in progress gets the highlight.
+            if issue.statusCategory == .indeterminate, issue.statusName.localizedCaseInsensitiveContains("progress") {
+                active.insert(issue.statusName)
+            }
         }
         let sorted = order.sorted { a, b in
             let aa = active.contains(a), ba = active.contains(b)
