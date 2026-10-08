@@ -130,7 +130,8 @@ public actor JiraSyncEngine {
         try await client.transition(issue.key, to: transition.id, resolution: done ? "Done" : nil, credentials)
         var report = JiraSyncReport()
         if done { await resolve(issue.key, report: &report) }
-        let fresh = try await client.issues(keys: [issue.key], credentials).first
+        // Read directly, not searched: the search index lags the move just made.
+        let fresh = try? await client.issue(key: issue.key, credentials)
         if let fresh, fresh.statusCategory != .done {
             state.issues = state.issues.map { $0.key == fresh.key ? fresh : $0 }
         } else {

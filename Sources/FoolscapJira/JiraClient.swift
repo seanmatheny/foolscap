@@ -49,6 +49,8 @@ public protocol JiraClient: Sendable {
     func assignedIssues(_ credentials: JiraCredentials) async throws -> [JiraIssue]
     /// The named issues whatever their status (how a pulled issue's resolution is noticed).
     func issues(keys: [String], _ credentials: JiraCredentials) async throws -> [JiraIssue]
+    /// One issue, read directly: a search lags a few seconds behind a write.
+    func issue(key: String, _ credentials: JiraCredentials) async throws -> JiraIssue
     /// The moves the workflow allows from the issue's current status.
     func transitions(for key: String, _ credentials: JiraCredentials) async throws -> [JiraTransition]
     /// Make one of those moves; `resolution` is set on the way when given.
@@ -149,6 +151,12 @@ public final class JiraCloudClient: JiraClient {
         return out
     }
 
+    public func issue(key: String, _ credentials: JiraCredentials) async throws -> JiraIssue {
+        let data = try await send(Self.request(site: credentials.site, path: "rest/api/3/issue/\(key)",
+                                               query: [URLQueryItem(name: "fields", value: Self.fields)], credentials: credentials))
+        return JiraIssue(try decode(JiraSearchPage.RawIssue.self, from: data))
+    }
+
     public func transitions(for key: String, _ credentials: JiraCredentials) async throws -> [JiraTransition] {
         let data = try await send(Self.request(site: credentials.site, path: "rest/api/3/issue/\(key)/transitions", credentials: credentials))
         return try decode(JiraTransitionsPage.self, from: data).transitions.map(JiraTransition.init)
@@ -199,8 +207,8 @@ public final class JiraCloudClient: JiraClient {
             _ = try await send(Self.request(site: credentials.site, path: "rest/agile/1.0/sprint/\(sprint)/issue", method: "POST",
                                             json: ["issues": [key]], credentials: credentials))
         }
-        guard let issue = try await issues(keys: [key], credentials).first else { throw JiraClientError.invalidResponse("created \(key) but cannot read it back") }
-        return issue
+        // Not a search: the search index would not have the new issue yet.
+        return try await issue(key: key, credentials)
     }
 
     public func comment(_ key: String, body: String, _ credentials: JiraCredentials) async throws {

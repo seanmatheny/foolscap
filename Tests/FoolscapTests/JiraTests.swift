@@ -29,6 +29,10 @@ final class FakeJiraClient: JiraClient, @unchecked Sendable {
         keyQueries.append(keys)
         return keys.compactMap { byKey[$0] }
     }
+    func issue(key: String, _ credentials: JiraCredentials) async throws -> JiraIssue {
+        guard let issue = byKey[key] else { throw JiraClientError.rejected("no issue \(key)") }
+        return issue
+    }
     func transitions(for key: String, _ credentials: JiraCredentials) async throws -> [JiraTransition] { transitionsByKey[key] ?? [] }
     func transition(_ key: String, to transitionID: String, resolution: String?, _ credentials: JiraCredentials) async throws {
         if let rejectTransition { throw JiraClientError.rejected(rejectTransition) }
