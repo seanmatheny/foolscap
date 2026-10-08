@@ -27,7 +27,9 @@ struct JiraSettingsPane: View {
         TextField("Site", text: $site, prompt: Text("https://your-site.atlassian.net"))
         TextField("Email", text: $email, prompt: Text("you@example.com"))
         SecureField("API token", text: $token,
-                    prompt: Text(section.credentials == nil ? "Paste a token" : "Saved in the Keychain; paste to replace"))
+                    prompt: Text(section.credentials == nil ? "Paste a token; it goes into your Keychain" : "In your Keychain; paste to replace"))
+        Text("Save puts the token in the macOS login Keychain and keeps no copy: not in Foolscap's settings, its files or its backups. Foolscap reads it from the Keychain each time it syncs.")
+            .font(.caption).foregroundStyle(.secondary)
         HStack {
             Button("Save") {
                 do {
@@ -49,7 +51,7 @@ struct JiraSettingsPane: View {
         if let saveError { Text(saveError).font(.caption).foregroundStyle(.red) }
         HStack(spacing: 4) {
             Link("Create an API token", destination: URL(string: "https://id.atlassian.com/manage-profile/security/api-tokens")!)
-            Text("at Atlassian. It is kept in the macOS Keychain, never in backups.")
+            Text("at Atlassian (one made for Foolscap, so it can be revoked on its own).")
         }
         .font(.caption).foregroundStyle(.secondary)
         Picker("Check Jira", selection: $syncMinutes) {

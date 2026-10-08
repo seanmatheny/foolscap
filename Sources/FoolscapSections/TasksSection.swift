@@ -462,6 +462,14 @@ struct TaskRow: View {
             }
             // Kept mounted (just invisible) so a popover anchored here survives the pointer leaving the row.
             HStack(spacing: 8) {
+                // In and out of Today: the sun takes a task there, the moon sends it back to To do.
+                if task.status == .today {
+                    Button { onSetStatus(.notStarted) } label: { Image(systemName: "moon").font(.system(size: 11)) }
+                        .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help("Back to To do")
+                } else if task.status != .completed {
+                    Button { onSetStatus(.today) } label: { Image(systemName: "sun.max").font(.system(size: 11)) }
+                        .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help("Do today")
+                }
                 Button { editing = true } label: { Image(systemName: "pencil").font(.system(size: 11)) }
                     .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help("Edit (double-click)")
                     .popover(isPresented: $editing, arrowEdge: .bottom) {

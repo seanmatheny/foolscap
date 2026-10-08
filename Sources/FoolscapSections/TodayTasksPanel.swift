@@ -34,8 +34,6 @@ struct TodayTasksPanel: View {
     @State private var shown: Set<String> = []
     private var pitch: CGFloat { theme.linePitch }
     private var scale: CGFloat { theme.type.body.size / 15 }
-    /// Rows shown before the list scrolls inside its frame.
-    static let rowLimit = 8
 
     var body: some View {
         let tasks = TodayTasks.select(from: aggregator.tasks, today: .today, keep: shown)
@@ -57,12 +55,9 @@ struct TodayTasksPanel: View {
                         Text("\(open)").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
                     }
                     .frame(height: pitch)
-                    if tasks.count > Self.rowLimit {
-                        ScrollView { rows(tasks, allTags: allTags) }
-                            .frame(height: pitch * CGFloat(Self.rowLimit))
-                    } else {
-                        rows(tasks, allTags: allTags)
-                    }
+                    // Every row, however many: a list that scrolled inside the
+                    // page hid the ones below the fold.
+                    rows(tasks, allTags: allTags)
                 }
                 .foregroundStyle(theme.ink.color)
             }

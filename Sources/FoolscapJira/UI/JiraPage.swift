@@ -138,10 +138,14 @@ struct JiraIssueRow: View {
                 .font(.system(size: 14.5 * scale, design: .serif))
                 .lineLimit(1)
             if let parent = issue.parentSummary {
+                // The epic, as a chip in Jira's purple.
                 Text(parent)
-                    .font(.system(size: 11 * scale, design: .serif)).italic()
-                    .foregroundStyle(theme.dimInk.color)
+                    .font(.system(size: 10.5 * scale, weight: .medium, design: .serif))
+                    .foregroundStyle(theme.isDark ? Color(red: 0.80, green: 0.74, blue: 0.95) : Color(red: 0.36, green: 0.24, blue: 0.62))
                     .lineLimit(1)
+                    .padding(.horizontal, 7).padding(.vertical, 1.5)
+                    .background(Capsule().fill(Color(red: 0.49, green: 0.37, blue: 0.80).opacity(theme.isDark ? 0.28 : 0.16)))
+                    .help("Epic: \(parent)")
             }
             Spacer(minLength: 8)
             if let due = issue.dueDate {
