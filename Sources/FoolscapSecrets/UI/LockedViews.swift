@@ -41,7 +41,9 @@ struct LockedView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(unlocking)
-                .keyboardShortcut(.defaultAction)
+                // Return asks for Touch ID, except while the passphrase field is up: there it
+                // must submit the field, or a typed passphrase fires Touch ID instead.
+                .keyboardShortcut(showPassphrase ? nil : .defaultAction)
                 if unlocking { ProgressView().controlSize(.small) }
                 Button("Use the recovery passphrase") { showPassphrase.toggle(); passphraseFocused = showPassphrase }
                     .buttonStyle(.plain)
