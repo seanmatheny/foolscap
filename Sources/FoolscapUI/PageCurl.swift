@@ -138,11 +138,15 @@ final class PageSnapshotView: NSView {
         guard let primary = NSScreen.screens.first else { return nil }
         let quartz = CGRect(x: screenRect.minX, y: primary.frame.maxY - screenRect.maxY, width: screenRect.width, height: screenRect.height)
         let includingWindow: UInt32 = 1 << 3, ignoreFraming: UInt32 = 1 << 0, bestResolution: UInt32 = 1 << 3
-        guard let image = windowImage(quartz, includingWindow, UInt32(window.windowNumber), ignoreFraming | bestResolution)?.takeRetainedValue(),
-              image.width > 1, image.height > 1, Self.hasContent(image) else {
+        let asked = CACurrentMediaTime()
+        let shot = windowImage(quartz, includingWindow, UInt32(window.windowNumber), ignoreFraming | bestResolution)?.takeRetainedValue()
+        if pageTurnLogging { NSLog("Foolscap turn: window server %.1f ms", (CACurrentMediaTime() - asked) * 1000) }
+        guard let image = shot, image.width > 1, image.height > 1 else {
             if pageTurnLogging { NSLog("Foolscap turn: the window server gave no photograph; drawing instead") }
             return nil
         }
+        // Whether the photograph has anything in it is checked on the curl's thread
+        // (`PageCurlAnimator.hasContent`): reading the bytes copies them, 30 ms here.
         return image
     }
 
@@ -154,18 +158,6 @@ final class PageSnapshotView: NSView {
         return rep.cgImage
     }
 
-    /// Without leave to read the window, the window server hands back an empty
-    /// image; a page always has something in the middle.
-    private static func hasContent(_ image: CGImage) -> Bool {
-        guard image.bitsPerPixel == 32, let data = image.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else { return true }
-        let length = CFDataGetLength(data)
-        for (fx, fy) in [(0.5, 0.5), (0.2, 0.2), (0.8, 0.8)] {
-            let offset = Int(Double(image.height) * fy) * image.bytesPerRow + Int(Double(image.width) * fx) * 4
-            guard offset + 4 <= length else { continue }
-            if (0..<4).contains(where: { bytes[offset + $0] != 0 }) { return true }
-        }
-        return false
-    }
 }
 
 /// A page in flight: a transparent child window over the notebook, clipped to

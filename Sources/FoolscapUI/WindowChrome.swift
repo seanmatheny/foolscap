@@ -27,10 +27,11 @@ public struct NotebookWindowChrome: NSViewRepresentable {
         view.coverColor = coverColor
         view.configureIfNeeded()
         // The window server recomputes the whole window's shadow on each
-        // invalidation: only when the outline (selected tab, tab edge) changed.
+        // invalidation: only when the outline (selected tab, tab edge) changed, and
+        // not in the first frames of the page turn that a tab change starts.
         guard context.coordinator.lastShape != shapeVersion else { return }
         context.coordinator.lastShape = shapeVersion
-        DispatchQueue.main.async { view.window?.invalidateShadow() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) { view.window?.invalidateShadow() }
     }
 
     /// Answers the full-screen presentation question for SwiftUI's own window

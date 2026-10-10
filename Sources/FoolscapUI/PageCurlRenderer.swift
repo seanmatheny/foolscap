@@ -167,7 +167,13 @@ enum PageCurlRenderer {
 /// display. The main thread is free the whole time, so the new page can be
 /// built underneath without the curl stopping for it, and the curl starts the
 /// moment it is asked for.
-final class PageCurlAnimator: @unchecked Sendable {
+///
+/// Frames come from a `CAMetalDisplayLink` run on the curl's thread: it hands over
+/// a drawable per display refresh and carries the request for the display's full
+/// rate (a ProMotion panel sits at 60–80 Hz unless the content that draws asks for
+/// 120; `nextDrawable` alone asks for nothing). Should the link not fire, the old
+/// `nextDrawable` loop plays the turn instead.
+final class PageCurlAnimator: NSObject, CAMetalDisplayLinkDelegate, @unchecked Sendable {
     struct Frame: Sendable {
         var origin: CGPoint      // the page's top-left in the layer, in points
         var size: CGSize         // the page, in points
@@ -184,6 +190,11 @@ final class PageCurlAnimator: @unchecked Sendable {
     private let frame: Frame
     private let lock = NSLock()
     private var cancelled = false
+    // The curl thread's own: the texture, the clock and the frame count.
+    private var texture: MTLTexture?
+    private var started: CFTimeInterval = 0
+    private var frames = 0
+    private var finished = false
 
     init(pipeline: PageCurlRenderer.Pipeline, layer: CAMetalLayer, image: CGImage, frame: Frame) {
         self.pipeline = pipeline; self.layer = layer; self.image = image; self.frame = frame
@@ -202,27 +213,69 @@ final class PageCurlAnimator: @unchecked Sendable {
 
     func cancel() { lock.withLock { cancelled = true } }
 
+    private var isCancelled: Bool { lock.withLock { cancelled } }
+
     private func run() {
         let begun = CACurrentMediaTime()
-        guard let texture = Self.makeTexture(from: image, pipeline: pipeline) else { return }
-        if pageTurnLogging { NSLog("Foolscap turn: texture %.1f ms", (CACurrentMediaTime() - begun) * 1000) }
-        let start = CACurrentMediaTime()
-        var frames = 0
-        while !lock.withLock({ cancelled }) {
-            let x = min(1, (CACurrentMediaTime() - start) / frame.duration)
-            let progress = PageTurnPace.eased(x)
-            autoreleasepool { draw(progress: progress, texture: texture) }
-            frames += 1
-            if pageTurnLogging, frames == 1 { NSLog("Foolscap turn: first frame %.1f ms after the texture began", (CACurrentMediaTime() - begun) * 1000) }
-            if x >= 1 { break }
+        // Without leave to read the window the window server hands back an empty image:
+        // then there is nothing to curl and the page simply changes underneath.
+        guard Self.hasContent(image), let texture = Self.makeTexture(from: image, pipeline: pipeline) else {
+            if pageTurnLogging { NSLog("Foolscap turn: empty photograph, no curl") }
+            return
         }
-        if pageTurnLogging { NSLog("Foolscap turn: %d frames in %.0f ms", frames, (CACurrentMediaTime() - start) * 1000) }
+        self.texture = texture
+        if pageTurnLogging { NSLog("Foolscap turn: texture %.1f ms", (CACurrentMediaTime() - begun) * 1000) }
+        let link = CAMetalDisplayLink(metalLayer: layer)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        link.preferredFrameLatency = 1
+        link.delegate = self
+        link.add(to: .current, forMode: .default)
+        started = CACurrentMediaTime()
+        // The link calls back on this run loop; a link that never fires (nothing
+        // on screen yet) hands over to the polling loop after a few frames' worth.
+        while !finished, !isCancelled {
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            if frames == 0, CACurrentMediaTime() - started > 0.1 { break }
+        }
+        link.invalidate()
+        if frames == 0, !isCancelled {
+            if pageTurnLogging { NSLog("Foolscap turn: the display link did not fire; polling") }
+            runPolling(texture: texture, begun: begun)
+            return
+        }
+        if pageTurnLogging { NSLog("Foolscap turn: %d frames in %.0f ms (display link)", frames, (CACurrentMediaTime() - started) * 1000) }
     }
 
-    /// One frame. `nextDrawable` waits for a free drawable, which paces the
-    /// loop to the display.
-    private func draw(progress: Double, texture: MTLTexture) {
-        guard let drawable = layer.nextDrawable(), let command = pipeline.queue.makeCommandBuffer() else { return }
+    func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
+        guard let texture, !finished, !isCancelled else { return }
+        // Progress at the moment this frame will be on screen.
+        let x = min(1, max(0, (update.targetTimestamp - started) / frame.duration))
+        autoreleasepool { draw(progress: PageTurnPace.eased(x), drawable: update.drawable, texture: texture) }
+        frames += 1
+        if pageTurnLogging, frames == 1 { NSLog("Foolscap turn: first frame %.1f ms after the clock started", (CACurrentMediaTime() - started) * 1000) }
+        if x >= 1 { finished = true }
+    }
+
+    /// The fallback: `nextDrawable` waits for a free drawable, which paces the
+    /// loop to the display at whatever rate it is running.
+    private func runPolling(texture: MTLTexture, begun: CFTimeInterval) {
+        let start = CACurrentMediaTime()
+        var frames = 0
+        while !isCancelled {
+            let x = min(1, (CACurrentMediaTime() - start) / frame.duration)
+            let progress = PageTurnPace.eased(x)
+            autoreleasepool {
+                if let drawable = layer.nextDrawable() { draw(progress: progress, drawable: drawable, texture: texture) }
+            }
+            frames += 1
+            if x >= 1 { break }
+        }
+        if pageTurnLogging { NSLog("Foolscap turn: %d frames in %.0f ms (polling)", frames, (CACurrentMediaTime() - start) * 1000) }
+    }
+
+    /// One frame into `drawable`.
+    private func draw(progress: Double, drawable: CAMetalDrawable, texture: MTLTexture) {
+        guard let command = pipeline.queue.makeCommandBuffer() else { return }
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = drawable.texture
         pass.colorAttachments[0].loadAction = .clear
@@ -246,6 +299,19 @@ final class PageCurlAnimator: @unchecked Sendable {
         encoder.endEncoding()
         command.present(drawable)
         command.commit()
+    }
+
+    /// A page always has something in the middle; an all-zero photograph is the
+    /// window server refusing. Reads the bytes, so it runs here, not on the main thread.
+    private static func hasContent(_ image: CGImage) -> Bool {
+        guard image.bitsPerPixel == 32, let data = image.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else { return true }
+        let length = CFDataGetLength(data)
+        for (fx, fy) in [(0.5, 0.5), (0.2, 0.2), (0.8, 0.8)] {
+            let offset = Int(Double(image.height) * fy) * image.bytesPerRow + Int(Double(image.width) * fx) * 4
+            guard offset + 4 <= length else { continue }
+            if (0..<4).contains(where: { bytes[offset + $0] != 0 }) { return true }
+        }
+        return false
     }
 
     /// The photograph as a texture. Its bytes go straight in when they are

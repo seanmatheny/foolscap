@@ -157,23 +157,31 @@ struct RootView: View {
             }
         }
         .overlay { CoverOpeningOverlay() }
-        .overlay(alignment: .top) {
-            if model.search.isPresented {
-                ZStack(alignment: .top) {
-                    Color.black.opacity(0.001).contentShape(Rectangle())
-                        .onTapGesture { model.search.isPresented = false }
-                    SearchPalette(coordinator: model.search).padding(.top, 70)
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .animation(.easeOut(duration: 0.15), value: model.search.isPresented)
+        .overlay(alignment: .top) { SearchOverlay(coordinator: model.search) }
         .sheet(isPresented: $model.showExport) {
             if let library = model.library {
                 ExportPanel(library: library, currentDay: model.dailyNotes?.selectedDay ?? .today)
                     .environment(\.notebookTheme, model.theme)
             }
         }
+    }
+}
+
+/// The search palette over the notebook. A view of its own so that opening and
+/// closing it re-renders this, not `RootView` and the whole notebook under it.
+struct SearchOverlay: View {
+    @Bindable var coordinator: SearchCoordinator
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            if coordinator.isPresented {
+                Color.black.opacity(0.001).contentShape(Rectangle())
+                    .onTapGesture { coordinator.isPresented = false }
+                SearchPalette(coordinator: coordinator).padding(.top, 70)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: coordinator.isPresented)
     }
 }
 

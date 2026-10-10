@@ -10,7 +10,7 @@ public struct MarkdownEditor: NSViewRepresentable {
     let revealLine: Int?
     /// Known tags, most used first, for `#` completion while typing.
     let tags: () -> [String]
-    /// Laid under the note's opening heading, on the ruling (today's #today tasks).
+    /// Laid under the note's opening heading, on the ruling (today's Today-status tasks).
     let header: AnyView?
     /// Laid after the note's last line (the day's handwritten pages).
     let footer: AnyView?
@@ -54,25 +54,40 @@ public struct MarkdownEditor: NSViewRepresentable {
         context.coordinator.textView = textView
         updateHeader(textView)
         updateFooter(textView)
+        context.coordinator.hostedHeader = header != nil
+        context.coordinator.hostedFooter = footer != nil
         DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         return scroll
     }
 
     public func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView else { return }
-        let palette = EditorPalette(theme: theme)
         textView.knownTags = tags
-        textView.palette.theme = theme
-        updateHeader(textView)
-        updateFooter(textView)
-        if palette.body != textView.palette.body || palette.ink != textView.palette.ink || palette.ruling != textView.palette.ruling
-            || palette.showMarginRule != textView.palette.showMarginRule {
-            textView.palette = palette
-            textView.applyPalette()
-            textView.restyleAll()
-            // The header's room is counted in ruled lines, whose pitch may have changed.
-            textView.refreshOverlays()
-            scroll.appearance = NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
+        // SwiftUI calls this whenever anything above re-renders (a hover over the leather,
+        // the search palette opening); the fonts and the hosted views are only rebuilt
+        // when the theme changed or a header/footer came or went. The hosted views
+        // observe their own models, and a day change makes a new editor altogether.
+        let themeChanged = textView.palette.theme != theme
+        if themeChanged || context.coordinator.hostedHeader != (header != nil) {
+            updateHeader(textView)
+            context.coordinator.hostedHeader = header != nil
+        }
+        if themeChanged || context.coordinator.hostedFooter != (footer != nil) {
+            updateFooter(textView)
+            context.coordinator.hostedFooter = footer != nil
+        }
+        if themeChanged {
+            let palette = EditorPalette(theme: theme)
+            textView.palette.theme = theme
+            if palette.body != textView.palette.body || palette.ink != textView.palette.ink || palette.ruling != textView.palette.ruling
+                || palette.showMarginRule != textView.palette.showMarginRule {
+                textView.palette = palette
+                textView.applyPalette()
+                textView.restyleAll()
+                // The header's room is counted in ruled lines, whose pitch may have changed.
+                textView.refreshOverlays()
+                scroll.appearance = NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
+            }
         }
         if let line = revealLine, context.coordinator.revealedLine != line {
             context.coordinator.revealedLine = line
@@ -137,6 +152,9 @@ public struct MarkdownEditor: NSViewRepresentable {
     public final class Coordinator: NSObject, NSTextViewDelegate {
         var textView: MarkdownTextView?
         var revealedLine: Int?
+        /// Whether a header/footer is hosted, so a re-render without one coming or going
+        /// leaves the hosted views alone.
+        var hostedHeader = false, hostedFooter = false
         let onEdit: () -> Void
         init(onEdit: @escaping () -> Void) { self.onEdit = onEdit }
 

@@ -90,7 +90,6 @@ public struct NotebookView<Page: View>: View {
     }
 
     public var body: some View {
-        let windowState = WindowState.shared
         let tabsLeft = tabEdge == .left
         let open = shown ?? selection
         CoverBlock {
@@ -145,14 +144,8 @@ public struct NotebookView<Page: View>: View {
                 // The cover's jester, stamped in the leather's corner on the tabs' side,
                 // centred between the page, the first tab and the stitching. With the tabs
                 // on the left that corner is the window buttons', so it steps aside for them.
-                Embossed(depth: 0.8) { JesterShape() }
-                    .frame(width: NotebookMetrics.stampSize, height: NotebookMetrics.stampSize)
-                    .padding(.top, NotebookMetrics.stampCentre.y - NotebookMetrics.stampSize / 2)
-                    .padding(tabsLeft ? .leading : .trailing, NotebookMetrics.stampCentre.x - NotebookMetrics.stampSize / 2)
+                CoverStamp(tabsLeft: tabsLeft)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topLeading : .topTrailing)
-                    .opacity(tabsLeft && windowState.trafficLightsShown ? 0 : 1)
-                    .animation(.easeInOut(duration: 0.18), value: windowState.trafficLightsShown)
-                    .allowsHitTesting(false)
                 // Leather band above the page: reveals the traffic lights and drags the window.
                 TrafficLightHoverZone()
                     .frame(height: NotebookMetrics.topMargin)
@@ -161,7 +154,7 @@ public struct NotebookView<Page: View>: View {
             }
             // In full screen on a notched display the cover runs under the camera housing;
             // the page stays below it.
-            .padding(.top, windowState.fullScreenTopInset)
+            .modifier(FullScreenTopInset())
         }
         .background(NotebookWindowChrome(shapeVersion: "\(selection)-\(tabEdge.rawValue)", coverColor: theme.cover.baseColor.nsColor))
         .ignoresSafeArea()
@@ -196,6 +189,30 @@ public struct NotebookView<Page: View>: View {
         let slow = ProcessInfo.processInfo.environment["FOOLSCAP_SLOW_OPEN"] != nil ? 4.0 : 1.0
         _ = anchor.curl(image, style: PageCurlStyle.random(from: edge), spineOnRight: tabEdge == .left,
                         paper: theme.page.paperColor, duration: 0.55 * slow)
+    }
+}
+
+/// The jester stamped in the leather. It, and not the notebook, watches the window
+/// state: a hover over the leather band (the drag handle) flips `trafficLightsShown`,
+/// and that must not re-evaluate the whole notebook down to the editor.
+struct CoverStamp: View {
+    let tabsLeft: Bool
+    var body: some View {
+        let shown = WindowState.shared.trafficLightsShown
+        Embossed(depth: 0.8) { JesterShape() }
+            .frame(width: NotebookMetrics.stampSize, height: NotebookMetrics.stampSize)
+            .padding(.top, NotebookMetrics.stampCentre.y - NotebookMetrics.stampSize / 2)
+            .padding(tabsLeft ? .leading : .trailing, NotebookMetrics.stampCentre.x - NotebookMetrics.stampSize / 2)
+            .opacity(tabsLeft && shown ? 0 : 1)
+            .animation(.easeInOut(duration: 0.18), value: shown)
+            .allowsHitTesting(false)
+    }
+}
+
+/// The full-screen inset, read here rather than in the notebook's body for the same reason.
+struct FullScreenTopInset: ViewModifier {
+    func body(content: Content) -> some View {
+        content.padding(.top, WindowState.shared.fullScreenTopInset)
     }
 }
 

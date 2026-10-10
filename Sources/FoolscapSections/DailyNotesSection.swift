@@ -123,8 +123,9 @@ struct DailyNotesPage: View {
                 MarkdownEditor(document: document, revealLine: section.pendingLine,
                                tags: { [library = section.library] in library.knownTags },
                                header: todayHeader, footer: appendix) { section.library.scheduleSave() }
-                    // Keyed on the library generation too: a folder switch or a restore replaces every document.
-                    .id("\(document.path)/\(section.library.generation)")
+                    // Keyed on the library generation too: a folder switch or a restore replaces every
+                    // document. And on the day-pages providers: the footer takes them by value.
+                    .id("\(document.path)/\(section.library.generation)/\(section.dayPagesProviders.count)")
                     .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
                                             removal: .opacity))
             }
