@@ -88,7 +88,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FoolscapTests",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira", "FoolscapSecrets"]
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira", "FoolscapSecrets"]
         ),
     ]
 )

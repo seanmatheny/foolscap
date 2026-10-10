@@ -38,21 +38,38 @@ public struct PaperTab: View {
     let index: Int
     /// The tab's extent along the page edge (all tabs share the longest label's).
     let length: CGFloat
+    /// Icon only, for a page too short to carry every label.
+    let compact: Bool
     @State private var hovering = false
 
-    public init(appearance: TabAppearance, color: RGBA, isSelected: Bool, index: Int, length: CGFloat? = nil) {
+    public init(appearance: TabAppearance, color: RGBA, isSelected: Bool, index: Int, length: CGFloat? = nil, compact: Bool = false) {
         self.appearance = appearance; self.color = color; self.isSelected = isSelected; self.index = index
-        self.length = length ?? PaperTab.length(for: appearance)
+        self.compact = compact
+        self.length = length ?? (compact ? PaperTab.compactLength : PaperTab.length(for: appearance))
     }
 
     /// Visible width of the tab beyond the page edge.
     static let width: CGFloat = 30
     /// How far the tab reaches under the page.
     static let root: CGFloat = 10
+    /// Between one tab and the next along the edge.
+    public static let spacing: CGFloat = 10
+    /// A tab showing only its icon.
+    public static let compactLength: CGFloat = 40
 
     /// How long a tab needs to be for its label.
-    public static func length(for appearance: TabAppearance) -> CGFloat {
+    nonisolated public static func length(for appearance: TabAppearance) -> CGFloat {
         CGFloat(appearance.label.count) * 7.2 + 44 + (appearance.systemImage == nil ? 0 : 14)
+    }
+
+    /// The length every tab in a set takes: the longest label's, or, when that many
+    /// would run past the page's bottom edge, the icon-only length. `available` is
+    /// the page's height below the first tab; 0 (not yet measured) keeps the labels.
+    nonisolated public static func length(for appearances: [TabAppearance], available: CGFloat) -> (length: CGFloat, compact: Bool) {
+        let full = appearances.map { length(for: $0) }.max() ?? length(for: TabAppearance(label: "Tasks"))
+        guard available > 0, !appearances.isEmpty else { return (full, false) }
+        let needed = full * CGFloat(appearances.count) + spacing * CGFloat(appearances.count - 1)
+        return needed > available ? (compactLength, true) : (full, false)
     }
 
     public var body: some View {
@@ -70,26 +87,38 @@ public struct PaperTab: View {
             }
             .clipShape(shape)
             shape.stroke(Color.black.opacity(0.22), lineWidth: 0.5)
-            // On the right the label reads top to bottom; on the left, bottom to top
-            // (like a book spine), with the icon kept at the top either way.
-            HStack(spacing: 5) {
-                if !left, let s = appearance.systemImage { Image(systemName: s).font(.system(size: 10, weight: .semibold)) }
-                Text(appearance.label).font(.system(size: 11.5, weight: .semibold, design: .serif)).lineLimit(1)
-                if left, let s = appearance.systemImage { Image(systemName: s).font(.system(size: 10, weight: .semibold)) }
+            if compact {
+                // Icon only, upright; a tab with no icon shows its initial.
+                Group {
+                    if let s = appearance.systemImage { Image(systemName: s).font(.system(size: 12, weight: .semibold)) }
+                    else { Text(String(appearance.label.prefix(1))).font(.system(size: 12.5, weight: .semibold, design: .serif)) }
+                }
+                .foregroundStyle(Color.black.opacity(0.72))
+                .frame(width: 1, height: 1)
+                .offset(x: left ? -Self.root / 2 : Self.root / 2)
+            } else {
+                // On the right the label reads top to bottom; on the left, bottom to top
+                // (like a book spine), with the icon kept at the top either way.
+                HStack(spacing: 5) {
+                    if !left, let s = appearance.systemImage { Image(systemName: s).font(.system(size: 10, weight: .semibold)) }
+                    Text(appearance.label).font(.system(size: 11.5, weight: .semibold, design: .serif)).lineLimit(1)
+                    if left, let s = appearance.systemImage { Image(systemName: s).font(.system(size: 10, weight: .semibold)) }
+                }
+                .fixedSize()
+                .foregroundStyle(Color.black.opacity(0.72))
+                .rotationEffect(.degrees(left ? -90 : 90))
+                // Rotation does not change the layout footprint: collapse it so the
+                // label's unrotated width cannot widen (and shift) the tab.
+                .frame(width: 1, height: 1)
+                .offset(x: left ? -Self.root / 2 : Self.root / 2)
             }
-            .fixedSize()
-            .foregroundStyle(Color.black.opacity(0.72))
-            .rotationEffect(.degrees(left ? -90 : 90))
-            // Rotation does not change the layout footprint: collapse it so the
-            // label's unrotated width cannot widen (and shift) the tab.
-            .frame(width: 1, height: 1)
-            .offset(x: left ? -Self.root / 2 : Self.root / 2)
         }
         .frame(width: Self.width + Self.root, height: length)
         .offset(x: left ? tuck : -tuck)
         .opacity(isSelected ? 1 : 0.86)
         .shadow(color: .black.opacity(isSelected ? 0.35 : 0.2), radius: isSelected ? 3 : 1.5, x: left ? -1.5 : 1.5, y: 1)
         .contentShape(shape)
+        .help(compact ? appearance.label : "")
         .onHover { hovering = $0 }
         .animation(.spring(duration: 0.22), value: isSelected)
         .animation(.easeOut(duration: 0.12), value: hovering)

@@ -400,15 +400,17 @@ struct IndexTabsView: View {
     var select: (String, CGFloat) -> Void
 
     var body: some View {
-        // Every tab is as long as the longest label, so the row reads as one set.
-        let length = tabs.map { PaperTab.length(for: $0.appearance) }.max() ?? PaperTab.length(for: TabAppearance(label: "Tasks"))
-        VStack(alignment: tabEdge == .left ? .leading : .trailing, spacing: 10) {
+        // Every tab is as long as the longest label, so the row reads as one set;
+        // when the page is too short for them all, every tab shrinks to its icon.
+        let fit = PaperTab.length(for: tabs.map(\.appearance), available: pageHeight - NotebookMetrics.firstTabOffset)
+        VStack(alignment: tabEdge == .left ? .leading : .trailing, spacing: PaperTab.spacing) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
                 PaperTab(appearance: tab.appearance,
                          color: theme.tabColor(at: tab.appearance.colorIndex ?? index),
                          isSelected: tab.id == selection,
                          index: index,
-                         length: length)
+                         length: fit.length,
+                         compact: fit.compact)
                     .onTapGesture(coordinateSpace: .named("page")) { location in
                         select(tab.id, location.y / max(1, pageHeight))
                     }
@@ -418,6 +420,7 @@ struct IndexTabsView: View {
             Spacer()
         }
         .onGeometryChange(for: CGFloat.self) { proxy in proxy.bounds(of: .named("page"))?.height ?? 0 } action: { pageHeight = $0 }
+        .animation(.easeOut(duration: 0.18), value: fit.compact)
     }
 
     @State private var pageHeight: CGFloat = 0
