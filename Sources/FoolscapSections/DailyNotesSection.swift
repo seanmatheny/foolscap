@@ -21,6 +21,8 @@ public final class DailyNotesSection: NotebookSection {
     public var dayPagesProviders: [any DayPagesProvider] = []
     /// Opens another section at a route (a Scribe page from the appendix).
     @ObservationIgnored public var openRoute: ((String, SectionRoute) -> Void)?
+    /// Opens the notebook search (the palette ⇧⌘F shows), from the page's search capsule.
+    @ObservationIgnored public var openSearch: (() -> Void)?
 
     @ObservationIgnored private let _taskProvider: DailyNotesTaskProvider
     @ObservationIgnored private let _searchProvider: DailyNotesSearchProvider
@@ -126,9 +128,12 @@ struct DailyNotesPage: View {
                     .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
                                             removal: .opacity))
             }
-            DayNavigator(section: section, showCalendar: $showCalendar)
-                .padding(.top, 8)
-                .padding(.trailing, 44)
+            HStack(spacing: 8) {
+                SearchCapsule { section.openSearch?() }
+                DayNavigator(section: section, showCalendar: $showCalendar)
+            }
+            .padding(.top, 8)
+            .padding(.trailing, 44)
             if let document {
                 if document.isDownloading {
                     Text("Downloading from iCloud…")
@@ -155,6 +160,31 @@ struct DailyNotesPage: View {
             // change never re-checks every day visited this session.
             library.releaseDocuments(except: [doc.path, NotesFolder.tasksFileName])
         }
+    }
+}
+
+/// Looks like a search field, opens the notebook search palette (⇧⌘F), which has
+/// the real one: words and `#tags` across every day's note and task.
+struct SearchCapsule: View {
+    @Environment(\.notebookTheme) private var theme
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold))
+                Text("Search notes and #tags").font(.system(size: 12, design: .serif))
+            }
+            .foregroundStyle(theme.ink.color.opacity(hovering ? 0.75 : 0.5))
+            .padding(.horizontal, 10).frame(height: 24)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 4)
+        .background(Capsule().fill(theme.page.paperColor.color.opacity(0.85)).shadow(color: .black.opacity(0.08), radius: 2, y: 1))
+        .overlay(Capsule().stroke(theme.ink.color.opacity(hovering ? 0.2 : 0.1), lineWidth: 0.5))
+        .onHover { hovering = $0 }
+        .help("Search every day's notes and tasks (⇧⌘F)")
     }
 }
 

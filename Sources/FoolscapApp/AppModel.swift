@@ -92,6 +92,7 @@ final class AppModel {
                 daily.navigate(to: route)
             }
             daily.taskAggregator = tasks.aggregator
+            daily.openSearch = { [weak self] in self?.search.open() }
             daily.openRoute = { [weak self] sectionID, route in
                 guard let self else { return }
                 self.selectedSectionID = sectionID
