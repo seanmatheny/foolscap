@@ -7,7 +7,8 @@
 - Build with `make app-debug` / `make test`, never bare `swift`: `swift` on PATH is
   python-swiftclient. The Makefile uses Xcode's toolchain (`DEVELOPER_DIR`) when
   its licence is accepted, else the Command Line Tools plus Xcode's macro plugins.
-  Xcode is not installed (disk space): SwiftUI's `@State` macro plugin
+  Xcode 27.0 and its Metal Toolchain are installed (since 2026-10-10, for the MLX
+  helper). If Xcode is ever removed again: SwiftUI's `@State` macro plugin
   (`libSwiftUIMacros.dylib`) ships only inside Xcode, so a copy of Xcode's
   `…/MacOSX.platform/Developer/usr/lib/swift/host/plugins` lives in
   `~/bin/Xcode/plugins` (`SAVED_PLUGINS` in the Makefile). It must match the
@@ -44,7 +45,11 @@
   captures it), `--backup=file.zip` and `--restore=file.zip` (no confirmation).
   Always use the `flag=value` form with `open Foolscap.app --args …`: a bare
   value argument (a date, a path, any word) makes AppKit treat the launch as
-  "open these files" and the main window never appears; `Tools/winlist.swift`
+  "open these files" and the main window never appears. A launch with no window and
+  the main thread sampling inside `JiraSection.start → KeychainTokenStore` is not that:
+  it is a keychain prompt (a SecurityAgent window, not Foolscap's) for the Jira token
+  waiting for a click; a debug build asks after a rebuild until "Always Allow" is
+  chosen. Sean must be at the keyboard, or the launch sits there until killed; `Tools/winlist.swift`
   then lists no Foolscap window. `Tools/window-shot.sh Foolscap out.png all`
   captures every window. Synthetic mouse events are ignored (no Accessibility
   grant), so hover and drag behaviour can only be checked by the user.
@@ -161,6 +166,36 @@
   rescan purge drops the rows when off). Files: `Scribe/<Folder>/<Notebook>.pdf`
   + `.md` in the notes folder; state and OCR cache in Application Support/Foolscap/Scribe.
   The transcript markdown is what the page renders (`ScribeTranscript.parse`).
+- Handwriting engines (`OCREngine`, `scribeOCREngine` default "vision"|"vlm"): Apple Vision
+  in `scribe-ocr`, or Qwen3-VL-8B (4-bit, 5.8 GB) in `Contents/MacOS/scribe-vlm`
+  (`Helpers/scribe-vlm`, a package of its own on `mlx-swift-lm`; page rendering shared with
+  `scribe-ocr` through `Helpers/ScribeRaster`). MLX's Metal library is only built by Xcode's
+  build system, so `make scribe-vlm` runs `xcodebuild` into `.build/xcode` and needs Xcode
+  plus its Metal Toolchain component (`xcodebuild -downloadComponent MetalToolchain`); the
+  Makefile skips it otherwise and the app falls back to Vision, saying so in the status
+  line. The helper is JSON-on-stdout like `scribe-ocr` (`recognise <pdf> --pages 1,4
+  --model <hf id>`, `download`, `status`; progress lines on stderr) and downloads weights
+  into Application Support/Foolscap/Scribe/Models (Hugging Face cache layout; the Settings
+  pane's Download button streams it; the helper's URLSession has 15 min request timeouts
+  and four attempts because the default 60 s one died mid-shard on the CDN, and a shard can
+  also be fetched by hand with `curl -C -` into `blobs/<lfs sha256>` plus a relative symlink
+  in `snapshots/<rev>/`). "Installed" means every `-of-N` shard is present and non-empty;
+  the repo's `model.safetensors.index.json` is ignored because mlx-community's is stale.
+  `xcodebuild` needs `-skipMacroValidation` (mlx-swift-lm's macros) and the scheme is the
+  package name `scribe-vlm`. `VLMOCRRunner` hashes each page's pixels and keeps
+  readings per page (`OCRPageCache`, `Scribe/OCR/pages`), so an edited page costs one
+  page at ~1 min, and maps lines to `OCRObservation`s with synthetic boxes so
+  `ScribeLayout`/`ScribeTodos` run unchanged (a blank line doubles the pitch → paragraph).
+  Engine, prompt (`OCREngine.vlmPromptVersion`, bump with the helper's instructions) and
+  page scale (`vlmMaxSide` 1653: two thirds read as well as full size, a fifth faster)
+  are in the OCR cache key and transcript key, so switching re-reads every notebook once.
+  Bake-off 2026-10-10 (order-insensitive WER vs draft truth): Vision 49%, Apple FM 32%,
+  Qwen3-VL-8B 15.5% at 12 s/page, Qwen3-VL-4B 18% at 7 s/page.
+  `-scribeOCREngine vlm` in the argument domain forces it for a launch. The bake-off that
+  chose the model: `Tools/scribe-bakeoff.py` over `Bakeoff/` (gitignored real pages with
+  Sean's corrected transcripts; `Tools/scribe-page-png.js` renders a page). Apple's
+  on-device Foundation Model with image input was tried and rejected (fluent, half the
+  words invented); PencilKit's `PKStrokeRecognizer` needs pen strokes (USB `nbk` files).
 - OCR runs in the bundled helper `Contents/MacOS/scribe-ocr` (target `FoolscapScribeOCR`,
   the verbatim tool from KindleScribeSync-mac) via `Process`, so Vision's models
   unload after each run; drain both pipes off-thread or a long notebook deadlocks.
@@ -253,9 +288,9 @@
   `CAMetalLayer` (paced by `nextDrawable`), so the main thread building the new page
   never stalls it; a blank sheet of paper under the curl stands in for the new page
   until the notebook has drawn it. The shader is compiled from a Swift string at
-  runtime (`PageCurlRenderer.warmUp`): this Mac's Xcode 26 has no Metal toolchain
-  (`xcodebuild -downloadComponent MetalToolchain`), so a `.metal` file in a target
-  fails to build. `PageCurlStyle.random(from:)` picks the fold's lean from where
+  runtime (`PageCurlRenderer.warmUp`): written when this Mac had no Metal toolchain
+  (a `.metal` file in a target failed to build); the toolchain is installed now, but
+  `swift build` still cannot compile `.metal` files, only `xcodebuild` can. `PageCurlStyle.random(from:)` picks the fold's lean from where
   along the page's edge the click was, plus jitter and the roll's radius. Turns take
   0.55 s; `FOOLSCAP_SLOW_OPEN=1` slows them 4x and `FOOLSCAP_TURN_LOG=1` logs each
   stage's timing. The flyleaf curls the same way, rigidly (`PageTurnEffect`) when it

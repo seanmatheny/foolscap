@@ -17,6 +17,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-markdown.git", from: "0.6.0"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
+        // Page rendering shared with the MLX helper in Helpers/scribe-vlm.
+        .package(path: "Helpers/ScribeRaster"),
     ],
     targets: [
         // Platform-neutral models, protocols and markdown parsing helpers.
@@ -48,7 +50,7 @@ let package = Package(
         // Kindle Scribe section: Amazon sync, handwriting OCR, transcripts, TODO tasks.
         .target(
             name: "FoolscapScribe",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI"]
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI", .product(name: "ScribeRaster", package: "ScribeRaster")]
         ),
         // Kindle highlights section: the Kindle app's databases and book files read
         // natively (Calibre's KFX plugin out of process for KFX text), one markdown
@@ -68,6 +70,7 @@ let package = Package(
         // Vision's recognition models are unloaded again when a run finishes.
         .executableTarget(
             name: "FoolscapScribeOCR",
+            dependencies: [.product(name: "ScribeRaster", package: "ScribeRaster")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(

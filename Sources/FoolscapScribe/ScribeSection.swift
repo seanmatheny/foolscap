@@ -130,9 +130,96 @@ public final class ScribeSection: NotebookSection {
         return list.isEmpty ? Self.defaultLanguages : list
     }
 
-    /// Called by the settings pane after the interval changes.
+    /// The recogniser chosen in Settings (`scribeOCREngine`: "vision" or "vlm").
+    public var ocrEngine: OCREngine { OCREngine(defaultsValue: defaults.string(forKey: "scribeOCREngine")) }
+
+    /// Called by the settings pane after the interval or the engine changes.
     public func settingsChanged() {
         scheduler?.start(minutes: syncMinutes)
+        let (ocr, engine, fallback) = makeOCR()
+        Task { await self.engine?.configure(ocr: ocr, engine: engine, fallback: fallback) }
+        refreshModelStatus()
+    }
+
+    // MARK: Handwriting engine
+
+    /// Whether the VLM helper was bundled and its weights are on disk, for the pane.
+    public private(set) var vlmHelperAvailable = false
+    public private(set) var vlmModelInstalled = false
+    public private(set) var vlmModelBytes: Int64 = 0
+    /// Every model with files under Scribe/Models and its size, for the pane's delete buttons.
+    public private(set) var vlmModelsOnDisk: [(model: String, bytes: Int64)] = []
+    public private(set) var vlmDownloadProgress: String?
+    public private(set) var vlmDownloadError: String?
+    public var isDownloadingModel: Bool { downloadTask != nil }
+    @ObservationIgnored private var downloadTask: Task<Void, Never>?
+
+    public func refreshModelStatus() {
+        vlmHelperAvailable = VLMOCRRunner.locateHelper() != nil
+        let model = OCREngine.defaultVLMModel
+        vlmModelInstalled = VLMModelStore.isInstalled(model: model)
+        vlmModelBytes = vlmModelInstalled ? VLMModelStore.size(model: model) : 0
+        vlmModelsOnDisk = VLMModelStore.modelsOnDisk().map { ($0, VLMModelStore.size(model: $0)) }
+    }
+
+    /// Delete a model's weights to free the disk; they are downloaded again when
+    /// next needed. Refused while a sync could be reading with them or a download
+    /// is writing them.
+    public func deleteModel(_ model: String) {
+        guard !status.isRunning, !isDownloadingModel else { return }
+        do {
+            try VLMModelStore.remove(model: model)
+        } catch {
+            vlmDownloadError = "Could not delete \(OCREngine.shortName(model)): \(error.localizedDescription)"
+        }
+        refreshModelStatus()
+        if model == OCREngine.defaultVLMModel { settingsChanged() }
+    }
+
+    /// Fetch the default model's weights through the helper, reporting progress to the pane.
+    public func downloadModel() {
+        guard downloadTask == nil, let helper = VLMOCRRunner.locateHelper() else { return }
+        vlmDownloadError = nil
+        vlmDownloadProgress = "Starting…"
+        let model = OCREngine.defaultVLMModel
+        downloadTask = Task { [weak self] in
+            do {
+                try await VLMModelStore.download(model: model, helper: helper) { line in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        if line.hasPrefix("download ") { self.vlmDownloadProgress = "Downloading " + line.dropFirst(9) }
+                    }
+                }
+            } catch {
+                await MainActor.run { self?.vlmDownloadError = "\(error)" }
+            }
+            await MainActor.run {
+                guard let self else { return }
+                self.downloadTask = nil
+                self.vlmDownloadProgress = nil
+                self.refreshModelStatus()
+                self.settingsChanged()
+            }
+        }
+    }
+
+    /// The runner for the chosen engine, plus Vision as the fallback when the
+    /// chosen one is the VLM.
+    private func makeOCR() -> (any OCRRunning, OCREngine, (ocr: any OCRRunning, engine: OCREngine)?) {
+        let visionHelper = ProcessOCRRunner.locateHelper()
+        let vision: any OCRRunning = visionHelper.map { ProcessOCRRunner(helperURL: $0) } ?? MissingOCRRunner()
+        let engine = ocrEngine
+        guard case .localVLM(let model) = engine else { return (vision, .vision, nil) }
+        guard let helper = VLMOCRRunner.locateHelper() else { return (MissingOCRRunner(), engine, (vision, .vision)) }
+        let progress: @Sendable (String) -> Void = { [weak self] message in
+            Task { @MainActor in
+                guard let self, self.status.isRunning else { return }
+                self.status.phase = message
+            }
+        }
+        let runner = VLMOCRRunner(helperURL: helper, model: model, pageCache: OCRPageCache(directory: cacheDirectory.appendingPathComponent("pages", isDirectory: true)),
+                                  progress: progress)
+        return (runner, engine, (vision, .vision))
     }
 
     // MARK: Lifecycle
@@ -141,10 +228,10 @@ public final class ScribeSection: NotebookSection {
     /// shortly after launch; otherwise the page asks for a sign-in.
     public func start() {
         guard engine == nil else { return }
-        let helper = ProcessOCRRunner.locateHelper()
-        let ocr: any OCRRunning = helper.map { ProcessOCRRunner(helperURL: $0) } ?? MissingOCRRunner()
-        engine = ScribeSyncEngine(client: AmazonScribeClient(), ocr: ocr, cache: OCRCache(directory: cacheDirectory),
-                                  stateURL: stateURL, sink: LibraryTaskSink(library: library))
+        let (ocr, ocrEngine, fallback) = makeOCR()
+        engine = ScribeSyncEngine(client: AmazonScribeClient(), ocr: ocr, engine: ocrEngine, fallback: fallback,
+                                  cache: OCRCache(directory: cacheDirectory), stateURL: stateURL, sink: LibraryTaskSink(library: library))
+        refreshModelStatus()
         let scheduler = PeriodicScheduler(identifier: "com.seanmatheny.foolscap.scribe-sync") { [weak self] in await self?.runSync() }
         scheduler.start(minutes: syncMinutes)
         self.scheduler = scheduler

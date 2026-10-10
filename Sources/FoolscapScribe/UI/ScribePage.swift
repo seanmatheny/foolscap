@@ -89,6 +89,8 @@ struct ScribeSettingsPane: View {
     @Bindable var section: ScribeSection
     @AppStorage("scribeSyncMinutes") private var syncMinutes = ScribeSection.defaultSyncMinutes
     @AppStorage("scribeLanguages") private var languages = ScribeSection.defaultLanguages.joined(separator: ", ")
+    @AppStorage("scribeOCREngine") private var engine = "vision"
+    @State private var modelToDelete: String?
 
     var body: some View {
         LabeledContent("Amazon account") {
@@ -116,6 +118,43 @@ struct ScribeSettingsPane: View {
             Text("Every 3 hours").tag(180)
         }
         .onChange(of: syncMinutes) { _, _ in section.settingsChanged() }
+        Picker("Handwriting recognition", selection: $engine) {
+            Text("Apple Vision (built in, fast)").tag("vision")
+            Text("Qwen3-VL on this Mac (slow, far more accurate)").tag("vlm")
+        }
+        .onChange(of: engine) { _, _ in section.settingsChanged() }
+        if engine == "vlm" {
+            LabeledContent("Model") {
+                HStack {
+                    Text(modelStatusText).foregroundStyle(.secondary).lineLimit(2)
+                    if section.vlmHelperAvailable && !section.vlmModelInstalled {
+                        Button(section.isDownloadingModel ? "Downloading…" : "Download (5.8 GB)") { section.downloadModel() }
+                            .disabled(section.isDownloadingModel)
+                    }
+                }
+            }
+            if let error = section.vlmDownloadError {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+            Text("Qwen3-VL-8B runs locally through the bundled scribe-vlm helper; about 15 seconds a page after a 10 second model load, only for pages that changed. Changing the engine re-reads every notebook in the background on the next sync; until the model is downloaded Vision is used.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        if !section.vlmModelsOnDisk.isEmpty {
+            LabeledContent("Models on disk") {
+                VStack(alignment: .trailing, spacing: 4) {
+                    ForEach(section.vlmModelsOnDisk, id: \.model) { entry in
+                        HStack {
+                            Text(OCREngine.shortName(entry.model)).foregroundStyle(.secondary)
+                            Text(ByteCountFormatter.string(fromByteCount: entry.bytes, countStyle: .file)).foregroundStyle(.secondary)
+                            Button("Delete…") { modelToDelete = entry.model }
+                                .disabled(section.status.isRunning || section.isDownloadingModel)
+                        }
+                    }
+                }
+            }
+            Text("Deleting frees the space; a deleted model is downloaded again the next time it is needed (the sync falls back to Vision meanwhile). Not available while a sync or download runs.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
         TextField("Handwriting languages", text: $languages, prompt: Text("en-US, en-GB"))
         Text("Vision language codes, comma separated. Changing them re-reads every notebook on the next sync.")
             .font(.caption).foregroundStyle(.secondary)
@@ -128,6 +167,29 @@ struct ScribeSettingsPane: View {
         }
         Text("Notebooks are saved as PDF and transcript in Scribe/ inside your notebook folder. Handwritten “TODO:” lines become #scribe tasks. Sync only runs while Foolscap is open; enable it on one Mac.")
             .font(.caption).foregroundStyle(.secondary)
+            .confirmationDialog("Delete \(modelToDelete.map(OCREngine.shortName) ?? "model")?", isPresented: deleteDialogPresented, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    if let model = modelToDelete { section.deleteModel(model) }
+                    modelToDelete = nil
+                }
+                Button("Cancel", role: .cancel) { modelToDelete = nil }
+            } message: {
+                Text("Frees the disk space. It is downloaded again the next time handwriting is read with it.")
+            }
+            .onAppear { section.refreshModelStatus() }
+    }
+
+    private var deleteDialogPresented: Binding<Bool> {
+        Binding(get: { modelToDelete != nil }, set: { if !$0 { modelToDelete = nil } })
+    }
+
+    private var modelStatusText: String {
+        if let progress = section.vlmDownloadProgress { return progress }
+        if !section.vlmHelperAvailable { return "scribe-vlm helper not bundled (needs Xcode and its Metal Toolchain: make scribe-vlm)" }
+        if section.vlmModelInstalled {
+            return "Installed · " + ByteCountFormatter.string(fromByteCount: section.vlmModelBytes, countStyle: .file)
+        }
+        return "Not downloaded"
     }
 
     private var statusText: String {

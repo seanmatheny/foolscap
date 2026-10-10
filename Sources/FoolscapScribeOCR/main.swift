@@ -9,11 +9,13 @@
 //
 // Vision runs entirely on-device. It is a separate program rather than a Python
 // binding so the recognition models are unloaded again as soon as a run finishes
-// instead of staying resident in the sync daemon. Build with ocr/build.sh.
+// instead of staying resident in the sync daemon. Page rendering is shared with
+// scribe-vlm through Helpers/ScribeRaster.
 
 import CoreGraphics
 import Foundation
 import PDFKit
+import ScribeRaster
 import Vision
 
 func writeJSON(_ object: Any) {
@@ -28,50 +30,6 @@ func fail(_ code: String, _ message: String, status: Int32 = 1) -> Never {
 }
 
 let usage = "usage: scribe-ocr <pdf> [--languages en-US,en-GB] [--dpi 96] [--keep-template]"
-
-/// Rasterise a PDF page. Kindle Scribe exports are 96 dpi page images wrapped in a
-/// PDF, so rendering at 96 dpi reproduces the original pixels exactly.
-func renderPage(_ page: PDFPage, dpi: CGFloat, stripTemplate: Bool) -> CGImage? {
-    let bounds = page.bounds(for: .mediaBox)
-    let scale = dpi / 72.0
-    let width = Int((bounds.width * scale).rounded())
-    let height = Int((bounds.height * scale).rounded())
-    guard width > 0, height > 0,
-          let context = CGContext(
-              data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-              space: CGColorSpaceCreateDeviceRGB(),
-              bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
-    else { return nil }
-
-    context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-    context.scaleBy(x: scale, y: scale)
-    page.draw(with: .mediaBox, to: context)
-
-    if stripTemplate, let data = context.data {
-        // The Scribe draws its page template (rules, grids, dots) in mid grey and
-        // highlighter in pale yellow; both cut through handwriting and cost the
-        // recogniser whole lines. Ink is black or a saturated colour, so anything
-        // light and unsaturated is safe to blank out.
-        let bytesPerRow = context.bytesPerRow
-        let pixels = data.bindMemory(to: UInt8.self, capacity: bytesPerRow * height)
-        for row in 0..<height {
-            var offset = row * bytesPerRow
-            for _ in 0..<width {
-                let red = Int(pixels[offset]), green = Int(pixels[offset + 1]), blue = Int(pixels[offset + 2])
-                let high = max(red, green, blue), low = min(red, green, blue)
-                let luminance = (2126 * red + 7152 * green + 722 * blue) / 10000
-                if luminance >= 90 && (high - low) * 2 <= high {
-                    pixels[offset] = 255
-                    pixels[offset + 1] = 255
-                    pixels[offset + 2] = 255
-                }
-                offset += 4
-            }
-        }
-    }
-    return context.makeImage()
-}
 
 func recogniseText(in image: CGImage, languages: [String]) throws -> [[String: Any]] {
     let request = VNRecognizeTextRequest()
@@ -138,7 +96,7 @@ for index in 0..<document.pageCount {
     // Each page's bitmap is ~18 MB; release it before rendering the next one.
     autoreleasepool {
         guard let page = document.page(at: index),
-              let image = renderPage(page, dpi: dpi, stripTemplate: stripTemplate)
+              let image = PageRaster.render(page, dpi: dpi, stripTemplate: stripTemplate)
         else { fail("render_failed", "Could not render page \(index + 1) of \(path)") }
         do {
             pages.append([

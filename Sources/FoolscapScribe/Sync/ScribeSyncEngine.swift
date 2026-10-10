@@ -29,7 +29,11 @@ public actor ScribeSyncEngine {
     static let renderAttempts = 3
 
     let client: any ScribeClient
-    let ocr: any OCRRunning
+    private(set) var ocr: any OCRRunning
+    private(set) var engine: OCREngine
+    /// Used for a pass when the chosen engine cannot run (helper or weights
+    /// missing), so a sync still produces transcripts.
+    private(set) var fallback: (ocr: any OCRRunning, engine: OCREngine)?
     let cache: OCRCache
     let stateURL: URL
     let sink: any TaskSink
@@ -38,12 +42,20 @@ public actor ScribeSyncEngine {
     public private(set) var state: ScribeState
     public private(set) var isRunning = false
 
-    public init(client: any ScribeClient, ocr: any OCRRunning, cache: OCRCache, stateURL: URL, sink: any TaskSink,
+    public init(client: any ScribeClient, ocr: any OCRRunning, engine: OCREngine = .vision,
+                fallback: (ocr: any OCRRunning, engine: OCREngine)? = nil,
+                cache: OCRCache, stateURL: URL, sink: any TaskSink,
                 now: @escaping @Sendable () -> Date = { Date() },
                 sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
-        self.client = client; self.ocr = ocr; self.cache = cache; self.stateURL = stateURL; self.sink = sink
+        self.client = client; self.ocr = ocr; self.engine = engine; self.fallback = fallback
+        self.cache = cache; self.stateURL = stateURL; self.sink = sink
         self.now = now; self.sleep = sleep
         state = ScribeState.load(from: stateURL)
+    }
+
+    /// Switch recogniser (Settings). Takes effect from the next notebook read.
+    public func configure(ocr: any OCRRunning, engine: OCREngine, fallback: (ocr: any OCRRunning, engine: OCREngine)? = nil) {
+        self.ocr = ocr; self.engine = engine; self.fallback = fallback
     }
 
     /// `notesRoot` is the notebook folder; files go under `<root>/Scribe/`.
@@ -211,8 +223,8 @@ public actor ScribeSyncEngine {
     /// What a transcript is written from besides the page images, so changing the
     /// handwriting languages, the OCR engine, the TODO rules or the file format
     /// re-reads it, and a rename or move rewrites its title and footer.
-    static func transcriptKey(contentHash: String, languages: [String], path: String, title: String) -> String {
-        let parts = [contentHash, languages.joined(separator: ","), ScribeOCR.engineVersion, ScribeTodos.rulesVersion,
+    static func transcriptKey(contentHash: String, languages: [String], engine: OCREngine = .vision, path: String, title: String) -> String {
+        let parts = [contentHash, languages.joined(separator: ","), engine.version, ScribeTodos.rulesVersion,
                      ScribeTranscript.formatVersion, path, title]
         return PDFBuilder.sha256(Data(parts.joined(separator: "\n").utf8))
     }
@@ -222,16 +234,38 @@ public actor ScribeSyncEngine {
     private func transcribe(_ entry: inout ScribeItem, contentHash hash: String, title: String, pdfURL: URL, mdURL: URL,
                             modified modificationTime: Int, languages: [String],
                             report: inout SyncReport, progress: (@Sendable (String) -> Void)?) async throws {
-        let transcriptKey = Self.transcriptKey(contentHash: hash, languages: languages, path: entry.path, title: title)
+        var engine = self.engine
+        var transcriptKey = Self.transcriptKey(contentHash: hash, languages: languages, engine: engine, path: entry.path, title: title)
         if entry.transcribedHash == transcriptKey && FileManager.default.fileExists(atPath: mdURL.path) { return }
         progress?("Reading \(entry.path)…")
-        let key = OCRCacheKey(contentHash: hash, languages: languages)
+        var key = OCRCacheKey(contentHash: hash, engine: engine.version, languages: languages)
         let result: OCRResult
         if let cached = cache.load(id: entry.id, key: key) {
             result = cached
         } else {
-            result = try await ocr.recognise(pdf: pdfURL, languages: languages)
-            try? cache.store(result, id: entry.id, key: key)
+            do {
+                result = try await ocr.recognise(pdf: pdfURL, languages: languages)
+                try? cache.store(result, id: entry.id, key: key)
+            } catch let error as OCRError where fallback != nil && Self.isUnavailable(error) {
+                // The chosen engine cannot run on this Mac yet: read with the fallback
+                // under its own keys, so the notebook is re-read once it can.
+                let (fallbackOCR, fallbackEngine) = fallback!
+                let reason: String
+                if case .modelMissing(let model) = error { reason = "\(OCREngine.shortName(model)) is not downloaded" }
+                else { reason = "the scribe-vlm helper is missing" }
+                if !report.errors.contains(where: { $0.hasPrefix("Handwriting read with Apple Vision") }) {
+                    report.errors.append("Handwriting read with Apple Vision: \(reason) (Settings ▸ Scribe)")
+                }
+                engine = fallbackEngine
+                transcriptKey = Self.transcriptKey(contentHash: hash, languages: languages, engine: engine, path: entry.path, title: title)
+                key = OCRCacheKey(contentHash: hash, engine: engine.version, languages: languages)
+                if let cached = cache.load(id: entry.id, key: key) {
+                    result = cached
+                } else {
+                    result = try await fallbackOCR.recognise(pdf: pdfURL, languages: languages)
+                    try? cache.store(result, id: entry.id, key: key)
+                }
+            }
         }
         let pages = ScribeLayout.layoutPages(result)
         let modified = Date(timeIntervalSince1970: Double(modificationTime))
@@ -245,6 +279,13 @@ public actor ScribeSyncEngine {
         entry.todos = outcome.known
         report.tasksAdded += outcome.added
         entry.transcribedHash = transcriptKey
+    }
+
+    static func isUnavailable(_ error: OCRError) -> Bool {
+        switch error {
+        case .helperMissing, .modelMissing: return true
+        default: return false
+        }
     }
 
     /// Amazon serves at most `maxPagesPerRender` pages a request and numbers each

@@ -61,15 +61,42 @@ RESOURCES_DIR := $(CONTENTS)/Resources
 PLIST_SRC     := Sources/FoolscapApp/Info.plist
 ICNS          := Icon/Foolscap.icns
 
-.PHONY: app app-debug run test install icon textures xcode clean sign
+# The MLX handwriting helper (Helpers/scribe-vlm) is a package of its own, built by
+# xcodebuild: only Xcode's build system compiles MLX's Metal kernels into
+# mlx-swift_Cmlx.bundle, and that needs Xcode plus its Metal Toolchain component
+# (`xcodebuild -downloadComponent MetalToolchain`). Without them the app still
+# builds and Vision stays the engine. Products land in .build/xcode.
+VLM_DIR      := Helpers/scribe-vlm
+VLM_DERIVED  := .build/xcode
+VLM_CONFIG   ?= Release
+VLM_PRODUCTS := $(VLM_DERIVED)/Build/Products/$(VLM_CONFIG)
+VLM_XCODEBUILD := xcodebuild build -scheme scribe-vlm -configuration $(VLM_CONFIG) \
+  -destination 'platform=macOS' -derivedDataPath "$(CURDIR)/$(VLM_DERIVED)" -skipMacroValidation -quiet
+
+.PHONY: app app-debug run test install icon textures xcode clean sign scribe-vlm
 
 app:
 	$(SWIFT) build -c release $(SWIFT_FLAGS)
+	$(MAKE) scribe-vlm
 	$(MAKE) _bundle BUILD_DIR=.build/release
 
 app-debug:
 	$(SWIFT) build $(SWIFT_FLAGS)
+	$(MAKE) scribe-vlm
 	$(MAKE) _bundle BUILD_DIR=.build/debug
+
+# Builds the MLX helper when Xcode and its Metal Toolchain are present, else says why.
+# Metal Toolchain 32023 (Xcode 27) has been seen to reject MLX's steel attention
+# kernel in the default language mode; the retry asks for Metal 4.0.
+scribe-vlm:
+	@if [ "$(XCODE_OK)" != "yes" ]; then \
+	  echo "(scribe-vlm skipped: Xcode not installed or licence not accepted; Vision stays the handwriting engine)"; \
+	elif ! DEVELOPER_DIR=$(XCODE_DEV) xcrun -f metal >/dev/null 2>&1; then \
+	  echo "(scribe-vlm skipped: no Metal Toolchain; run: xcodebuild -downloadComponent MetalToolchain)"; \
+	else \
+	  cd $(VLM_DIR) && ( $(VLM_XCODEBUILD) || $(VLM_XCODEBUILD) MTL_LANGUAGE_REVISION=Metal40 ) && \
+	  echo "✅  scribe-vlm built ($(VLM_PRODUCTS))"; \
+	fi
 
 _bundle:
 	rm -rf "$(BUNDLE_NAME)"
@@ -78,6 +105,10 @@ _bundle:
 	cp "$(BUILD_DIR)/FoolscapScribeOCR" "$(MACOS_DIR)/scribe-ocr"
 	cp "$(PLIST_SRC)" "$(CONTENTS)/Info.plist"
 	@for b in $(BUILD_DIR)/*.bundle; do [ -d "$$b" ] && cp -R "$$b" "$(RESOURCES_DIR)/"; done; true
+	@if [ -x "$(VLM_PRODUCTS)/FoolscapScribeVLM" ]; then \
+	  cp "$(VLM_PRODUCTS)/FoolscapScribeVLM" "$(MACOS_DIR)/scribe-vlm"; \
+	  for b in $(VLM_PRODUCTS)/*.bundle; do [ -d "$$b" ] && cp -R "$$b" "$(RESOURCES_DIR)/"; done; true; \
+	fi
 	@[ -f "$(ICNS)" ] && cp "$(ICNS)" "$(RESOURCES_DIR)/Foolscap.icns" || echo "(no icon yet: run make icon)"
 	codesign --force --deep --sign "$(CODESIGN_IDENTITY)" "$(BUNDLE_NAME)" >/dev/null 2>&1 || true
 	@echo "✅  $(BUNDLE_NAME) is ready (signed: $(CODESIGN_IDENTITY))."
@@ -106,4 +137,4 @@ xcode:
 
 clean:
 	$(SWIFT) package clean
-	rm -rf "$(BUNDLE_NAME)"
+	rm -rf "$(BUNDLE_NAME)" "$(VLM_DERIVED)"
