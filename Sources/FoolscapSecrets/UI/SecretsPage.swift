@@ -75,9 +75,17 @@ struct SecretsPage: View {
         let unlocked = section.isUnlocked
         return HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text("Secrets").font(theme.type.heading.font).fontWeight(.bold)
-            Image(systemName: unlocked ? "lock.open.fill" : "lock.fill")
-                .font(.system(size: 13 * scale, weight: .semibold))
-                .foregroundStyle(unlocked ? theme.accent.color : theme.dimInk.color)
+            // The padlock is a switch: open, a click locks the vault; shut, it asks for Touch ID.
+            Button {
+                if unlocked { section.lockNow() } else if section.vault.hasDeviceWrap { Task { await section.unlockWithDevice() } }
+            } label: {
+                Image(systemName: unlocked ? "lock.open.fill" : "lock.fill")
+                    .font(.system(size: 13 * scale, weight: .semibold))
+                    .foregroundStyle(unlocked ? theme.accent.color : theme.dimInk.color)
+            }
+            .buttonStyle(.plain)
+            .pointerStyle(.link)
+            .help(unlocked ? "Lock (⌃⌘L)" : "Unlock with Touch ID")
             status
                 .font(.system(size: 12.5 * scale, design: .serif))
                 .foregroundStyle(theme.dimInk.color)
