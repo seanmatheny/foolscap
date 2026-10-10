@@ -21,11 +21,23 @@ actor ScribePageRenderer {
     /// Open documents by notebook id, with the version they were opened at: a
     /// sync that rebuilds the PDF changes the version, and the file is reopened.
     private var documents: [String: (version: String, document: PDFDocument)] = [:]
+    /// Spread bitmaps (about 5 MB each at the spread's width): room for a long notebook's
+    /// worth, emptied under memory pressure, and backed by the disk cache.
     private let cache: NSCache<NSString, RenderedPageBox> = {
         let c = NSCache<NSString, RenderedPageBox>()
-        c.totalCostLimit = 256 * 1024 * 1024
+        c.totalCostLimit = 128 * 1024 * 1024
         return c
     }()
+    /// Zoomed pages (up to 30 MB each) live apart, so stepping through a notebook at
+    /// 4× never evicts the spread behind it.
+    private let zoomCache: NSCache<NSString, RenderedPageBox> = {
+        let c = NSCache<NSString, RenderedPageBox>()
+        c.totalCostLimit = 96 * 1024 * 1024
+        return c
+    }()
+    /// PNG encodes run one at a time: a fast scroll through a long notebook otherwise
+    /// queues dozens, each holding its bitmap until written.
+    private nonisolated static let encodeQueue = DispatchQueue(label: "com.seanmatheny.foolscap.scribe-page-encode", qos: .utility)
     private let diskDirectory: URL?
 
     init(diskDirectory: URL? = ScribePaths.pageCacheDirectory) {
@@ -84,7 +96,7 @@ actor ScribePageRenderer {
     /// Written off the actor (PNG encoding takes a while), to a temporary name
     /// first so a half-written file is never read back as a page.
     private nonisolated func saveBitmap(_ image: CGImage, to url: URL) {
-        Task.detached(priority: .utility) {
+        Self.encodeQueue.async {
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let temp = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).png")
             guard let dest = CGImageDestinationCreateWithURL(temp as CFURL, UTType.png.identifier as CFString, 1, nil) else { return }
@@ -123,7 +135,7 @@ actor ScribePageRenderer {
     func cachedImage(id: String, version: String, page index: Int, width displayWidth: CGFloat, backingScale: CGFloat) -> RenderedPage? {
         let pixelWidth = Int(displayWidth * backingScale)
         let key = "\(id)|\(version)|\(index)|\(pixelWidth)" as NSString
-        if let hit = cache.object(forKey: key) { return hit.page }
+        if let hit = cache.object(forKey: key) ?? zoomCache.object(forKey: key) { return hit.page }
         guard let url = bitmapURL(id: id, version: version, page: index, pixelWidth: pixelWidth),
               let cg = loadBitmap(url) else { return nil }
         let rendered = page(from: cg, backingScale: backingScale)
@@ -131,10 +143,17 @@ actor ScribePageRenderer {
         return rendered
     }
 
+    /// The Scribe draws a page at 1860 × 2480 pixels; a bitmap wider than this
+    /// shows no more ink and costs a quarter again in memory for each step.
+    static let maxPixelWidth = 2400
+
     /// `width` is the display width in points. The bitmap is drawn at that
     /// width times the backing scale and sized in points to match, so SwiftUI
-    /// shows it 1:1 instead of resampling it on every display.
-    func image(id: String, url: URL, version: String, page index: Int, width displayWidth: CGFloat, backingScale: CGFloat) -> RenderedPage? {
+    /// shows it 1:1 instead of resampling it on every display. Pages drawn for
+    /// the spread are kept on disk too; `persist: false` (a zoomed page) keeps
+    /// the bitmap in memory only.
+    func image(id: String, url: URL, version: String, page index: Int, width displayWidth: CGFloat, backingScale: CGFloat,
+               persist: Bool = true) -> RenderedPage? {
         if let hit = cachedImage(id: id, version: version, page: index, width: displayWidth, backingScale: backingScale) { return hit }
         // Requests queue up here; one whose page has scrolled away or whose
         // notebook was closed is dropped rather than drawn.
@@ -156,9 +175,9 @@ actor ScribePageRenderer {
         page.draw(with: .mediaBox, to: ctx)
         guard let cg = ctx.makeImage() else { return nil }
         let rendered = self.page(from: cg, backingScale: backingScale)
-        cache.setObject(RenderedPageBox(rendered), forKey: "\(id)|\(version)|\(index)|\(Int(pixelWidth))" as NSString,
-                        cost: width * height * 4)
-        if let file = bitmapURL(id: id, version: version, page: index, pixelWidth: Int(pixelWidth)) { saveBitmap(cg, to: file) }
+        (persist ? cache : zoomCache).setObject(RenderedPageBox(rendered), forKey: "\(id)|\(version)|\(index)|\(Int(pixelWidth))" as NSString,
+                                                cost: width * height * 4)
+        if persist, let file = bitmapURL(id: id, version: version, page: index, pixelWidth: Int(pixelWidth)) { saveBitmap(cg, to: file) }
         return rendered
     }
 
@@ -167,8 +186,15 @@ actor ScribePageRenderer {
         documents = documents.filter { $0.key == id }
     }
 
+    /// Drop one open document (a notebook drawn for the Daily page's appendix, not
+    /// being read); PDFKit keeps render caches per open document.
+    func release(id: String) {
+        documents[id] = nil
+    }
+
     func releaseAll() {
         documents.removeAll()
         cache.removeAllObjects()
+        zoomCache.removeAllObjects()
     }
 }

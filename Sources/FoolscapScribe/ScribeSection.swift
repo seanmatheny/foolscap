@@ -42,6 +42,9 @@ public final class ScribeSection: NotebookSection {
     /// A page to scroll to once the notebook is shown (from search, or the page
     /// being read when the app last quit). The notebook view clears it on arrival.
     public var pendingPage: Int?
+    /// A page (1-based) to lift into the zoom view once the notebook is shown
+    /// (`--scribe-zoom=N`, for verification). The notebook view clears it.
+    public var pendingZoomPage: Int?
 
     @ObservationIgnored let renderer = ScribePageRenderer()
     /// A search hit's page, being worked out off the main actor.

@@ -27,6 +27,9 @@ struct ScribeNotebookView: View {
     /// The block at the top of the view: a page number, `topID` or `endID`.
     /// Setting it scrolls there; SwiftUI updates it as the user scrolls.
     @State private var position: Int?
+    /// A page lifted off the spread (`ScribePageZoom`), by index, with the spread's
+    /// bitmap of it to show until the sharp one is drawn.
+    @State private var zoomed: (page: Int, placeholder: NSImage?)?
     /// Notebooks this long get the jump button.
     static let jumpPages = 3
     /// The notebook area must be this wide for ink and text to sit side by side.
@@ -57,6 +60,8 @@ struct ScribeNotebookView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     header
+                        // Out of the way of the lifted page's caption and close button.
+                        .opacity(zoomed == nil ? 1 : 0)
                         .id(Self.topID)
                     if isPlaceholder {
                         Text("Downloading from iCloud…")
@@ -81,8 +86,16 @@ struct ScribeNotebookView: View {
                 g.contentOffset.y + g.containerSize.height >= g.contentSize.height - pitch * 4
             } action: { _, near in nearEnd = near }
             .overlay(alignment: .bottomTrailing) {
-                if pageSizes.count >= Self.jumpPages { jumpButton }
+                if pageSizes.count >= Self.jumpPages, zoomed == nil { jumpButton }
             }
+            .overlay { zoomOverlay }
+            .background {
+                // Space lifts the page at the top of the view, as Quick Look lifts a file.
+                if zoomed == nil, !pageSizes.isEmpty {
+                    Button("") { zoom(page: readingPage, placeholder: nil) }.keyboardShortcut(.space, modifiers: []).opacity(0)
+                }
+            }
+            .animation(.easeOut(duration: 0.18), value: zoomed?.page == nil)
             .onChange(of: position) { _, block in
                 guard let block, !pageSizes.isEmpty else { return }
                 // The header counts as page 1, the end spacer as the last page.
@@ -109,6 +122,29 @@ struct ScribeNotebookView: View {
     }
 
     private static let topID = 0, endID = Int.max
+
+    /// The page at the top of the view, by index.
+    private var readingPage: Int {
+        guard let position, !pageSizes.isEmpty else { return 0 }
+        return min(max(position, 1), pageSizes.count) - 1
+    }
+
+    private func zoom(page: Int, placeholder: NSImage?) {
+        guard pageSizes.indices.contains(page) else { return }
+        zoomed = (page, placeholder)
+    }
+
+    @ViewBuilder private var zoomOverlay: some View {
+        if let zoomed {
+            ScribePageZoom(renderer: section.renderer, notebookID: notebook.id, title: parsed?.title ?? notebook.name,
+                           pdfURL: pdfURL, version: version, pageSizes: pageSizes,
+                           caption: { caption(number: $0, day: transcriptPages[$0]?.day) },
+                           page: Binding(get: { zoomed.page }, set: { self.zoomed = ($0, nil) }),
+                           placeholder: zoomed.placeholder) {
+                self.zoomed = nil
+            }
+        }
+    }
 
     /// A small round button in the page's corner: to the last page of a long
     /// notebook, and back to the top from there.
@@ -178,13 +214,13 @@ struct ScribeNotebookView: View {
             if let columns {
                 HStack(alignment: .top, spacing: Self.gutter) {
                     PageFacsimile(renderer: section.renderer, id: notebook.id, url: pdfURL, version: version, page: index,
-                                  pdfReady: pdfReady, width: columns.verso, aspect: aspect)
+                                  pdfReady: pdfReady, width: columns.verso, aspect: aspect) { zoom(page: index, placeholder: $0) }
                     ScribeTranscriptSheet(page: page, transcriptAvailable: parsed != nil, width: columns.recto,
                                           minHeight: (columns.verso * aspect).rounded())
                 }
             } else {
                 PageFacsimile(renderer: section.renderer, id: notebook.id, url: pdfURL, version: version, page: index,
-                              pdfReady: pdfReady, width: stackedWidth, aspect: aspect)
+                              pdfReady: pdfReady, width: stackedWidth, aspect: aspect) { zoom(page: index, placeholder: $0) }
                 ScribeTranscriptSheet(page: page, transcriptAvailable: parsed != nil, width: stackedWidth)
             }
         }
@@ -240,6 +276,10 @@ struct ScribeNotebookView: View {
         // Everything is laid out: open where the notebook was left (or where a
         // search hit points), straight there without animation.
         scroll(to: section.pendingPage, animated: false)
+        if let page = section.pendingZoomPage {
+            section.pendingZoomPage = nil
+            zoom(page: page - 1, placeholder: nil)
+        }
     }
 
     private func show(_ read: ScribeTranscript.Parsed?) {
@@ -253,6 +293,7 @@ struct ScribeNotebookView: View {
 /// the PDF's page size so the stack never jumps. The bitmap is drawn at the
 /// width rounded up to a 50 pt step and scaled down to fit, so resizing the
 /// window does not draw and cache a bitmap at every width it passes through.
+/// A click lifts the page into `ScribePageZoom`, handing over this bitmap.
 struct PageFacsimile: View {
     let renderer: ScribePageRenderer
     let id: String
@@ -262,8 +303,10 @@ struct PageFacsimile: View {
     let pdfReady: Bool
     let width: CGFloat
     let aspect: CGFloat
+    var onZoom: ((NSImage?) -> Void)? = nil
     @State private var image: NSImage?
     @State private var isVisible = false
+    @State private var hovering = false
     static let widthStep: CGFloat = 50
 
     private var renderWidth: CGFloat { (width / Self.widthStep).rounded(.up) * Self.widthStep }
@@ -278,7 +321,25 @@ struct PageFacsimile: View {
         .frame(width: width, height: (width * aspect).rounded())
         .clipShape(RoundedRectangle(cornerRadius: 2))
         .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.black.opacity(0.18), lineWidth: 0.5))
+        .overlay(alignment: .bottomTrailing) {
+            // A magnifier in the corner while the pointer is over the ink.
+            if onZoom != nil, hovering {
+                Image(systemName: "plus.magnifyingglass")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.black.opacity(0.45)))
+                    .padding(8)
+                    .transition(.opacity)
+            }
+        }
         .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
+        .contentShape(Rectangle())
+        .onTapGesture { onZoom?(image) }
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .pointerStyle(onZoom == nil ? .default : .zoomIn)
+        .help(onZoom == nil ? "" : "Click to enlarge (or press Space on the page you are reading)")
         .onScrollVisibilityChange(threshold: 0.01) { isVisible = $0 }
         .task(id: "\(id)|\(version)|\(page)|\(Int(renderWidth))|\(pdfReady)|\(isVisible)") {
             guard isVisible else { image = nil; return }
