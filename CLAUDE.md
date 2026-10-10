@@ -36,7 +36,7 @@
 - Launch flags for verification: `--day=YYYY-MM-DD`, `--tab=id` (a section: `daily`, `tasks`, …), `--turn-to=id` (turns to that tab 2.5 s after launch, to watch a curl;
   with `FOOLSCAP_SLOW_OPEN=1`, capture with `screencapture`: the curl is a child window), `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
-  to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--jira` (forces the Jira tab on and opens it), `--highlights` (forces the Highlights tab on
+  to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--jira` (forces the Jira tab on and opens it), `--secrets` (the Secrets tab likewise), `--highlights` (forces the Highlights tab on
   and opens it), `--flyleaf` (forces the tab on and shows the day's three on the
   opening page),
   `--type=text` (posts key events into the focused text after 2s, e.g. to show tag
@@ -45,7 +45,12 @@
   captures it), `--backup=file.zip` and `--restore=file.zip` (no confirmation).
   Always use the `flag=value` form with `open Foolscap.app --args …`: a bare
   value argument (a date, a path, any word) makes AppKit treat the launch as
-  "open these files" and the main window never appears. A launch with no window and
+  "open these files" and the main window never appears. Order matters too (found
+  2026-10-10): the first argument must be a `-key value` pair, never a `--flag`
+  (`--secrets …` or `--highlights …` first leaves the app running with no window), and
+  a `-notesFolder /path` pair must not be last (the path is then taken as a file to
+  open). `-jiraEnabled NO -notesFolder /path -flyleafOnOpen NO --no-opening --secrets`
+  works. In zsh, pass flags as separate words, never through an unquoted variable. A launch with no window and
   the main thread sampling inside `JiraSection.start → KeychainTokenStore` is not that:
   it is a keychain prompt (a SecurityAgent window, not Foolscap's) for the Jira token
   waiting for a click; a debug build asks after a rebuild until "Always Allow" is
@@ -130,6 +135,37 @@
   (`jiraProjectKey`/`jiraEpicKey`/`jiraBoardID` defaults, blank epic = none, board 0 = no
   sprint), and the bubble posts an ADF comment. Jira's refusals (`errorMessages`/`errors`)
   surface as `JiraClientError.rejected` in the status line.
+- Secrets (`FoolscapSecrets`): a hard toggle like Jira (`secretsEnabled`, `AppModel.setSecretsEnabled`,
+  after Jira/Tasks with the sixth tab colour, a pewter added to every theme; `--secrets` forces it
+  on and opens it, `--secrets-sample` fills an empty vault with made-up entries for
+  screenshots; `--prefs-tab=secrets`; ⌘Y turns to it (⌘S was left to the Save reflex), ⌃⌘L
+  locks; `--type` cannot press the Touch ID button, so Sean clicks it). One file,
+  `Secrets/vault.foolscap-secrets`: `FSCV`, a big-endian header length, the header JSON
+  (`VaultHeader`: format, created/modified, `wraps`), then `AES.GCM.SealedBox.combined` over the
+  markdown with the header bytes as AAD. The random AES-256 key is wrapped twice: `device`
+  (ECDH with a one-time P-256 key against this Mac's key + HKDF-SHA256 + AES-GCM; the key is a
+  Secure Enclave key with `.userPresence` whose blob sits in Application Support/Foolscap/Secrets,
+  or, when the Enclave refuses the self-signed app, a software P-256 key in the login keychain
+  read after `LAContext.evaluatePolicy`; `header.deviceKind` says which) and `passphrase`
+  (PBKDF2-HMAC-SHA256, calibrated ≥600k rounds, the recovery passphrase chosen on first run).
+  The plaintext is one markdown document (`SecretsDocument`, lossless): `## Title #tags`, then
+  `- label: value` lines (a value in backticks is a secret and is masked; `- changed: yyyy-MM-dd`
+  is kept by the card UI), fenced blocks (multi-line secrets), free text as notes. Entries file
+  themselves A–Z/`#` by the title's first letter; the thumb index (`ThumbIndexView`,
+  `LetterGroup.groups(capacity:)` pairs letters on short pages) is cut into the page inside the
+  tab-side edge; a strip of `FilterChip`s under the title (the vault's tags, most used first,
+  `selectedTags`, every chosen tag must be present) lists the tagged entries across every letter
+  under letter dividers, like a search; a letter clicked afterwards (`letterPinned`) narrows them
+  to that letter until the next chip; the index dims letters with nothing matching. Cards render the entries; editing is "as text" in a `MarkdownEditor` over a
+  throwaway `NoteDocument` with `features: []` (`EditorFeatures`: no attachments, link cards,
+  fold memory or spell check, so nothing of the plaintext is written). Never indexed: the vault
+  never enters `NotebookLibrary.documents` and `listIndexableNotes` ignores `Secrets/`; `Secrets`
+  is a layout directory so backups and moves carry the ciphertext. Auto-lock (`AutoLock`) after
+  `secretsLockMinutes` (default 5, slider) without a key/mouse event in Foolscap, and at once on
+  sleep, screen lock, session switch, quit (`AppModel.flush`) and, with `secretsLockOnLeave`, on
+  turning to another tab. Copies go to the pasteboard as `org.nspasteboard.ConcealedType` and
+  clear after 30 s. Search within the tab never looks at secret values. Nothing about secrets is
+  logged.
 - Task statuses (`TaskStatus`, declaration order is display order): today `[/]`,
   notStarted `[ ]` ("To do"), someday `[>]`, completed `[x]`. The index stores the
   case name; `v5-today-status` renamed the old `inProgress` rows. Today's page lists

@@ -146,7 +146,7 @@ final class OverlayController {
             return Overlay(key: key, view: iv, lineIndex: line.index, naturalSize: size, isImage: true,
                            requestedWidth: BlockMap.imageAlt(alt).width.map { CGFloat($0) })
         case .urlLine(let urlString):
-            guard let url = URL(string: urlString) else { return nil }
+            guard textView.features.contains(.linkPreviews), let url = URL(string: urlString) else { return nil }
             let card = LinkCardView(url: url)
             card.onReveal = { [weak self] in self?.revealLine(forKey: key) }
             if let metadata = LinkPreviewCache.shared.cached(url) {

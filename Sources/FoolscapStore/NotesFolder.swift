@@ -25,6 +25,10 @@ public struct NotesFolder: Hashable, Sendable {
     public static let highlightsDirectoryName = "Highlights"
     public var highlightsDirectory: URL { root.appendingPathComponent(NotesFolder.highlightsDirectoryName, isDirectory: true) }
 
+    /// The Secrets section's encrypted vault lives here; nothing under it is ever indexed.
+    public static let secretsDirectoryName = "Secrets"
+    public var secretsDirectory: URL { root.appendingPathComponent(NotesFolder.secretsDirectoryName, isDirectory: true) }
+
     /// Every markdown file the index should know about: daily notes plus Tasks.md,
     /// the Scribe transcripts and the highlight books when those sections are on.
     public func listIndexableNotes(includingScribe: Bool = false, includingHighlights: Bool = false) -> [(url: URL, day: DayKey?)] {
@@ -87,7 +91,7 @@ public struct NotesFolder: Hashable, Sendable {
     }
 
     /// The directories and root-level files that make up a notebook.
-    public static let layoutDirectories = ["Daily", "Attachments", scribeDirectoryName, highlightsDirectoryName]
+    public static let layoutDirectories = ["Daily", "Attachments", scribeDirectoryName, highlightsDirectoryName, secretsDirectoryName]
 
     /// Every regular file that belongs to the notebook under `root`, with its
     /// path relative to the root: the layout directories at any depth plus

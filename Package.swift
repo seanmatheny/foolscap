@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "FoolscapScribe", targets: ["FoolscapScribe"]),
         .library(name: "FoolscapHighlights", targets: ["FoolscapHighlights"]),
         .library(name: "FoolscapJira", targets: ["FoolscapJira"]),
+        .library(name: "FoolscapSecrets", targets: ["FoolscapSecrets"]),
         .executable(name: "Foolscap", targets: ["FoolscapApp"]),
     ],
     dependencies: [
@@ -66,6 +67,12 @@ let package = Package(
             name: "FoolscapJira",
             dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI", "FoolscapEditor"]
         ),
+        // Secrets section: an encrypted markdown vault (passwords, keys, codes) filed A–Z,
+        // opened with Touch ID or a recovery passphrase. Never indexed, never searched.
+        .target(
+            name: "FoolscapSecrets",
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI", "FoolscapEditor"]
+        ),
         // The OCR helper, bundled as Contents/MacOS/scribe-ocr. A separate process so
         // Vision's recognition models are unloaded again when a run finishes.
         .executableTarget(
@@ -75,12 +82,12 @@ let package = Package(
         ),
         .executableTarget(
             name: "FoolscapApp",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira"],
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira", "FoolscapSecrets"],
             exclude: ["Info.plist"]
         ),
         .testTarget(
             name: "FoolscapTests",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira"]
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira", "FoolscapSecrets"]
         ),
     ]
 )

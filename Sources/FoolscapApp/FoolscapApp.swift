@@ -118,6 +118,11 @@ struct FoolscapApp: App {
                     .keyboardShortcut("n", modifiers: [.command, .shift])
                 Text("Also \(HotKeyPreferences.quickTask?.display ?? "off") from any app")
             }
+            CommandMenu("Secrets") {
+                Button("Lock Secrets") { model.secretsSection?.lockNow() }
+                    .keyboardShortcut("l", modifiers: [.command, .control])
+                    .disabled(!(model.secretsSection?.isUnlocked ?? false))
+            }
             CommandGroup(after: .toolbar) {
                 Button("Bigger Text") { model.adjustTextScale(by: 0.1) }.keyboardShortcut("=", modifiers: [.command])
                 Button("Smaller Text") { model.adjustTextScale(by: -0.1) }.keyboardShortcut("-", modifiers: [.command])

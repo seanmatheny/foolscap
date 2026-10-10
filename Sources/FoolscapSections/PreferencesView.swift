@@ -34,6 +34,7 @@ public struct PreferencesView: View {
     @AppStorage("scribeEnabled") private var scribeEnabled = false
     @AppStorage("highlightsEnabled") private var highlightsEnabled = false
     @AppStorage("jiraEnabled") private var jiraEnabled = false
+    @AppStorage("secretsEnabled") private var secretsEnabled = false
     @AppStorage("flyleafOnOpen") private var flyleafOnOpen = false
     @AppStorage(BackupManager.intervalKey) private var backupInterval = BackupInterval.off.rawValue
     @AppStorage(BackupManager.keepKey) private var backupKeep = 10
@@ -59,7 +60,8 @@ public struct PreferencesView: View {
             scribeTab.tabItem { Label("Scribe", systemImage: "pencil.and.scribble") }.tag("scribe")
             highlightsTab.tabItem { Label("Highlights", systemImage: "highlighter") }.tag("highlights")
             jiraTab.tabItem { Label("Jira", systemImage: "checkmark.rectangle.stack") }.tag("jira")
-            ForEach(sectionPanes.filter { !["scribe", "highlights", "jira"].contains($0.id) }) { pane in
+            secretsTab.tabItem { Label("Secrets", systemImage: "lock") }.tag("secrets")
+            ForEach(sectionPanes.filter { !["scribe", "highlights", "jira", "secrets"].contains($0.id) }) { pane in
                 settingsForm(height: 420) { Section(pane.title) { pane.view } }
                     .tabItem { Label(pane.title, systemImage: "puzzlepiece.extension") }.tag(pane.id)
             }
@@ -197,6 +199,17 @@ public struct PreferencesView: View {
                 Text("Adds a Jira tab listing the issues assigned to you. Off, nothing runs: no requests, no tab.")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(sectionPanes.filter { $0.id == "jira" }) { pane in pane.view }
+            }
+        }
+    }
+
+    private var secretsTab: some View {
+        settingsForm(height: 560) {
+            Section("Secrets") {
+                Toggle("Keep secrets in the notebook", isOn: $secretsEnabled)
+                Text("Adds a padlocked Secrets tab: an address book of passwords, keys and codes, encrypted with AES-256 in one file in the notebook folder and opened with Touch ID or your password. Nothing in it is indexed or searchable from the other tabs. Off, the tab is gone and the vault is left as it is.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(sectionPanes.filter { $0.id == "secrets" }) { pane in pane.view }
             }
         }
     }

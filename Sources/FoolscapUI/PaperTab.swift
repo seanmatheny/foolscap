@@ -4,9 +4,10 @@ import FoolscapCore
 /// An index tab glued to the page edge, sticking out sideways with its label
 /// running along it. Rounded on the free edge, square where it meets the page.
 /// `freeEdgeOnLeft` mirrors it for tabs on the left of the page.
-struct SideTabShape: Shape {
-    var freeEdgeOnLeft = false
-    func path(in r: CGRect) -> Path {
+public struct SideTabShape: Shape {
+    public var freeEdgeOnLeft = false
+    public init(freeEdgeOnLeft: Bool = false) { self.freeEdgeOnLeft = freeEdgeOnLeft }
+    public func path(in r: CGRect) -> Path {
         let c: CGFloat = min(7, r.width / 2.5)
         var p = Path()
         if freeEdgeOnLeft {

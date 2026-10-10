@@ -58,10 +58,28 @@ public enum PageRuling {
 
 /// A TextKit 2 text view whose storage is the document's markdown. Draws the
 /// paper ruling itself so lines scroll with the text and text sits on them.
+/// What an editor may do beyond editing text. A scratch editor over text that
+/// must never leave memory (the Secrets tab) turns everything off: no attachment
+/// files, no link-preview cache, no fold memory in the defaults, no spell checker.
+public struct EditorFeatures: OptionSet, Sendable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+    /// Pasted and dropped images are written to `Attachments/` and linked.
+    public static let attachments = EditorFeatures(rawValue: 1 << 0)
+    /// URL lines get a link card, fetched and cached under Application Support.
+    public static let linkPreviews = EditorFeatures(rawValue: 1 << 1)
+    /// Folded headings are remembered in the defaults by note path and heading text.
+    public static let foldMemory = EditorFeatures(rawValue: 1 << 2)
+    /// Continuous spell checking.
+    public static let textChecking = EditorFeatures(rawValue: 1 << 3)
+    public static let all: EditorFeatures = [.attachments, .linkPreviews, .foldMemory, .textChecking]
+}
+
 public final class MarkdownTextView: NSTextView {
     var palette: EditorPalette
     let styler: MarkdownStyler
     let document: NoteDocument
+    let features: EditorFeatures
     private(set) lazy var overlays = OverlayController(textView: self)
     private var syncingOverlays = false
     /// Known tags for `#` completion, most used first (set by the editor wrapper).
@@ -79,9 +97,10 @@ public final class MarkdownTextView: NSTextView {
     var hoverHeading: Int?
     var foldTracking: NSTrackingArea?
 
-    public init(document: NoteDocument, palette: EditorPalette) {
+    public init(document: NoteDocument, palette: EditorPalette, features: EditorFeatures = .all) {
         self.palette = palette
         self.document = document
+        self.features = features
         self.styler = MarkdownStyler(palette: palette)
         let contentStorage = NSTextContentStorage()
         contentStorage.textStorage = document.textStorage
@@ -97,18 +116,21 @@ public final class MarkdownTextView: NSTextView {
         styler.textView = self
         // Sections folded on an earlier visit stay folded; toggles are remembered by
         // the note's path and the heading's text (never written into the file).
-        styler.foldedHeadings = FoldMemory.folded(for: document.path)
+        if features.contains(.foldMemory) { styler.foldedHeadings = FoldMemory.folded(for: document.path) }
         styler.onFoldsChanged = { [weak self] in
             guard let self else { return }
-            let present = Set(self.styler.blockMap.lines.compactMap { line -> String? in
-                if case .heading = line.kind { return MarkdownStyler.foldKey(line) }
-                return nil
-            })
-            FoldMemory.save(self.styler.foldedHeadings.intersection(present), for: self.document.path)
+            if self.features.contains(.foldMemory) {
+                let present = Set(self.styler.blockMap.lines.compactMap { line -> String? in
+                    if case .heading = line.kind { return MarkdownStyler.foldKey(line) }
+                    return nil
+                })
+                FoldMemory.save(self.styler.foldedHeadings.intersection(present), for: self.document.path)
+            }
             self.needsDisplay = true
         }
         styler.attach(to: document.textStorage)
-        registerForDraggedTypes(registeredDraggedTypes + [.fileURL, .png, .tiff])
+        if features.contains(.attachments) { registerForDraggedTypes(registeredDraggedTypes + [.fileURL, .png, .tiff]) }
+        if !features.contains(.textChecking) { isContinuousSpellCheckingEnabled = false }
     }
 
     /// Plain-text views only declare text as pasteable, which disables the
@@ -442,6 +464,7 @@ public final class MarkdownTextView: NSTextView {
     }
 
     private func pasteImage(from pb: NSPasteboard) -> Bool {
+        guard features.contains(.attachments) else { return false }
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
            !urls.isEmpty, urls.allSatisfy(AttachmentImporter.isImageFile) {
             for url in urls { if let md = AttachmentImporter.importFile(url, document: document) { insertMarkdown(md, ownLine: true) } }
@@ -493,7 +516,7 @@ public final class MarkdownTextView: NSTextView {
             for url in urls { if let md = AttachmentImporter.importFile(url, document: document) { insertMarkdown(md, ownLine: true) } }
             return true
         }
-        if let image = NSImage(pasteboard: sender.draggingPasteboard) {
+        if features.contains(.attachments), let image = NSImage(pasteboard: sender.draggingPasteboard) {
             if let md = AttachmentImporter.importImage(image, document: document) { insertMarkdown(md, ownLine: true) }
             return true
         }
@@ -501,6 +524,7 @@ public final class MarkdownTextView: NSTextView {
     }
 
     private func droppableImageURLs(_ sender: NSDraggingInfo) -> [URL]? {
+        guard features.contains(.attachments) else { return nil }
         guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
               !urls.isEmpty, urls.allSatisfy(AttachmentImporter.isImageFile) else { return nil }
         return urls

@@ -6,6 +6,7 @@ import FoolscapSections
 import FoolscapScribe
 import FoolscapHighlights
 import FoolscapJira
+import FoolscapSecrets
 
 /// Wires the store, the section registry and user preferences together.
 @MainActor
@@ -15,6 +16,7 @@ final class AppModel {
     var selectedSectionID: String {
         didSet {
             UserDefaults.standard.set(selectedSectionID, forKey: "selectedSection")
+            if oldValue == SecretsSection.sectionID, selectedSectionID != oldValue { secretsSection?.didLeaveTab() }
             // Going somewhere (a tab, the Go menu, a search result) turns the flyleaf away.
             if flyleafPresented { flyleafPresented = false }
         }
@@ -54,6 +56,11 @@ final class AppModel {
     /// `--jira` keeps the tab on for this launch whatever Settings says.
     private var jiraForced = false
     private(set) var jiraSection: JiraSection?
+    /// The Secrets tab is a hard toggle: off means no section, no vault read.
+    private(set) var secretsEnabled = false
+    /// `--secrets` keeps the tab on for this launch whatever Settings says.
+    private var secretsForced = false
+    private(set) var secretsSection: SecretsSection?
 
     var theme: NotebookTheme {
         (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).scaled(by: textScale).onPaper(paperTexture).ruled(ruling, marginRule: marginRule)
@@ -103,6 +110,8 @@ final class AppModel {
             setScribeEnabled(scribeForced || defaults.bool(forKey: "scribeEnabled"))
             jiraForced = CommandLine.arguments.contains("--jira")
             setJiraEnabled(jiraForced || defaults.bool(forKey: "jiraEnabled"))
+            secretsForced = CommandLine.arguments.contains("--secrets")
+            setSecretsEnabled(secretsForced || defaults.bool(forKey: SecretsSection.enabledKey))
             rewireSections()
             // Today's page once listed tasks tagged #today; now it lists the Today status.
             if !defaults.bool(forKey: "todayTagMigrated") {
@@ -111,6 +120,7 @@ final class AppModel {
         }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
         if jiraForced { selectedSectionID = JiraSection.sectionID }
+        if secretsForced { selectedSectionID = SecretsSection.sectionID }
         // `--highlights` opens the tab; `--highlights=books` on the shelf, `--highlights=Highlights/<Title>.md` on a book.
         if highlightsForced, let highlights = highlightsSection {
             if CommandLine.arguments.contains(where: { $0.hasPrefix("--highlights") }) { selectedSectionID = HighlightsSection.sectionID }
@@ -254,6 +264,8 @@ final class AppModel {
                 if !self.highlightsForced, highlights != self.highlightsEnabled { self.setHighlightsEnabled(highlights) }
                 let jira = defaults.bool(forKey: "jiraEnabled")
                 if !self.jiraForced, jira != self.jiraEnabled { self.setJiraEnabled(jira) }
+                let secrets = defaults.bool(forKey: SecretsSection.enabledKey)
+                if !self.secretsForced, secrets != self.secretsEnabled { self.setSecretsEnabled(secrets) }
             }
         }
     }
@@ -286,6 +298,10 @@ final class AppModel {
         if jiraEnabled {
             setJiraEnabled(false)
             setJiraEnabled(true)
+        }
+        if secretsEnabled {
+            setSecretsEnabled(false)
+            setSecretsEnabled(true)
         }
         tasksSection?.aggregator.scheduleReload()
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
@@ -350,6 +366,26 @@ final class AppModel {
             jiraSection = nil
             sections.removeAll { $0.id == JiraSection.sectionID }
             if selectedSectionID == JiraSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
+        }
+        rewireSections()
+    }
+
+    /// Add or remove the Secrets section at runtime; it sits after Jira (or Tasks).
+    /// Nothing is indexed: the vault never enters the library.
+    func setSecretsEnabled(_ on: Bool) {
+        guard on != secretsEnabled, let library else { return }
+        secretsEnabled = on
+        if on {
+            let secrets = SecretsSection(library: library)
+            let after = sections.lastIndex { $0.id == JiraSection.sectionID || $0.id == "tasks" }.map { $0 + 1 } ?? sections.endIndex
+            sections.insert(secrets, at: after)
+            secretsSection = secrets
+            secrets.start()
+        } else {
+            secretsSection?.stop()
+            secretsSection = nil
+            sections.removeAll { $0.id == SecretsSection.sectionID }
+            if selectedSectionID == SecretsSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
         }
         rewireSections()
     }
@@ -421,10 +457,14 @@ final class AppModel {
         Task { await library?.rebuildIndex() }
     }
 
-    /// Synchronous, for quitting.
-    func flush() { library?.flushAll() }
+    /// Synchronous, for quitting: the vault locks (and saves) first.
+    func flush() {
+        secretsSection?.lockNow()
+        library?.flushAll()
+    }
 
     func save() {
+        secretsSection?.saveIfDirty()
         guard let library else { return }
         Task { await library.save() }
     }

@@ -14,16 +14,18 @@ public struct MarkdownEditor: NSViewRepresentable {
     let header: AnyView?
     /// Laid after the note's last line (the day's handwritten pages).
     let footer: AnyView?
+    let features: EditorFeatures
     let onEdit: () -> Void
     @Environment(\.notebookTheme) private var theme
 
     public init(document: NoteDocument, revealLine: Int? = nil, tags: @escaping () -> [String] = { [] },
-                header: AnyView? = nil, footer: AnyView? = nil, onEdit: @escaping () -> Void) {
+                header: AnyView? = nil, footer: AnyView? = nil, features: EditorFeatures = .all, onEdit: @escaping () -> Void) {
         self.document = document
         self.revealLine = revealLine
         self.tags = tags
         self.header = header
         self.footer = footer
+        self.features = features
         self.onEdit = onEdit
     }
 
@@ -31,7 +33,7 @@ public struct MarkdownEditor: NSViewRepresentable {
 
     public func makeNSView(context: Context) -> NSScrollView {
         let palette = EditorPalette(theme: theme)
-        let textView = MarkdownTextView(document: document, palette: palette)
+        let textView = MarkdownTextView(document: document, palette: palette, features: features)
         textView.knownTags = tags
         textView.delegate = context.coordinator
 
