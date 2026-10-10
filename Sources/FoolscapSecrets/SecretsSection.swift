@@ -41,6 +41,9 @@ public final class SecretsSection: NotebookSection {
     /// A letter clicked after a tag was chosen narrows the tag's entries to that letter;
     /// choosing a tag shows them across every letter again.
     public private(set) var letterPinned = false
+    /// The "All" chip: every entry across every letter under letter dividers, until a
+    /// letter or a tag is chosen.
+    public private(set) var showingAll = false
     public private(set) var editingID: String?
     public private(set) var draft: NoteDocument?
     /// Titles folded to their one-line row.
@@ -200,15 +203,18 @@ public final class SecretsSection: NotebookSection {
     public func toggleTag(_ tag: String) {
         if let i = selectedTags.firstIndex(of: tag) { selectedTags.remove(at: i) } else { selectedTags.append(tag) }
         letterPinned = false
+        showingAll = false
     }
 
-    public func clearTags() {
+    /// The "All" chip: no tag filter, and every letter's entries listed at once.
+    public func showAll() {
         selectedTags = []
         letterPinned = false
+        showingAll = true
     }
 
-    /// Search hits and tagged entries are listed across the letters, under letter dividers.
-    public var showsAllLetters: Bool { isSearching || (!selectedTags.isEmpty && !letterPinned) }
+    /// Search hits, tagged entries and "All" are listed across the letters, under letter dividers.
+    public var showsAllLetters: Bool { isSearching || showingAll || (!selectedTags.isEmpty && !letterPinned) }
 
     private func passesTags(_ entry: SecretEntry) -> Bool { selectedTags.allSatisfy { entry.tags.contains($0) } }
 
@@ -243,6 +249,7 @@ public final class SecretsSection: NotebookSection {
         selectedLetter = letter
         searchText = ""
         letterPinned = true
+        showingAll = false
     }
 
     // MARK: Edits

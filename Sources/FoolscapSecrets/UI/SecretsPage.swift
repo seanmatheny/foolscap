@@ -178,7 +178,7 @@ struct SecretsPage: View {
     private var tagStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                FilterChip(label: "All", isOn: section.selectedTags.isEmpty) { section.clearTags() }
+                FilterChip(label: "All", isOn: section.showingAll) { section.showAll() }
                 ForEach(section.stripTags, id: \.self) { tag in
                     FilterChip(label: "#" + tag, isOn: section.selectedTags.contains(tag)) { section.toggleTag(tag) }
                 }
@@ -226,7 +226,7 @@ struct SecretsPage: View {
             let q = section.searchText.trimmingCharacters(in: .whitespaces)
             return tags.isEmpty ? "Nothing matches “\(q)”." : "Nothing matches “\(q)” with \(tags)."
         }
-        if section.showsAllLetters { return "Nothing carries \(tags)." }
+        if section.showsAllLetters { return tags.isEmpty ? "Nothing in the vault yet. New (⌘N) adds a card." : "Nothing carries \(tags)." }
         let where_ = letters.map(\.description).joined(separator: ", ")
         return tags.isEmpty ? "Nothing filed under \(where_) yet. New (⌘N) adds a card here."
             : "Nothing under \(where_) carries \(tags); the brighter letters do, and \(tags) in the strip lists them all."

@@ -181,8 +181,9 @@
   `LetterGroup.groups(capacity:)` pairs letters on short pages) is cut into the page inside the
   tab-side edge; a strip of `FilterChip`s under the title (the vault's tags, most used first,
   `selectedTags`, every chosen tag must be present) lists the tagged entries across every letter
-  under letter dividers, like a search; a letter clicked afterwards (`letterPinned`) narrows them
-  to that letter until the next chip; the index dims letters with nothing matching. Cards render the entries; editing is "as text" in a `MarkdownEditor` over a
+  under letter dividers, like a search; the "All" chip (`showingAll`) lists every entry the same
+  way; a letter clicked afterwards (`letterPinned`) narrows them to that letter until the next
+  chip; the index dims letters with nothing matching. Cards render the entries; editing is "as text" in a `MarkdownEditor` over a
   throwaway `NoteDocument` with `features: []` (`EditorFeatures`: no attachments, link cards,
   fold memory or spell check, so nothing of the plaintext is written). Never indexed: the vault
   never enters `NotebookLibrary.documents` and `listIndexableNotes` ignores `Secrets/`; `Secrets`
