@@ -83,6 +83,9 @@ public final class HighlightsSection: NotebookSection {
     /// How many matched in all, when more than `searchResultLimit` did.
     public private(set) var searchResultTotal = 0
     public static let searchResultLimit = 150
+    /// Books whose title or author carry every word of the search (and, with a
+    /// `#tag`, holding a highlight so tagged): shown as a shelf above the quotes.
+    public private(set) var searchBooks: [SearchIndex.HighlightBookRecord] = []
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     public var selectedTag: String?
     /// Every highlight in the index, in reading order per book.
@@ -355,15 +358,16 @@ public final class HighlightsSection: NotebookSection {
         let query = searchQuery
         // A lone `#` only wants suggestions; one letter would match nearly everything.
         guard !query.isEmpty, query.wordText.count >= 2 || query.hasTagFilter else {
-            searchResults = []; searchResultTotal = 0
+            searchResults = []; searchResultTotal = 0; searchBooks = []
             return
         }
         let pool = items
+        let shelf = books
         let limit = Self.searchResultLimit
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            let (hits, total) = await Task.detached(priority: .userInitiated) { () -> ([HighlightItem], Int) in
+            let (hits, total, found) = await Task.detached(priority: .userInitiated) { () -> ([HighlightItem], Int, [SearchIndex.HighlightBookRecord]) in
                 var hits: [HighlightItem] = []
                 var total = 0
                 for item in pool where Self.matches(item, query) {
@@ -371,11 +375,13 @@ public final class HighlightsSection: NotebookSection {
                     if hits.count < limit { hits.append(item) }
                     if total % 200 == 0, Task.isCancelled { break }
                 }
-                return (hits, total)
+                let found = Self.matchingBooks(shelf, in: pool, query)
+                return (hits, total, found)
             }.value
             guard !Task.isCancelled, let self else { return }
             self.searchResults = hits
             self.searchResultTotal = total
+            self.searchBooks = found
         }
     }
 
@@ -385,20 +391,43 @@ public final class HighlightsSection: NotebookSection {
     /// Wait for the search typed so far to land (tests).
     public func settleSearch() async { await searchTask?.value }
 
+    /// A quote matches when every word is in it, its note, or its book's title and
+    /// author, and at least one word is in the quote or note itself: a search that
+    /// only names the book lists the book (`matchingBooks`), not its every quote.
     nonisolated static func matches(_ item: HighlightItem, _ query: SearchQuery) -> Bool {
         let words = query.words.map { $0.lowercased() }
         if !words.isEmpty {
-            let hay = (item.text + "\n" + (item.note ?? "") + "\n" + item.bookTitle + "\n" + item.bookAuthor).lowercased()
-            guard words.allSatisfy({ hay.contains($0) }) else { return false }
+            let own = (item.text + "\n" + (item.note ?? "")).lowercased()
+            let hay = own + "\n" + (item.bookTitle + "\n" + item.bookAuthor).lowercased()
+            guard words.allSatisfy({ hay.contains($0) }), words.contains(where: { own.contains($0) }) else { return false }
         }
-        guard query.tags.allSatisfy({ item.tags.contains($0) }) else { return false }
-        if let partial = query.pendingTag, !partial.isEmpty { return item.tags.contains { $0.hasPrefix(partial) } }
+        return tagsMatch(item.tags, query)
+    }
+
+    /// The books named by the search: every word in the title or author, and, with
+    /// a `#tag` filter, at least one highlight in the book carrying the tags.
+    nonisolated static func matchingBooks(_ books: [SearchIndex.HighlightBookRecord], in items: [HighlightItem], _ query: SearchQuery)
+        -> [SearchIndex.HighlightBookRecord] {
+        let words = query.words.map { $0.lowercased() }
+        guard !words.isEmpty else { return [] }
+        return books.filter { book in
+            let hay = (book.title + "\n" + book.author).lowercased()
+            guard words.allSatisfy({ hay.contains($0) }) else { return false }
+            guard query.hasTagFilter else { return true }
+            return items.contains { $0.path == book.path && tagsMatch($0.tags, query) }
+        }
+    }
+
+    nonisolated private static func tagsMatch(_ tags: [String], _ query: SearchQuery) -> Bool {
+        guard query.tags.allSatisfy({ tags.contains($0) }) else { return false }
+        if let partial = query.pendingTag, !partial.isEmpty { return tags.contains { $0.hasPrefix(partial) } }
         return true
     }
 
     // MARK: Navigation
 
     public func open(book path: String, highlight id: String? = nil) {
+        searchText = ""
         mode = .book(path)
         selectedTag = nil
         pendingHighlightID = id

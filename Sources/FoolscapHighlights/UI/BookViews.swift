@@ -15,12 +15,15 @@ struct BookGrid: View {
     @Bindable var section: HighlightsSection
     /// The width the shelf may use, from the page.
     var width: CGFloat
+    /// The books on it: every book unless a search picked some.
+    var books: [SearchIndex.HighlightBookRecord]? = nil
     static let cellWidth: CGFloat = 108
     static let spacing: CGFloat = 20
 
     var body: some View {
+        let books = books ?? section.books
         let columns = max(1, Int((width + Self.spacing) / (Self.cellWidth + Self.spacing)))
-        let rows = stride(from: 0, to: section.books.count, by: columns).map { Array(section.books[$0..<min($0 + columns, section.books.count)]) }
+        let rows = stride(from: 0, to: books.count, by: columns).map { Array(books[$0..<min($0 + columns, books.count)]) }
         VStack(alignment: .leading, spacing: 26) {
             ForEach(rows, id: \.first!.path) { row in
                 HStack(alignment: .top, spacing: Self.spacing) {

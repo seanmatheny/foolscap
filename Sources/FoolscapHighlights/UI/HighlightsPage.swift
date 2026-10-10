@@ -48,7 +48,7 @@ struct HighlightsPage: View {
         if section.items.isEmpty {
             emptyState
         } else if !section.searchQuery.isEmpty {
-            SearchResults(section: section)
+            SearchResults(section: section, width: pageWidth)
         } else {
             switch section.mode {
             case .today: TodayView(section: section, items: section.picks, showsBooks: true)
@@ -135,16 +135,26 @@ struct HighlightsPage: View {
     }
 }
 
-/// Matching highlights from every book, grouped by book.
+/// The books the search names, as a shelf, then the matching highlights from
+/// every book, grouped by book.
 struct SearchResults: View {
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: HighlightsSection
+    var width: CGFloat
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
         let results = section.searchResults
+        let books = section.searchBooks
         LazyVStack(alignment: .leading, spacing: 0) {
-            if results.isEmpty {
+            if !books.isEmpty {
+                Text(books.count == 1 ? "Book" : "Books")
+                    .font(.system(size: 11 * scale, weight: .semibold, design: .serif)).foregroundStyle(theme.dimInk.color)
+                    .padding(.top, 10)
+                BookGrid(section: section, width: width, books: books)
+                    .padding(.bottom, results.isEmpty ? 0 : 10)
+            }
+            if results.isEmpty && books.isEmpty {
                 Text(section.searchQuery.wordText.count < 2 && !section.searchQuery.hasTagFilter ? "Keep typing…" : "Nothing matches.")
                     .font(.system(size: 14, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
                     .padding(.top, 6)

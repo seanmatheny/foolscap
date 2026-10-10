@@ -39,7 +39,7 @@
   with `FOOLSCAP_SLOW_OPEN=1`, capture with `screencapture`: the curl is a child window), `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
   to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--jira` (forces the Jira tab on and opens it), `--secrets` (the Secrets tab likewise), `--highlights` (forces the Highlights tab on
-  and opens it), `--flyleaf` (forces the tab on and shows the day's three on the
+  and opens it; `--highlights=books` on the shelf, `--highlights=search:words` with a search typed in), `--flyleaf` (forces the tab on and shows the day's three on the
   opening page),
   `--type=text` (posts key events into the focused text after 2s, e.g. to show tag
   completion; `\n` is Return, `{up}` `{down}` `{left}` `{right}` `{tab}` `{esc}` name

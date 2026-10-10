@@ -83,11 +83,25 @@ import AppKit
         section.searchText = "ishmael #se"
         await section.settleSearch()
         #expect(section.searchResults.map(\.line) == [4])
+        // A search naming only the book lists the book, not its every quote.
         section.searchText = "melville"
         await section.settleSearch()
-        #expect(section.searchResults.count == 2)
+        #expect(section.searchResults.isEmpty && section.searchBooks.map(\.title) == ["Moby Dick"])
+        section.searchText = "melville spleen"
+        await section.settleSearch()
+        #expect(section.searchResults.map(\.line) == [7] && section.searchBooks.isEmpty)
+        section.searchText = "moby #mood "
+        await section.settleSearch()
+        #expect(section.searchBooks.map(\.title) == ["Moby Dick"])
+        section.searchText = "moby #nosuchtag "
+        await section.settleSearch()
+        #expect(section.searchBooks.isEmpty && section.searchResults.isEmpty)
         let hits = try await section.searchProvider!.search("driving", limit: 10)
         #expect(hits.map(\.route.line) == [7] && hits[0].title == "Moby Dick · Herman Melville")
+        let bookHits = try await section.searchProvider!.search("melville", limit: 10)
+        #expect(bookHits.map(\.route) == [SectionRoute(path: "Highlights/Moby Dick.md")] && bookHits[0].snippet == "2 highlights")
+        section.navigate(to: bookHits[0].route)
+        #expect(section.mode == .book("Highlights/Moby Dick.md") && section.pendingHighlightID == nil)
 
         section.navigate(to: SectionRoute(path: "Highlights/Moby Dick.md", line: 7))
         #expect(section.mode == .book("Highlights/Moby Dick.md") && section.searchText.isEmpty)
