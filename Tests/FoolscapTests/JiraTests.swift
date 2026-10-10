@@ -248,6 +248,16 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         return (JiraSection(library: library, client: client, store: store, stateURL: stateURL, defaults: defaults), defaults)
     }
 
+    @Test func aRouteNamesAnIssueToReveal() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-jira-route-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let (section, _) = try makeSection(tmp, client: FakeJiraClient(), store: MemoryTokenStore())
+        section.navigate(to: SectionRoute(path: "Daily/2026-10-11.md", line: 3))
+        #expect(section.pendingKey == nil)
+        section.navigate(to: SectionRoute(path: "CPAS-3"))
+        #expect(section.pendingKey == "CPAS-3")
+    }
+
     @Test func groupsPutInProgressFirstAndLeaveOutEpics() throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-jira-section-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) }

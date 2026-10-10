@@ -393,6 +393,8 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             if let parsed = TaskLineParser.parse(line.text) {
                 let prefix = NSRange(location: 0, length: parsed.markOffset + 2)
                 set([.font: p.mono, .foregroundColor: status == .notStarted || status == .someday ? p.dimInk : p.accent], prefix)
+                // The `[ ]` is a button: a click cycles the status (`MarkdownTextView.mouseDown`).
+                set([.cursor: NSCursor.pointingHand], NSRange(location: parsed.markOffset - 1, length: 3))
                 let titleStart = prefix.location + prefix.length
                 let title = NSRange(location: titleStart, length: text.length - titleStart)
                 // The priority marker (`!`, `!!`, `!!!`) shows in its light's colour.

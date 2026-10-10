@@ -95,6 +95,8 @@ public final class MarkdownTextView: NSTextView {
     var foldPills: [Int: NSRect] = [:]
     var hoverHeading: Int?
     var foldTracking: NSTrackingArea?
+    /// The task line whose `[ ]` mark is under the pointer (tinted, to say it is clickable).
+    var hoverTaskMark: Int?
 
     public init(document: NoteDocument, palette: EditorPalette, features: EditorFeatures = .all) {
         self.palette = palette
@@ -632,6 +634,7 @@ public final class MarkdownTextView: NSTextView {
         let visible = decorations(in: dirtyRect)
         drawCodeBlocks(visible)
         drawQuoteBars(visible)
+        drawTaskMarkHover(in: dirtyRect)
         // Before the text: TextKit leaves the context clipped to the text container,
         // and the chevrons sit in the margin outside it.
         drawFoldControls(in: dirtyRect)

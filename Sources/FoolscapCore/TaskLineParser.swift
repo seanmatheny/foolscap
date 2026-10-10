@@ -96,6 +96,16 @@ public enum TaskLineParser {
         return TaskPriority(marker: ns.substring(with: m.range(at: 1)))
     }
 
+    /// A Jira issue key (`CPAS-12`) at the start of the title, after any priority marker.
+    private static let issueKeyRegex = try! NSRegularExpression(pattern: #"^([A-Z][A-Z0-9]+-\d+)\b"#)
+
+    public static func issueKey(in title: String) -> String? {
+        let bare = stripPriority(from: title)
+        let ns = bare as NSString
+        guard let m = issueKeyRegex.firstMatch(in: bare, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        return ns.substring(with: m.range(at: 1))
+    }
+
     public static func stripPriority(from title: String) -> String {
         let ns = title as NSString
         let out = priorityRegex.stringByReplacingMatches(in: title, range: NSRange(location: 0, length: ns.length), withTemplate: "")

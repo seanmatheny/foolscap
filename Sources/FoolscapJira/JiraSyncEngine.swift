@@ -58,7 +58,7 @@ public struct JiraNewTaskDefaults: Equatable, Sendable {
 /// pulled issues Jira has closed and tick their tasks. Also the writes the
 /// page makes: a status change, a new task, a comment.
 public actor JiraSyncEngine {
-    public static let tag = "jira"
+    public static let tag = TaskItem.jiraTag
     static let taskTypeName = "Task"
 
     let client: any JiraClient

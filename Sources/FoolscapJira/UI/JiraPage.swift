@@ -13,6 +13,8 @@ struct JiraPage: View {
     @Bindable var section: JiraSection
     @State private var newTaskText = ""
     @FocusState private var newTaskFocused: Bool
+    /// The issue lit for a moment after a route lands on it.
+    @State private var flashKey: String?
 
     private var pitch: CGFloat { theme.linePitch }
     private var scale: CGFloat { theme.type.body.size / 15 }
@@ -21,6 +23,7 @@ struct JiraPage: View {
     var body: some View {
         let palette = EditorPalette(theme: theme)
         GeometryReader { geo in
+            ScrollViewReader { proxy in
             ScrollView {
                 ZStack(alignment: .topLeading) {
                     RulingView(pitch: pitch, topInset: pitch + PageRuling.ruleOffset(palette), marginX: PageRuling.textLeft)
@@ -50,11 +53,28 @@ struct JiraPage: View {
                     .padding(.top, pitch + PageRuling.rowShift(palette))
                 }
             }
+            .onChange(of: section.pendingKey) { _, key in reveal(key, proxy) }
+            // The route may land before the launch sync has filled the list.
+            .onChange(of: section.state.issues.count) { _, _ in reveal(section.pendingKey, proxy) }
+            }
         }
         .foregroundStyle(theme.ink.color)
         .background {
             // ⌘N goes to the new-task field.
             Button("") { newTaskFocused = true }.keyboardShortcut("n", modifiers: [.command]).opacity(0)
+        }
+    }
+
+    /// Scroll the issue into the middle of the page and light its row for a moment.
+    private func reveal(_ key: String?, _ proxy: ScrollViewProxy) {
+        guard let key, section.state.issues.contains(where: { $0.key == key }) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(key, anchor: .center) }
+            flashKey = key
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
+            if flashKey == key { flashKey = nil }
+            if section.pendingKey == key { section.pendingKey = nil }
         }
     }
 
@@ -143,7 +163,8 @@ struct JiraPage: View {
             }
             .frame(height: pitch)
             ForEach(group.issues) { issue in
-                JiraIssueRow(section: section, issue: issue, pitch: pitch)
+                JiraIssueRow(section: section, issue: issue, pitch: pitch, flashed: flashKey == issue.key)
+                    .id(issue.key)
             }
             Spacer().frame(height: pitch)
         }
@@ -155,6 +176,8 @@ struct JiraIssueRow: View {
     let section: JiraSection
     let issue: JiraIssue
     let pitch: CGFloat
+    /// Lit after a route landed on this issue.
+    var flashed = false
     @State private var hovering = false
     @State private var commenting = false
     @State private var draft = ""
@@ -209,6 +232,8 @@ struct JiraIssueRow: View {
             .help("Open in Jira")
         }
         .frame(height: pitch)
+        .background(RoundedRectangle(cornerRadius: 5).fill(theme.accent.color.opacity(flashed ? 0.18 : 0)).padding(.vertical, 2))
+        .animation(.easeOut(duration: 0.6), value: flashed)
         .contentShape(Rectangle())
         .onHover { over in
             hovering = over

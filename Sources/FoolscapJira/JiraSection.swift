@@ -46,7 +46,7 @@ public struct KeychainTokenStore: JiraTokenStore {
 @MainActor
 @Observable
 public final class JiraSection: NotebookSection {
-    public static let sectionID = "jira"
+    public static let sectionID = TaskItem.jiraSectionID
     public static let tag = JiraSyncEngine.tag
     public static let defaultSyncMinutes = 60
     public static let siteKey = "jiraSite", emailKey = "jiraEmail", minutesKey = "jiraSyncMinutes"
@@ -416,6 +416,16 @@ public final class JiraSection: NotebookSection {
     public var openCount: Int { state.issues.filter { !$0.isEpic }.count }
 
     // MARK: NotebookSection
+
+    /// An issue to scroll to and flash once the page shows it (a route from a
+    /// `#jira` task elsewhere); the page clears it after the flash.
+    public var pendingKey: String?
+
+    /// A route's path is a bare issue key: the section owns no files.
+    public func navigate(to route: SectionRoute) {
+        guard let key = TaskLineParser.issueKey(in: route.path), key == route.path else { return }
+        pendingKey = key
+    }
 
     public func makeRootView() -> AnyView { AnyView(JiraPage(section: self)) }
     public func makeSettingsPane() -> AnyView? { AnyView(JiraSettingsPane(section: self)) }

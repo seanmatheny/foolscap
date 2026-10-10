@@ -426,6 +426,8 @@ struct TaskRow: View {
     let onAddTag: (String) -> Void
     let onRemoveTag: (String) -> Void
     let onSetPriority: (TaskPriority) -> Void
+    /// Set for a `#jira` task: a click on its title turns to the issue in the Jira tab.
+    var onOpenIssue: (() -> Void)? = nil
     @State private var hovering = false
     @State private var editing = false
     @State private var askTag = false
@@ -440,15 +442,20 @@ struct TaskRow: View {
                     .frame(width: 20)
             }
             .buttonStyle(.plain)
+            .pointerStyle(.link)
+            .help(task.isReadOnly ? "" : (task.status == .completed ? "Mark not done" : "Mark done"))
             .disabled(task.isReadOnly)
             PriorityLight(priority: task.priority, visible: hovering || task.priority != .none, onSet: onSetPriority)
                 .disabled(task.isReadOnly)
-            Text(task.displayTitle)
-                .font(.system(size: 14.5 * scale, design: .serif))
-                .strikethrough(task.status == .completed, color: theme.dimInk.color)
-                .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
-                .lineLimit(1)
-                .highlighted(theme.highlighter[task.status])
+            if let onOpenIssue {
+                // The Button takes the click before the row's own tap gesture.
+                Button(action: onOpenIssue) { title.underline(hovering, color: theme.dimInk.color) }
+                    .buttonStyle(.plain)
+                    .pointerStyle(.link)
+                    .help("Open in the Jira tab")
+            } else {
+                title
+            }
             ForEach(task.tags, id: \.self) { tag in
                 TagChip(tag: tag, scale: scale, removable: !task.isReadOnly) { onRemoveTag(tag) }
             }
@@ -529,7 +536,17 @@ struct TaskRow: View {
                 Divider()
             }
             if task.source.day != nil { Button("Open in Daily Note") { onOpen() } }
+            if let onOpenIssue { Button("Open in Jira Tab") { onOpenIssue() } }
         }
+    }
+
+    private var title: some View {
+        Text(task.displayTitle)
+            .font(.system(size: 14.5 * scale, design: .serif))
+            .strikethrough(task.status == .completed, color: theme.dimInk.color)
+            .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
+            .lineLimit(1)
+            .highlighted(theme.highlighter[task.status])
     }
 
     private var symbol: String {

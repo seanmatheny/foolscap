@@ -29,6 +29,18 @@ import Foundation
         #expect(TaskLineParser.parse("- [?] weird") == nil)
     }
 
+    @Test func findsAJiraIssueKeyAtTheStart() {
+        #expect(TaskLineParser.issueKey(in: "CPAS-12 Fix the thing #jira") == "CPAS-12")
+        #expect(TaskLineParser.issueKey(in: "!! CPAS-12 Fix the thing") == "CPAS-12")
+        #expect(TaskLineParser.issueKey(in: "cpas-12 Fix") == nil)
+        #expect(TaskLineParser.issueKey(in: "Fix CPAS-12") == nil)
+        #expect(TaskLineParser.issueKey(in: "CPAS-12x") == nil)
+        let source = TaskSource(path: "Tasks.md", line: 1, day: nil)
+        let jira = TaskItem(providerID: "daily", title: "CPAS-12 Fix #jira", status: .today, tags: ["jira"], indent: 0, source: source)
+        let plain = TaskItem(providerID: "daily", title: "CPAS-12 Fix", status: .today, tags: [], indent: 0, source: source)
+        #expect(jira.jiraIssueKey == "CPAS-12" && plain.jiraIssueKey == nil)
+    }
+
     @Test func extractsTags() {
         let p = TaskLineParser.parse("- [ ] Email Dave about #work/hpc and `#notatag` C#")!
         #expect(p.tags == ["work/hpc"])

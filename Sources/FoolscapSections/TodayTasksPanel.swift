@@ -76,7 +76,8 @@ struct TodayTasksPanel: View {
                         onUpdate: { aggregator.update(task, title: $0, notes: $1) },
                         onAddTag: { aggregator.addTag($0, to: task) },
                         onRemoveTag: { aggregator.removeTag($0, from: task) },
-                        onSetPriority: { aggregator.setPriority($0, of: task) })
+                        onSetPriority: { aggregator.setPriority($0, of: task) },
+                        onOpenIssue: task.jiraIssueKey.map { key in { section.openRoute?(TaskItem.jiraSectionID, SectionRoute(path: key)) } })
             }
         }
     }

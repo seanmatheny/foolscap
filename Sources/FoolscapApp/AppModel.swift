@@ -100,9 +100,10 @@ final class AppModel {
             daily.taskAggregator = tasks.aggregator
             daily.openSearch = { [weak self] in self?.search.open() }
             daily.openRoute = { [weak self] sectionID, route in
-                guard let self else { return }
+                // A route to a tab that is switched off (Jira, say) goes nowhere.
+                guard let self, let target = self.section(id: sectionID) else { return }
                 self.selectedSectionID = sectionID
-                self.section(id: sectionID)?.navigate(to: route)
+                target.navigate(to: route)
             }
             sections = [daily, tasks]
             tasksSection = tasks

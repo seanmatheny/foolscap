@@ -418,7 +418,11 @@
   at midnight (default) or every 24 h / 12 h / hour counted from the last draw, or
   each time the app opens. Timed draws are keyed "yyyy-MM-dd HH:mm:ss" in
   `daily.json` beside the plain day keys; `drawKey`/`drawnAt` there say what is up.
-- Today's page lists tasks tagged #today (`TodayTasksPanel`) under its date: `MarkdownEditor(header:)`
+- Today's page lists tasks in the Today status (`TodayTasksPanel`) under its date; a `#jira`
+  task's title there (`TaskItem.jiraIssueKey`, `TaskRow.onOpenIssue`) routes through
+  `DailyNotesSection.openRoute` to `JiraSection.navigate` (`SectionRoute(path: key)`,
+  `pendingKey`), which scrolls to and flashes the issue. The editor's `[ ]` mark carries a
+  pointing-hand `.cursor` attribute and a hover tint (`TaskMarkHover.swift`); a click cycles it. `MarkdownEditor(header:)`
   hosts a SwiftUI view in the text view (`headerView`), reserved as paragraph spacing after
   the opening heading like an image overlay (or as extra top inset when the note has no
   heading). Ruling geometry is shared (`PageRuling` in FoolscapEditor, `RulingView.marginRuleOffset`)

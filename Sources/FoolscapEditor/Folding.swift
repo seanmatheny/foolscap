@@ -164,11 +164,13 @@ extension MarkdownTextView {
             }
         }
         setHoverHeading(hovered)
+        setHoverTaskMark(taskMark(at: point))
     }
 
     public override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         setHoverHeading(nil)
+        setHoverTaskMark(nil)
     }
 
     private func setHoverHeading(_ index: Int?) {

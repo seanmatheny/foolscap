@@ -140,6 +140,15 @@ public struct TaskItem: Identifiable, Codable, Hashable, Sendable {
     /// The first tag is the category.
     public var category: String? { tags.first }
 
+    /// The tag the Jira section puts on the tasks it writes, and its tab's id.
+    public static let jiraTag = "jira"
+    public static let jiraSectionID = "jira"
+
+    /// The issue key of a task the Jira section wrote (`CPAS-12 summary #jira`).
+    public var jiraIssueKey: String? {
+        tags.contains(Self.jiraTag) ? TaskLineParser.issueKey(in: title) : nil
+    }
+
     /// The `!` marker at the start of the title, if any.
     public var priority: TaskPriority { TaskLineParser.priority(in: title) }
 
