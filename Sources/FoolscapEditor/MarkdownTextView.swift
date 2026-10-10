@@ -333,11 +333,63 @@ public final class MarkdownTextView: NSTextView {
                                   width: width, height: max(1, headerHeight))
     }
 
+    // MARK: Footer
+
+    /// A view laid after the note's last line (the day's handwritten Scribe pages),
+    /// scrolling with the note on the ruling. The last paragraph carries no trailing
+    /// spacing to reserve in, so the room comes from the view's minimum height.
+    var footerView: NSView? {
+        didSet {
+            guard footerView !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let footerView { addSubview(footerView) }
+            updateMinSize()
+            needsLayout = true
+        }
+    }
+
+    var footerHeight: CGFloat = 0 {
+        didSet { if footerHeight != oldValue { updateMinSize(); needsLayout = true } }
+    }
+
+    var footerReservation: CGFloat {
+        guard footerView != nil, footerHeight > 0 else { return 0 }
+        return ceil(footerHeight / palette.pitch - 0.01) * palette.pitch
+    }
+
+    /// The visible page height: the view is never shorter, so the ruling fills it.
+    var visibleHeight: CGFloat = 0 {
+        didSet { if visibleHeight != oldValue { updateMinSize(); needsLayout = true } }
+    }
+
+    /// Where the text ends, including the empty last line.
+    var textBottom: CGFloat {
+        (textLayoutManager?.usageBoundsForTextContainer.maxY ?? 0) + textContainerInset.height
+    }
+
+    /// Tall enough for the page, and for the footer a line under the text.
+    func updateMinSize() {
+        var needed = visibleHeight
+        if footerReservation > 0 { needed = max(needed, textBottom + palette.pitch + footerReservation + palette.pitch) }
+        if minSize.height != needed {
+            minSize = NSSize(width: 0, height: needed)
+            sizeToFit()
+        }
+    }
+
+    private func positionFooter() {
+        guard let footerView else { return }
+        let width = max(120, bounds.width - EditorMetrics.leftInset - EditorMetrics.headerRightInset)
+        footerView.frame = NSRect(x: EditorMetrics.leftInset, y: textBottom + palette.pitch + PageRuling.rowShift(palette),
+                                  width: width, height: max(1, footerHeight))
+    }
+
     private func overlaysChanged() {
         guard !syncingOverlays else { return }
         syncingOverlays = true
         defer { syncingOverlays = false }
         updateTopInset()
+        updateMinSize()
         let before = styler.overlayHeights
         if overlays.sync(map: styler.blockMap) {
             let after = styler.overlayHeights
@@ -352,6 +404,8 @@ public final class MarkdownTextView: NSTextView {
     public override func layout() {
         super.layout()
         positionHeader()
+        positionFooter()
+        updateMinSize()
         if overlays.reposition() {
             // Width changed: reserve new heights on the next turn of the run loop.
             DispatchQueue.main.async { [weak self] in self?.overlaysChanged() }
@@ -399,6 +453,24 @@ public final class MarkdownTextView: NSTextView {
             return true
         }
         return false
+    }
+
+    /// Add a block after everything in the note, separated by a blank line, as
+    /// an edit the user can undo.
+    func appendMarkdownBlock(_ text: String) {
+        guard let storage = textStorage else { return }
+        let ns = storage.string as NSString
+        var insert = text.hasSuffix("\n") ? text : text + "\n"
+        if ns.length > 0 {
+            if !ns.hasSuffix("\n") { insert = "\n\n" + insert } else if !ns.hasSuffix("\n\n") { insert = "\n" + insert }
+        }
+        let range = NSRange(location: ns.length, length: 0)
+        guard shouldChangeText(in: range, replacementString: insert) else { return }
+        storage.replaceCharacters(in: range, with: insert)
+        didChangeText()
+        let end = NSRange(location: range.location + (insert as NSString).length, length: 0)
+        setSelectedRange(end)
+        scrollRangeToVisible(end)
     }
 
     /// Insert text at the selection; `ownLine` puts it on a line of its own.

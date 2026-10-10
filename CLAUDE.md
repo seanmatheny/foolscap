@@ -196,6 +196,28 @@
   Sean's corrected transcripts; `Tools/scribe-page-png.js` renders a page). Apple's
   on-device Foundation Model with image input was tried and rejected (fluent, half the
   words invented); PencilKit's `PKStrokeRecognizer` needs pen strokes (USB `nbk` files).
+- The Scribe tab shows spreads (`ScribeNotebookView`): ink left (`PageFacsimile`, ≤480 pt),
+  the transcript right on ruled paper (`ScribeTranscriptSheet`, FoolscapScribe depends on
+  FoolscapEditor for `EditorPalette`/`PageRuling`), one row per page, top-aligned; below
+  `spreadMinWidth` (760 pt of notebook area ≈ a 1200 pt window) the two stack. Each page's
+  day is the handwritten date at its top (`ScribePageDates`: first three lines, numeric dates
+  day-first, missing year = latest not after the notebook's change date; an undated page
+  continues the previous page's day, none before the first date; nothing else is used, by
+  Sean's decision) and is written into the transcript heading `## Page 3 · 2026-07-24`
+  (`ScribeTranscript.formatVersion` transcript/3; `ScribePageDates.rulesVersion` is in the
+  transcript key). The Daily page shows that day's pages after the note ("From your Scribe",
+  `DayPagesAppendix`) through the Core `DayPagesProvider` protocol (`NotebookSection.
+  dayPagesProvider`; `ScribeDayPagesProvider` reads the transcripts, `AppModel.rewireSections`
+  hands the providers to `DailyNotesSection`, `openRoute` opens the page); nothing is copied
+  into the note unless "Add to this note" is clicked (`DayPageMarkdown.block`: `## first line`
+  + the text as a quote, once; presence = the heading line). The editor hosts it as a
+  footer (`MarkdownTextView.footerView`, symmetrical to the header but the room comes from
+  `minSize`/`visibleHeight`, since the last paragraph has no trailing spacing) and panels add
+  text through the `\.editorInsertion` environment (`appendMarkdownBlock`, undoable).
+- Verification launches: `-jiraEnabled NO` in the argument domain skips the Jira keychain
+  read, which otherwise raises a keychain prompt for every freshly signed debug build and
+  leaves the app windowless until Sean clicks Always Allow; `-flyleafOnOpen NO --no-opening`
+  land straight on the tab.
 - OCR runs in the bundled helper `Contents/MacOS/scribe-ocr` (target `FoolscapScribeOCR`,
   the verbatim tool from KindleScribeSync-mac) via `Process`, so Vision's models
   unload after each run; drain both pipes off-thread or a long notebook deadlocks.

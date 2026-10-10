@@ -4,8 +4,9 @@ import FoolscapCore
 import FoolscapStore
 import FoolscapUI
 
-/// One notebook: every page as a facsimile with its transcript beneath,
-/// stacked down a scrolling page. The stack is not lazy: a lazy stack guesses
+/// One notebook as a run of spreads: each page's ink on the left and its
+/// transcript on ruled paper on the right, one row per page; in a narrow window
+/// the two stack. The stack is not lazy: a lazy stack guesses
 /// the heights of pages it has not laid out, so scrolling to a page by id
 /// landed anywhere from a page off to the end of the notebook. The bitmaps
 /// are what cost, and `PageFacsimile` only holds one while on screen.
@@ -28,6 +29,23 @@ struct ScribeNotebookView: View {
     @State private var position: Int?
     /// Notebooks this long get the jump button.
     static let jumpPages = 3
+    /// The notebook area must be this wide for ink and text to sit side by side.
+    /// Sean's usual window gives about 850 pt here; the default window about 670.
+    static let spreadMinWidth: CGFloat = 760
+    static let gutter: CGFloat = 28
+    /// Ink is reference now the text reads well, so it takes under half the width.
+    static let versoMaxWidth: CGFloat = 480
+
+    /// Column widths for a spread, or nil when the area is too narrow for one.
+    static func columns(for width: CGFloat) -> (verso: CGFloat, recto: CGFloat)? {
+        guard width >= spreadMinWidth else { return nil }
+        let verso = min(versoMaxWidth, floor((width - gutter) * 0.48))
+        return (verso, floor(width - gutter - verso))
+    }
+
+    private static let captionDay: DateFormatter = {
+        let f = DateFormatter(); f.locale = .current; f.setLocalizedDateFormatFromTemplate("EEEdMMMyyyy"); return f
+    }()
 
     private var pitch: CGFloat { theme.linePitch }
     private var scale: CGFloat { theme.type.body.size / 15 }
@@ -45,11 +63,12 @@ struct ScribeNotebookView: View {
                             .font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
                             .padding(.top, pitch)
                     }
-                    let pageWidth = min(600, max(200, geo.size.width - 8))
+                    let columns = Self.columns(for: geo.size.width)
+                    let stackedWidth = min(600, max(200, geo.size.width - 8))
                     // Keyed on the page number: `scrollPosition` addresses the
                     // ForEach identity, not an `.id` put on the block.
                     ForEach(Array(pageSizes.indices.map { $0 + 1 }), id: \.self) { number in
-                        pageBlock(index: number - 1, size: pageSizes[number - 1], width: pageWidth)
+                        pageBlock(index: number - 1, size: pageSizes[number - 1], columns: columns, stackedWidth: stackedWidth)
                     }
                     Spacer(minLength: pitch * 2)
                         .id(Self.endID)
@@ -147,44 +166,35 @@ struct ScribeNotebookView: View {
         .buttonStyle(.plain)
     }
 
-    private func pageBlock(index: Int, size: CGSize, width: CGFloat) -> some View {
+    private func pageBlock(index: Int, size: CGSize, columns: (verso: CGFloat, recto: CGFloat)?, stackedWidth: CGFloat) -> some View {
         let number = index + 1
         let page = transcriptPages[number]
+        let aspect = size.height / max(1, size.width)
         return VStack(alignment: .leading, spacing: pitch / 2) {
-            Text("PAGE \(number)")
+            Text(caption(number: number, day: page?.day))
                 .font(.system(size: 10 * scale, weight: .semibold, design: .serif)).tracking(1)
                 .foregroundStyle(theme.dimInk.color)
                 .padding(.top, pitch)
-            PageFacsimile(renderer: section.renderer, id: notebook.id, url: pdfURL, version: version, page: index,
-                          pdfReady: pdfReady, width: width, aspect: size.height / max(1, size.width))
-            if let page, !page.isEmpty {
-                VStack(alignment: .leading, spacing: pitch / 2) {
-                    ForEach(Array(page.paragraphs.enumerated()), id: \.offset) { _, paragraph in
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(paragraph.enumerated()), id: \.offset) { _, line in
-                                lineText(line)
-                            }
-                        }
-                    }
+            if let columns {
+                HStack(alignment: .top, spacing: Self.gutter) {
+                    PageFacsimile(renderer: section.renderer, id: notebook.id, url: pdfURL, version: version, page: index,
+                                  pdfReady: pdfReady, width: columns.verso, aspect: aspect)
+                    ScribeTranscriptSheet(page: page, transcriptAvailable: parsed != nil, width: columns.recto,
+                                          minHeight: (columns.verso * aspect).rounded())
                 }
-                .textSelection(.enabled)
-                .padding(.leading, 4)
             } else {
-                Text(parsed == nil ? "Not read yet — the next sync recognises the handwriting." : "No handwriting recognised on this page.")
-                    .font(.system(size: 13 * scale, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
-                    .padding(.leading, 4)
+                PageFacsimile(renderer: section.renderer, id: notebook.id, url: pdfURL, version: version, page: index,
+                              pdfReady: pdfReady, width: stackedWidth, aspect: aspect)
+                ScribeTranscriptSheet(page: page, transcriptAvailable: parsed != nil, width: stackedWidth)
             }
         }
     }
 
-    private func lineText(_ line: ScribeTranscript.Line) -> Text {
-        let body = theme.type.body.font
-        if let task = line.task {
-            return Text(line.before).font(body)
-                + Text("TODO: ").font(body).bold().foregroundColor(theme.accent.color)
-                + Text(task).font(body)
-        }
-        return Text(line.before).font(body)
+    /// "PAGE 3 · THU 24 JUL 2026" when the page carries a handwritten day.
+    private func caption(number: Int, day: DayKey?) -> String {
+        var text = "PAGE \(number)"
+        if let day { text += " · " + Self.captionDay.string(from: day.date).uppercased() }
+        return text
     }
 
     private func copyText() {

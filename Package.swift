@@ -50,7 +50,7 @@ let package = Package(
         // Kindle Scribe section: Amazon sync, handwriting OCR, transcripts, TODO tasks.
         .target(
             name: "FoolscapScribe",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI", .product(name: "ScribeRaster", package: "ScribeRaster")]
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI", "FoolscapEditor", .product(name: "ScribeRaster", package: "ScribeRaster")]
         ),
         // Kindle highlights section: the Kindle app's databases and book files read
         // natively (Calibre's KFX plugin out of process for KFX text), one markdown

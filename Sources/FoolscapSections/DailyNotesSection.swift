@@ -17,6 +17,10 @@ public final class DailyNotesSection: NotebookSection {
     /// The Tasks tab's aggregator, shared so today's page can head itself with
     /// the tasks marked today and edit them in place.
     public var taskAggregator: TaskAggregator?
+    /// Sections that file pages by day (Scribe), shown in the day's appendix.
+    public var dayPagesProviders: [any DayPagesProvider] = []
+    /// Opens another section at a route (a Scribe page from the appendix).
+    @ObservationIgnored public var openRoute: ((String, SectionRoute) -> Void)?
 
     @ObservationIgnored private let _taskProvider: DailyNotesTaskProvider
     @ObservationIgnored private let _searchProvider: DailyNotesSearchProvider
@@ -101,6 +105,12 @@ struct DailyNotesPage: View {
         return AnyView(TodayTasksPanel(section: section, aggregator: aggregator))
     }
 
+    /// The day's handwritten pages, after the note.
+    private func appendix(for document: NoteDocument) -> AnyView? {
+        guard !section.dayPagesProviders.isEmpty else { return nil }
+        return AnyView(DayPagesAppendix(section: section, day: section.selectedDay, document: document, providers: section.dayPagesProviders))
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             // Holds the page's full size while the note loads, so the navigator stays in its corner.
@@ -110,7 +120,7 @@ struct DailyNotesPage: View {
             if let document, document.isLoaded {
                 MarkdownEditor(document: document, revealLine: section.pendingLine,
                                tags: { [library = section.library] in library.knownTags },
-                               header: todayHeader) { section.library.scheduleSave() }
+                               header: todayHeader, footer: appendix(for: document)) { section.library.scheduleSave() }
                     // Keyed on the library generation too: a folder switch or a restore replaces every document.
                     .id("\(document.path)/\(section.library.generation)")
                     .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),

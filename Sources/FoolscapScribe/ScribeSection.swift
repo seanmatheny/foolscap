@@ -60,6 +60,7 @@ public final class ScribeSection: NotebookSection {
     /// cancelled or superseded leaves status and state alone when it returns.
     @ObservationIgnored private var passID = 0
     @ObservationIgnored private lazy var provider = ScribeSearchProvider(library: library)
+    @ObservationIgnored private lazy var dayPages = ScribeDayPagesProvider(section: self)
 
     public static let defaultSyncMinutes = 30
     public static let defaultLanguages = ["en-US"]
@@ -373,9 +374,13 @@ public final class ScribeSection: NotebookSection {
         }
     }
 
+    /// Tests: stand in for a sync pass.
+    func replaceStateForTesting(_ newState: ScribeState) { apply(newState) }
+
     private func apply(_ newState: ScribeState) {
         if newState.items != state.items { tree = ScribeTree(newState) }
         state = newState
+        dayPages.invalidate()
     }
 
     // MARK: Selection
@@ -500,6 +505,8 @@ public final class ScribeSection: NotebookSection {
     public func makeRootView() -> AnyView { AnyView(ScribePage(section: self)) }
 
     public var searchProvider: (any SearchProvider)? { provider }
+
+    public var dayPagesProvider: (any DayPagesProvider)? { dayPages }
 
     public func makeSettingsPane() -> AnyView? { AnyView(ScribeSettingsPane(section: self)) }
 

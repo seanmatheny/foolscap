@@ -102,6 +102,8 @@ public protocol NotebookSection: AnyObject, Identifiable {
     func navigate(to route: SectionRoute)
     var searchProvider: (any SearchProvider)? { get }
     var taskProvider: (any TaskProvider)? { get }
+    /// Pages this section files by day, for the Daily page's appendix. Default: none.
+    var dayPagesProvider: (any DayPagesProvider)? { get }
     func makeSettingsPane() -> AnyView?
 }
 
@@ -109,6 +111,7 @@ public extension NotebookSection {
     func navigate(to route: SectionRoute) {}
     var searchProvider: (any SearchProvider)? { nil }
     var taskProvider: (any TaskProvider)? { nil }
+    var dayPagesProvider: (any DayPagesProvider)? { nil }
     func makeSettingsPane() -> AnyView? { nil }
 }
 

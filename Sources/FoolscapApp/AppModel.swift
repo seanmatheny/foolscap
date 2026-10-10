@@ -85,6 +85,11 @@ final class AppModel {
                 daily.navigate(to: route)
             }
             daily.taskAggregator = tasks.aggregator
+            daily.openRoute = { [weak self] sectionID, route in
+                guard let self else { return }
+                self.selectedSectionID = sectionID
+                self.section(id: sectionID)?.navigate(to: route)
+            }
             sections = [daily, tasks]
             tasksSection = tasks
             search.navigate = { [weak self] sectionID, route in
@@ -351,6 +356,7 @@ final class AppModel {
 
     private func rewireSections() {
         tasksSection?.aggregator.setProviders(sections.compactMap(\.taskProvider))
+        (section(id: "daily") as? DailyNotesSection)?.dayPagesProviders = sections.compactMap(\.dayPagesProvider)
         search.setSections(sections)
     }
 

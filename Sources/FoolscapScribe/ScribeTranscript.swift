@@ -16,7 +16,9 @@ public enum ScribeTranscript {
     public static let rootTag = "scribe"
     /// Bumped when the layout of the file changes, so every transcript is
     /// rewritten on the next sync (from the OCR cache, not re-recognised).
-    public static let formatVersion = "transcript/2"
+    public static let formatVersion = "transcript/3"
+    /// Between a page number and its day in a page heading: `## Page 3 · 2026-07-24`.
+    static let daySeparator = " · "
 
     /// Sanitize notebook/folder names for the file system.
     public static func sanitizeName(_ name: String) -> String { FileNames.sanitize(name) }
@@ -56,12 +58,16 @@ public enum ScribeTranscript {
 
     /// Build the transcript. Identical input gives identical output, so a hash
     /// of it decides whether the file needs rewriting.
-    public static func render(notebook: ScribeNotebookRef, title: String, pages: [[[TextLine]]], modified: Date) -> String {
+    /// `days` (from `ScribePageDates.resolve`) puts each page's handwritten day in
+    /// its heading, where the viewer, search and the Daily page read it back.
+    public static func render(notebook: ScribeNotebookRef, title: String, pages: [[[TextLine]]], days: [DayKey?] = [],
+                              modified: Date) -> String {
         // One flat tag: the Scribe tab browses by folder, so per-folder tags would
         // only crowd the tag suggestions.
         var out = ["# \(escapeMarkdown(title))", "#" + rootTag, ""]
         for (index, paragraphs) in pages.enumerated() {
-            out += ["## Page \(index + 1)", ""]
+            let day = index < days.count ? days[index] : nil
+            out += ["## Page \(index + 1)" + (day.map { daySeparator + $0.string } ?? ""), ""]
             if paragraphs.isEmpty { out += ["*No handwriting recognised on this page.*", ""] }
             for paragraph in paragraphs {
                 out += paragraph.map { renderLine($0.text) }
@@ -94,13 +100,19 @@ public enum ScribeTranscript {
         public var paragraphs: [[Line]]
         /// Line index of the `## Page N` heading in the file.
         public var headingLine: Int
+        /// The handwritten day from the heading, if the page (or one before it) had one.
+        public var day: DayKey?
         public var isEmpty: Bool { paragraphs.isEmpty }
+        /// The first recognised line, the natural title for the page.
+        public var firstLine: String? { paragraphs.first?.first?.text }
     }
 
     public struct Parsed: Equatable, Sendable {
         public var title: String
         public var pages: [Page]
         public var syncID: String?
+        /// The pages written on a day, in order.
+        public func pages(on day: DayKey) -> [Page] { pages.filter { $0.day == day } }
         /// Every recognised line as plain text, for the copy affordance.
         public var plainText: String {
             pages.map { page in
@@ -133,9 +145,9 @@ public enum ScribeTranscript {
             }
             if index == 0, raw.hasPrefix("# ") { title = unescapeMarkdown(String(raw.dropFirst(2))); continue }
             if raw == "---" { closePage(); inFooter = true; continue }
-            if raw.hasPrefix("## Page "), let n = Int(raw.dropFirst("## Page ".count)) {
+            if raw.hasPrefix("## Page "), let (n, day) = pageHeading(raw) {
                 closePage()
-                current = Page(number: n, paragraphs: [], headingLine: index)
+                current = Page(number: n, paragraphs: [], headingLine: index, day: day)
                 continue
             }
             guard current != nil else { continue }
@@ -145,6 +157,15 @@ public enum ScribeTranscript {
         }
         closePage()
         return Parsed(title: title, pages: pages, syncID: syncID)
+    }
+
+    /// `## Page 3` or `## Page 3 · 2026-07-24` (older transcripts carry no day).
+    static func pageHeading(_ raw: String) -> (Int, DayKey?)? {
+        let rest = raw.dropFirst("## Page ".count)
+        if let n = Int(rest) { return (n, nil) }
+        guard let separator = rest.range(of: daySeparator), let n = Int(rest[..<separator.lowerBound]),
+              let day = DayKey(String(rest[separator.upperBound...])) else { return nil }
+        return (n, day)
     }
 
     static func parseLine(_ raw: String) -> Line {

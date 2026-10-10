@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import FoolscapCore
 @testable import FoolscapScribe
 
 @Suite struct ScribeTranscriptTests {
@@ -28,6 +29,24 @@ import Foundation
         #expect(note.contains("Sync ID 724f0e7f-ebdd"))
         #expect(note.contains("(2 pages, last changed "))
         #expect(note.hasSuffix("*Sync ID 724f0e7f-ebdd*\n"))
+    }
+
+    @Test func pagesCarryTheirHandwrittenDay() {
+        let day = DayKey("2026-07-24")!
+        let note = ScribeTranscript.render(notebook: notebook, title: "todo", pages: [pageOf("July 24th", "notes"), pageOf("more"), pageOf("later")],
+                                           days: [day, day, nil], modified: Date(timeIntervalSince1970: 0))
+        #expect(note.contains("## Page 1 · 2026-07-24\n"))
+        #expect(note.contains("## Page 2 · 2026-07-24\n"))
+        #expect(note.contains("## Page 3\n"))
+        let parsed = ScribeTranscript.parse(note)
+        #expect(parsed.pages.map(\.day) == [day, day, nil])
+        #expect(parsed.pages(on: day).map(\.number) == [1, 2])
+        #expect(parsed.pages[0].firstLine == "July 24th")
+        // A transcript from before days were recorded still parses.
+        let old = ScribeTranscript.parse(note.replacingOccurrences(of: " · 2026-07-24", with: ""))
+        #expect(old.pages.map(\.day) == [nil, nil, nil] && old.pages.map(\.number) == [1, 2, 3])
+        let lines = note.components(separatedBy: "\n")
+        #expect(ScribeTranscript.pageNumber(forLine: lines.firstIndex(of: "## Page 3")! + 1, in: parsed) == 3)
     }
 
     @Test func bulletBeforeTheMarkerSurvives() {

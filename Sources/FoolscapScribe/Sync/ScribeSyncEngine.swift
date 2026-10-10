@@ -225,7 +225,7 @@ public actor ScribeSyncEngine {
     /// re-reads it, and a rename or move rewrites its title and footer.
     static func transcriptKey(contentHash: String, languages: [String], engine: OCREngine = .vision, path: String, title: String) -> String {
         let parts = [contentHash, languages.joined(separator: ","), engine.version, ScribeTodos.rulesVersion,
-                     ScribeTranscript.formatVersion, path, title]
+                     ScribePageDates.rulesVersion, ScribeTranscript.formatVersion, path, title]
         return PDFBuilder.sha256(Data(parts.joined(separator: "\n").utf8))
     }
 
@@ -269,7 +269,8 @@ public actor ScribeSyncEngine {
         }
         let pages = ScribeLayout.layoutPages(result)
         let modified = Date(timeIntervalSince1970: Double(modificationTime))
-        let text = ScribeTranscript.render(notebook: entry.ref, title: title, pages: pages, modified: modified)
+        let days = ScribePageDates.resolve(pages: pages, modified: modified)
+        let text = ScribeTranscript.render(notebook: entry.ref, title: title, pages: pages, days: days, modified: modified)
         let data = Data(text.utf8)
         if (try? FileIO.read(mdURL)) != data { try FileIO.write(data, to: mdURL) }
         report.transcribed += 1

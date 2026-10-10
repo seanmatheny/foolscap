@@ -4,6 +4,25 @@ import FoolscapCore
 import FoolscapStore
 import FoolscapUI
 
+/// Lets a view hosted inside the editor (the header or footer panel) add to the
+/// note through the editor, so the edit is undoable and saved like typing.
+@MainActor
+public final class EditorInsertion {
+    weak var textView: MarkdownTextView?
+    public func append(_ markdown: String) { textView?.appendMarkdownBlock(markdown) }
+}
+
+private struct EditorInsertionKey: EnvironmentKey {
+    static let defaultValue: EditorInsertion? = nil
+}
+
+public extension EnvironmentValues {
+    var editorInsertion: EditorInsertion? {
+        get { self[EditorInsertionKey.self] }
+        set { self[EditorInsertionKey.self] = newValue }
+    }
+}
+
 /// SwiftUI wrapper: a scrolling MarkdownTextView bound to one document.
 public struct MarkdownEditor: NSViewRepresentable {
     let document: NoteDocument
@@ -12,15 +31,18 @@ public struct MarkdownEditor: NSViewRepresentable {
     let tags: () -> [String]
     /// Laid under the note's opening heading, on the ruling (today's #today tasks).
     let header: AnyView?
+    /// Laid after the note's last line (the day's handwritten pages).
+    let footer: AnyView?
     let onEdit: () -> Void
     @Environment(\.notebookTheme) private var theme
 
     public init(document: NoteDocument, revealLine: Int? = nil, tags: @escaping () -> [String] = { [] },
-                header: AnyView? = nil, onEdit: @escaping () -> Void) {
+                header: AnyView? = nil, footer: AnyView? = nil, onEdit: @escaping () -> Void) {
         self.document = document
         self.revealLine = revealLine
         self.tags = tags
         self.header = header
+        self.footer = footer
         self.onEdit = onEdit
     }
 
@@ -47,7 +69,9 @@ public struct MarkdownEditor: NSViewRepresentable {
         scroll.documentView = textView
         scroll.contentView.postsBoundsChangedNotifications = true
         context.coordinator.textView = textView
-        updateHeader(textView)
+        context.coordinator.insertion.textView = textView
+        updateHeader(textView, insertion: context.coordinator.insertion)
+        updateFooter(textView, insertion: context.coordinator.insertion)
         DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         return scroll
     }
@@ -57,7 +81,8 @@ public struct MarkdownEditor: NSViewRepresentable {
         let palette = EditorPalette(theme: theme)
         textView.knownTags = tags
         textView.palette.theme = theme
-        updateHeader(textView)
+        updateHeader(textView, insertion: context.coordinator.insertion)
+        updateFooter(textView, insertion: context.coordinator.insertion)
         if palette.body != textView.palette.body || palette.ink != textView.palette.ink || palette.ruling != textView.palette.ruling
             || palette.showMarginRule != textView.palette.showMarginRule {
             textView.palette = palette
@@ -81,19 +106,16 @@ public struct MarkdownEditor: NSViewRepresentable {
             }
         }
         // Keep the text view at least as tall as the visible page so ruling fills it.
-        let visible = scroll.contentView.bounds.height
-        if textView.minSize.height != visible {
-            textView.minSize = NSSize(width: 0, height: visible)
-            textView.needsLayout = true
-        }
+        textView.visibleHeight = scroll.contentView.bounds.height
     }
 
     /// The header runs in a hosting view of its own, so it is handed the theme
     /// here; it reports its height, and the text view makes room for it.
-    private func updateHeader(_ textView: MarkdownTextView) {
+    private func updateHeader(_ textView: MarkdownTextView, insertion: EditorInsertion) {
         guard let header else { textView.headerView = nil; textView.headerHeight = 0; return }
         let root = AnyView(header
             .environment(\.notebookTheme, theme)
+            .environment(\.editorInsertion, insertion)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .fixedSize(horizontal: false, vertical: true)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [weak textView] height in
@@ -110,9 +132,31 @@ public struct MarkdownEditor: NSViewRepresentable {
         }
     }
 
+    /// The footer: the same arrangement, placed after the last line.
+    private func updateFooter(_ textView: MarkdownTextView, insertion: EditorInsertion) {
+        guard let footer else { textView.footerView = nil; textView.footerHeight = 0; return }
+        let root = AnyView(footer
+            .environment(\.notebookTheme, theme)
+            .environment(\.editorInsertion, insertion)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [weak textView] height in
+                DispatchQueue.main.async { textView?.footerHeight = height }
+            }
+            .frame(maxHeight: .infinity, alignment: .top))
+        if let host = textView.footerView as? NSHostingView<AnyView> {
+            host.rootView = root
+        } else {
+            let host = NSHostingView(rootView: root)
+            host.sizingOptions = []
+            textView.footerView = host
+        }
+    }
+
     @MainActor
     public final class Coordinator: NSObject, NSTextViewDelegate {
         var textView: MarkdownTextView?
+        let insertion = EditorInsertion()
         var revealedLine: Int?
         let onEdit: () -> Void
         init(onEdit: @escaping () -> Void) { self.onEdit = onEdit }
