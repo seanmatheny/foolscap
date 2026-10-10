@@ -32,6 +32,7 @@ public struct SideTabShape: Shape {
 
 public struct PaperTab: View {
     @Environment(\.notebookTabEdge) private var tabEdge
+    @Environment(\.notebookTheme) private var theme
     let appearance: TabAppearance
     let color: RGBA
     let isSelected: Bool
@@ -81,12 +82,15 @@ public struct PaperTab: View {
             // Clipped as a group: a mask on the texture itself would flatten its blend.
             ZStack {
                 shape.fill(color.color)
-                shape.fill(LinearGradient(colors: left ? [.black.opacity(0.10), .clear, .white.opacity(0.28)] : [.white.opacity(0.28), .clear, .black.opacity(0.10)],
-                                          startPoint: .leading, endPoint: .trailing))
-                TextureOverlay(tile: "paper", opacity: 0.5)
+                // A flat theme's tab is the colour block alone.
+                if !theme.flat {
+                    shape.fill(LinearGradient(colors: left ? [.black.opacity(0.10), .clear, .white.opacity(0.28)] : [.white.opacity(0.28), .clear, .black.opacity(0.10)],
+                                              startPoint: .leading, endPoint: .trailing))
+                    TextureOverlay(tile: "paper", opacity: 0.5)
+                }
             }
             .clipShape(shape)
-            shape.stroke(Color.black.opacity(0.22), lineWidth: 0.5)
+            if !theme.flat { shape.stroke(Color.black.opacity(0.22), lineWidth: 0.5) }
             if compact {
                 // Icon only, upright; a tab with no icon shows its initial.
                 Group {
@@ -116,7 +120,7 @@ public struct PaperTab: View {
         .frame(width: Self.width + Self.root, height: length)
         .offset(x: left ? tuck : -tuck)
         .opacity(isSelected ? 1 : 0.86)
-        .shadow(color: .black.opacity(isSelected ? 0.35 : 0.2), radius: isSelected ? 3 : 1.5, x: left ? -1.5 : 1.5, y: 1)
+        .shadow(color: .black.opacity(theme.flat ? 0.12 : (isSelected ? 0.35 : 0.2)), radius: theme.flat ? 1 : (isSelected ? 3 : 1.5), x: left ? -1.5 : 1.5, y: 1)
         .contentShape(shape)
         .help(compact ? appearance.label : "")
         .onHover { hovering = $0 }

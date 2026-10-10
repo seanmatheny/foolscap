@@ -133,7 +133,12 @@
 - Themes ship with no ruling and no elastic band; both are Settings options
   (`ruling`, `marginRule`, `elasticBand` defaults) applied on top of the theme in
   `AppModel.theme` via `NotebookTheme.ruled`, with rule colours per theme. Midnight
-  is the OLED-black theme.
+  is the OLED-black theme. The flat themes (Graphite, Nocturne, Obsidian, Nord, Daylight;
+  `NotebookTheme.flat(...)`, Avenir Next) set `flat: true`: every decoration site
+  (`CoverBlock`, the page shadow and inner shade, `FacingPageView`, `FoldShadow`,
+  `CoverStamp`, `ClosedCoverFace`/`Embossed`, `PaperTab`, `FolderTab`, `ThumbCut`,
+  `ThemeSwatch`) branches on `theme.flat`, `onPaper` leaves a flat page plain and
+  Settings hides the Paper row. `-themeID graphite` in the argument domain previews one.
 - Index tabs default to the left of the page (`tabEdge` default, `TabEdge` in the
   environment): the whole cover mirrors, so the spine, its crease, the page's inner
   shadow, the tab shapes and the opening-animation hinge all read `notebookTabEdge`.

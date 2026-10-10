@@ -155,13 +155,17 @@ public struct NotebookTheme: Codable, Identifiable, Hashable, Sendable {
     public var tabColors: [RGBA]
     public var highlighter: [TaskStatus: RGBA]
     public var isDark: Bool
+    /// No leather, paper or shadow: the cover and the page are plain colour blocks,
+    /// the tabs flat, the fold a hairline. `cover.stitchColor` doubles as the
+    /// cover's foreground (the wordmark and jester on the closed cover).
+    public var flat: Bool
 
     public init(id: String, name: String, cover: CoverMaterial, page: PageStyle, type: Typography,
                 ink: RGBA, dimInk: RGBA, accent: RGBA, tabColors: [RGBA],
-                highlighter: [TaskStatus: RGBA], isDark: Bool = false) {
+                highlighter: [TaskStatus: RGBA], isDark: Bool = false, flat: Bool = false) {
         self.id = id; self.name = name; self.cover = cover; self.page = page; self.type = type
         self.ink = ink; self.dimInk = dimInk; self.accent = accent; self.tabColors = tabColors
-        self.highlighter = highlighter; self.isDark = isDark
+        self.highlighter = highlighter; self.isDark = isDark; self.flat = flat
     }
 
     public func tabColor(at index: Int) -> RGBA {
@@ -185,6 +189,8 @@ public struct NotebookTheme: Codable, Identifiable, Hashable, Sendable {
     /// Dark paper screens the tile in, which lifts the whole page, so it gets a
     /// small fraction of the strength.
     public func onPaper(_ texture: PaperTexture) -> NotebookTheme {
+        // A flat page stays plain whatever paper Settings names.
+        guard !flat else { return self }
         var t = self
         t.page.textureTile = texture.tile
         t.page.textureOpacity = texture.strength * (t.page.textureBlend == .screen ? 0.1 : 1)
@@ -335,7 +341,51 @@ extension NotebookTheme {
         tabColors: [.hex(0xBFA46F), .hex(0x8AA391), .hex(0xA995A6), .hex(0x7C97B0), .hex(0x9EA486), .hex(0xA4A6AF)],
         highlighter: highlighterDefaults)
 
-    public static let builtIn: [NotebookTheme] = [.classicBlack, .oxblood, .kraft, .midnight, .forest, .navy, .saddle, .slate]
+    // MARK: Flat themes
+
+    /// A flat theme: plain colour blocks, sans type, no texture anywhere.
+    static func flat(id: String, name: String, cover: UInt32, page: UInt32, ink: UInt32, inkAlpha: Double = 0.5,
+                     accent: UInt32, tabs: [UInt32], someday: UInt32, completed: UInt32,
+                     ruleAlpha: Double = 0.08, marginRule: RGBA = .hex(0xC97C7C, alpha: 0.5), isDark: Bool = true) -> NotebookTheme {
+        NotebookTheme(
+            id: id, name: name,
+            cover: CoverMaterial(baseColor: .hex(cover), textureTile: "", grainOpacity: 0, stitchColor: .hex(ink)),
+            page: PageStyle(paperColor: .hex(page), textureTile: "", textureOpacity: 0, textureBlend: isDark ? .screen : .softLight,
+                            ruleColor: .hex(ink, alpha: ruleAlpha), marginRuleColor: marginRule),
+            type: Typography(body: FontSpec(family: "Avenir Next", size: 15, design: .sans),
+                             heading: FontSpec(family: "Avenir Next", size: 22, design: .sans, bold: true),
+                             mono: FontSpec(family: "Menlo", size: 13, design: .mono),
+                             lineHeightMultiple: 1.35),
+            ink: .hex(ink), dimInk: .hex(ink, alpha: inkAlpha), accent: .hex(accent),
+            tabColors: tabs.map { .hex($0) },
+            highlighter: [
+                .today:      .hex(accent, alpha: 0.28),
+                .notStarted: .hex(0x000000, alpha: 0),
+                .someday:    .hex(someday, alpha: 0.28),
+                .completed:  .hex(completed, alpha: 0.28),
+            ],
+            isDark: isDark, flat: true)
+    }
+
+    /// Charcoal with an amber accent.
+    public static let graphite = flat(id: "graphite", name: "Graphite", cover: 0x2A2A2D, page: 0x1C1C1E, ink: 0xE8E6E1, accent: 0xF2B33D,
+                                      tabs: [0xE0B65B, 0x8DB893, 0xD09A7A, 0x86AECF, 0xA9B07A, 0xA3A3AC], someday: 0x86AECF, completed: 0x8DB893)
+    /// The Dracula palette: slate page, yellow headings, pastel tabs.
+    public static let nocturne = flat(id: "nocturne", name: "Nocturne", cover: 0x1E1F29, page: 0x282A36, ink: 0xF8F8F2, accent: 0xF1FA8C,
+                                      tabs: [0xF1FA8C, 0x50FA7B, 0xFF79C6, 0x8BE9FD, 0xFFB86C, 0xBD93F9], someday: 0x8BE9FD, completed: 0x50FA7B)
+    /// True black with a violet accent.
+    public static let obsidian = flat(id: "obsidian", name: "Obsidian", cover: 0x121214, page: 0x000000, ink: 0xEDEDED, accent: 0xA48CFF,
+                                      tabs: [0xC4B5FF, 0x9EDFC0, 0xF3A6C7, 0x9ED1F5, 0xD7D39A, 0xB9B9C2], someday: 0x9ED1F5, completed: 0x9EDFC0)
+    /// Nord's blue-grey with a frost accent.
+    public static let nord = flat(id: "nord", name: "Nord", cover: 0x242933, page: 0x2E3440, ink: 0xECEFF4, accent: 0x88C0D0,
+                                  tabs: [0xEBCB8B, 0xA3BE8C, 0xB48EAD, 0x81A1C1, 0xD08770, 0xD8DEE9], someday: 0x81A1C1, completed: 0xA3BE8C)
+    /// The one light flat theme: white page, blue accent.
+    public static let daylight = flat(id: "daylight", name: "Daylight", cover: 0xE7E5DF, page: 0xFFFFFF, ink: 0x1E1E1E, inkAlpha: 0.55, accent: 0x3B6FE0,
+                                      tabs: [0xF4D06F, 0xA8D5A2, 0xE9A4A4, 0x9CC4EA, 0xCFD39A, 0xC9C9CF], someday: 0x9CC4EA, completed: 0xA8D5A2,
+                                      ruleAlpha: 0.10, marginRule: .hex(0xE0A2A2, alpha: 0.8), isDark: false)
+
+    public static let builtIn: [NotebookTheme] = [.classicBlack, .oxblood, .kraft, .midnight, .forest, .navy, .saddle, .slate,
+                                                  .graphite, .nocturne, .obsidian, .nord, .daylight]
 
     public static func builtIn(id: String) -> NotebookTheme? { builtIn.first { $0.id == id } }
 }

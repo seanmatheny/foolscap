@@ -94,13 +94,15 @@ public struct PageView<Content: View>: View {
         let spineOnRight = tabEdge == .left
         ZStack {
             theme.page.paperColor.color
-            TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity, blend: theme.page.textureBlend)
-            // Inner shadow along the spine side
-            LinearGradient(colors: [.black.opacity(0.10), .clear],
-                           startPoint: spineOnRight ? .trailing : .leading, endPoint: spineOnRight ? .leading : .trailing)
-                .frame(width: 28)
-                .frame(maxWidth: .infinity, alignment: spineOnRight ? .trailing : .leading)
-                .allowsHitTesting(false)
+            if !theme.flat {
+                TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity, blend: theme.page.textureBlend)
+                // Inner shadow along the spine side
+                LinearGradient(colors: [.black.opacity(0.10), .clear],
+                               startPoint: spineOnRight ? .trailing : .leading, endPoint: spineOnRight ? .leading : .trailing)
+                    .frame(width: 28)
+                    .frame(maxWidth: .infinity, alignment: spineOnRight ? .trailing : .leading)
+                    .allowsHitTesting(false)
+            }
             content
         }
         .clipShape(PageShape(spineOnRight: spineOnRight))

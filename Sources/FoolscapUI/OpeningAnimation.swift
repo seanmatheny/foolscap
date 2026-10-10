@@ -51,15 +51,17 @@ struct ClosedCoverFace: View {
         let shape = CoverShape(spineOnRight: mirrored)
         ZStack {
             shape.fill(theme.cover.baseColor.color)
-            TextureOverlay(tile: theme.cover.textureTile, opacity: theme.cover.grainOpacity, blend: theme.cover.blend)
-            shape.fill(LinearGradient(colors: [.white.opacity(0.12), .clear, .black.opacity(0.25)],
-                                      startPoint: .topLeading, endPoint: .bottomTrailing))
-            LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0), .init(color: .clear, location: 1)],
-                           startPoint: mirrored ? .trailing : .leading, endPoint: mirrored ? .leading : .trailing)
-                .frame(width: 40)
-                .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
-            shape.inset(by: 7)
-                .stroke(theme.cover.stitchColor.color.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            if !theme.flat {
+                TextureOverlay(tile: theme.cover.textureTile, opacity: theme.cover.grainOpacity, blend: theme.cover.blend)
+                shape.fill(LinearGradient(colors: [.white.opacity(0.12), .clear, .black.opacity(0.25)],
+                                          startPoint: .topLeading, endPoint: .bottomTrailing))
+                LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0), .init(color: .clear, location: 1)],
+                               startPoint: mirrored ? .trailing : .leading, endPoint: mirrored ? .leading : .trailing)
+                    .frame(width: 40)
+                    .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
+                shape.inset(by: 7)
+                    .stroke(theme.cover.stitchColor.color.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            }
             VStack(spacing: 18) {
                 Embossed { JesterShape().aspectRatio(1, contentMode: .fit) }
                     .frame(width: 180, height: 180)
@@ -79,10 +81,15 @@ struct Embossed<Content: View>: View {
     var depth: CGFloat = 1
     @ViewBuilder let content: Content
     var body: some View {
-        ZStack {
-            content.foregroundStyle(Color.white.opacity(theme.isDark ? 0.35 : 0.18)).offset(x: 1.2 * depth, y: 1.2 * depth)
-            content.foregroundStyle(Color.black.opacity(0.55)).offset(x: -depth, y: -depth)
-            content.foregroundStyle(theme.cover.baseColor.color).brightness(-0.06)
+        if theme.flat {
+            // Printed, not pressed: the cover's foreground colour, flat.
+            content.foregroundStyle(theme.cover.stitchColor.color)
+        } else {
+            ZStack {
+                content.foregroundStyle(Color.white.opacity(theme.isDark ? 0.35 : 0.18)).offset(x: 1.2 * depth, y: 1.2 * depth)
+                content.foregroundStyle(Color.black.opacity(0.55)).offset(x: -depth, y: -depth)
+                content.foregroundStyle(theme.cover.baseColor.color).brightness(-0.06)
+            }
         }
     }
 }

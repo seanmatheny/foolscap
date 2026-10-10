@@ -104,8 +104,12 @@ public struct NotebookView<Page: View>: View {
                     // The drop shadow belongs to a plain shape behind the page: on the page
                     // itself it would put every photograph of the page through a blur.
                     .background {
-                        PageShape(spineOnRight: tabsLeft).fill(theme.page.paperColor.color)
-                            .shadow(color: .black.opacity(0.25), radius: 3, x: tabsLeft ? -2 : 2, y: 0)
+                        if theme.flat {
+                            PageShape(spineOnRight: tabsLeft).fill(theme.page.paperColor.color)
+                        } else {
+                            PageShape(spineOnRight: tabsLeft).fill(theme.page.paperColor.color)
+                                .shadow(color: .black.opacity(0.25), radius: 3, x: tabsLeft ? -2 : 2, y: 0)
+                        }
                     }
                     .overlay { PageSnapshotHost(anchor: anchor) }
                     // Index tabs are glued to the page edge, behind it, sticking out sideways.
@@ -144,8 +148,10 @@ public struct NotebookView<Page: View>: View {
                 // The cover's jester, stamped in the leather's corner on the tabs' side,
                 // centred between the page, the first tab and the stitching. With the tabs
                 // on the left that corner is the window buttons', so it steps aside for them.
-                CoverStamp(tabsLeft: tabsLeft)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topLeading : .topTrailing)
+                if !theme.flat {
+                    CoverStamp(tabsLeft: tabsLeft)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topLeading : .topTrailing)
+                }
                 // Leather band above the page: reveals the traffic lights and drags the window.
                 TrafficLightHoverZone()
                     .frame(height: NotebookMetrics.topMargin)
@@ -255,21 +261,24 @@ struct CoverBlock<Content: View>: View {
         let shape = CoverShape(square: square, spineOnRight: mirrored)
         ZStack {
             shape.fill(theme.cover.baseColor.color)
-            TextureOverlay(tile: theme.cover.textureTile, opacity: theme.cover.grainOpacity, blend: theme.cover.blend)
-            // Light from the top-left, and a worn sheen along the edges.
-            shape.fill(LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.22)],
-                                      startPoint: .topLeading, endPoint: .bottomTrailing))
-            // Stitching just inside the edge: along the top, the opening edge and the
-            // bottom, running off the fold side where the cover continues past the window.
-            CoverStitches(square: square, spineOnRight: mirrored)
-                .stroke(theme.cover.stitchColor.color.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-            // The spine: a ridge in the leather where it folds, in line with the pages' fold.
-            SpineRidge()
-                .frame(width: 10)
-                .padding(mirrored ? .trailing : .leading, NotebookMetrics.facingWidth - 5)
-                .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
-            // Edge highlight so the cover reads as thick.
-            shape.stroke(Color.white.opacity(0.10), lineWidth: 1)
+            // A flat cover is the colour alone: no grain, light, stitching or ridge.
+            if !theme.flat {
+                TextureOverlay(tile: theme.cover.textureTile, opacity: theme.cover.grainOpacity, blend: theme.cover.blend)
+                // Light from the top-left, and a worn sheen along the edges.
+                shape.fill(LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.22)],
+                                          startPoint: .topLeading, endPoint: .bottomTrailing))
+                // Stitching just inside the edge: along the top, the opening edge and the
+                // bottom, running off the fold side where the cover continues past the window.
+                CoverStitches(square: square, spineOnRight: mirrored)
+                    .stroke(theme.cover.stitchColor.color.opacity(0.85), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                // The spine: a ridge in the leather where it folds, in line with the pages' fold.
+                SpineRidge()
+                    .frame(width: 10)
+                    .padding(mirrored ? .trailing : .leading, NotebookMetrics.facingWidth - 5)
+                    .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
+                // Edge highlight so the cover reads as thick.
+                shape.stroke(Color.white.opacity(0.10), lineWidth: 1)
+            }
             content
         }
         .clipShape(shape)
@@ -341,17 +350,19 @@ struct FacingPageView: View {
     var body: some View {
         ZStack {
             theme.page.paperColor.color
-            TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity, blend: theme.page.textureBlend)
-            // Shade deepening into the fold.
-            LinearGradient(stops: [.init(color: .black.opacity(0.22), location: 0),
-                                   .init(color: .black.opacity(0.08), location: 0.45),
-                                   .init(color: .clear, location: 1)],
-                           startPoint: foldOnLeft ? .leading : .trailing, endPoint: foldOnLeft ? .trailing : .leading)
-            // The page's top and bottom edges throw a little shadow on the leather beside them.
-            VStack {
-                LinearGradient(colors: [.black.opacity(0.22), .clear], startPoint: .top, endPoint: .bottom).frame(height: 6)
-                Spacer()
-                LinearGradient(colors: [.clear, .black.opacity(0.22)], startPoint: .top, endPoint: .bottom).frame(height: 6)
+            if !theme.flat {
+                TextureOverlay(tile: theme.page.textureTile, opacity: theme.page.textureOpacity, blend: theme.page.textureBlend)
+                // Shade deepening into the fold.
+                LinearGradient(stops: [.init(color: .black.opacity(0.22), location: 0),
+                                       .init(color: .black.opacity(0.08), location: 0.45),
+                                       .init(color: .clear, location: 1)],
+                               startPoint: foldOnLeft ? .leading : .trailing, endPoint: foldOnLeft ? .trailing : .leading)
+                // The page's top and bottom edges throw a little shadow on the leather beside them.
+                VStack {
+                    LinearGradient(colors: [.black.opacity(0.22), .clear], startPoint: .top, endPoint: .bottom).frame(height: 6)
+                    Spacer()
+                    LinearGradient(colors: [.clear, .black.opacity(0.22)], startPoint: .top, endPoint: .bottom).frame(height: 6)
+                }
             }
         }
         // No `.shadow` here: it would render the strip offscreen and flatten the texture's blend.
@@ -363,14 +374,22 @@ struct FacingPageView: View {
 
 /// The dark line of the fold between the two pages.
 struct FoldShadow: View {
+    @Environment(\.notebookTheme) private var theme
     var body: some View {
-        LinearGradient(stops: [.init(color: .clear, location: 0),
-                               .init(color: .black.opacity(0.14), location: 0.42),
-                               .init(color: .black.opacity(0.32), location: 0.5),
-                               .init(color: .black.opacity(0.12), location: 0.58),
-                               .init(color: .clear, location: 1)],
-                       startPoint: .leading, endPoint: .trailing)
-            .allowsHitTesting(false)
+        Group {
+            if theme.flat {
+                // A hairline where the two pages meet.
+                Color.clear.overlay { Rectangle().fill(theme.ink.color.opacity(0.18)).frame(width: 1) }
+            } else {
+                LinearGradient(stops: [.init(color: .clear, location: 0),
+                                       .init(color: .black.opacity(0.14), location: 0.42),
+                                       .init(color: .black.opacity(0.32), location: 0.5),
+                                       .init(color: .black.opacity(0.12), location: 0.58),
+                                       .init(color: .clear, location: 1)],
+                               startPoint: .leading, endPoint: .trailing)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -381,11 +400,12 @@ struct ElasticBandView: View {
         Rectangle()
             .fill(theme.cover.bandColor.color)
             // A rounded elastic: lit on one edge, shaded on the other, with a fine
-            // highlight so it separates from dark leather.
-            .overlay(LinearGradient(colors: [.white.opacity(0.24), .clear, .black.opacity(0.35)], startPoint: .leading, endPoint: .trailing))
-            .overlay(Rectangle().stroke(Color.white.opacity(0.14), lineWidth: 0.5))
+            // highlight so it separates from dark leather. Flat covers get the strip alone.
+            .overlay(LinearGradient(colors: [.white.opacity(theme.flat ? 0 : 0.24), .clear, .black.opacity(theme.flat ? 0 : 0.35)],
+                                    startPoint: .leading, endPoint: .trailing))
+            .overlay(Rectangle().stroke(Color.white.opacity(theme.flat ? 0 : 0.14), lineWidth: 0.5))
             .frame(width: 11)
-            .shadow(color: .black.opacity(0.5), radius: 3, x: 1, y: 0)
+            .shadow(color: .black.opacity(theme.flat ? 0 : 0.5), radius: 3, x: 1, y: 0)
             .allowsHitTesting(false)
     }
 }

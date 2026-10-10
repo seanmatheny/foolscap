@@ -92,15 +92,18 @@ public struct PreferencesView: View {
                     }
                 }
                 .padding(.vertical, 4)
-                LabeledContent("Paper") {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 10)], spacing: 10) {
-                        ForEach(PaperTexture.allCases, id: \.self) { texture in
-                            PaperSwatch(texture: texture, theme: NotebookTheme.builtIn(id: themeID) ?? .classicBlack,
-                                        isSelected: texture.rawValue == paperTexture)
-                                .onTapGesture { paperTexture = texture.rawValue }
+                // A flat theme has no paper to choose: its page stays plain.
+                if !(NotebookTheme.builtIn(id: themeID)?.flat ?? false) {
+                    LabeledContent("Paper") {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 10)], spacing: 10) {
+                            ForEach(PaperTexture.allCases, id: \.self) { texture in
+                                PaperSwatch(texture: texture, theme: NotebookTheme.builtIn(id: themeID) ?? .classicBlack,
+                                            isSelected: texture.rawValue == paperTexture)
+                                    .onTapGesture { paperTexture = texture.rawValue }
+                            }
                         }
+                        .frame(width: 330)
                     }
-                    .frame(width: 330)
                 }
             }
             Section("Page") {
@@ -368,7 +371,7 @@ struct ThemeSwatch: View {
             .frame(width: 112, height: 84)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(isSelected ? Color.accentColor : Color.black.opacity(0.15), lineWidth: isSelected ? 2.5 : 0.5))
-            .shadow(color: .black.opacity(0.25), radius: 3, y: 2)
+            .shadow(color: .black.opacity(theme.flat ? 0 : 0.25), radius: 3, y: 2)
             Text(theme.name).font(.system(size: 12, weight: isSelected ? .semibold : .regular))
         }
         .contentShape(Rectangle())

@@ -43,6 +43,7 @@ struct FolderTabRow: View {
 }
 
 struct FolderTab: View {
+    @Environment(\.notebookTheme) private var theme
     let name: String
     let color: RGBA
     let isSelected: Bool
@@ -60,13 +61,15 @@ struct FolderTab: View {
             .background {
                 ZStack {
                     FolderTabShape().fill(color.color)
-                    FolderTabShape().fill(LinearGradient(colors: [.white.opacity(0.30), .clear, .black.opacity(0.08)], startPoint: .top, endPoint: .bottom))
-                    TextureOverlay(tile: "paper", opacity: 0.5).mask(FolderTabShape())
-                    FolderTabShape().stroke(Color.black.opacity(0.22), lineWidth: 0.5)
+                    if !theme.flat {
+                        FolderTabShape().fill(LinearGradient(colors: [.white.opacity(0.30), .clear, .black.opacity(0.08)], startPoint: .top, endPoint: .bottom))
+                        TextureOverlay(tile: "paper", opacity: 0.5).mask(FolderTabShape())
+                        FolderTabShape().stroke(Color.black.opacity(0.22), lineWidth: 0.5)
+                    }
                 }
             }
             .opacity(isSelected ? 1 : (hovering ? 0.95 : 0.84))
-            .shadow(color: .black.opacity(isSelected ? 0.22 : 0.12), radius: isSelected ? 2 : 1, y: -0.5)
+            .shadow(color: .black.opacity(theme.flat ? 0 : (isSelected ? 0.22 : 0.12)), radius: isSelected ? 2 : 1, y: -0.5)
             .contentShape(FolderTabShape())
             .onHover { hovering = $0 }
             .animation(.spring(duration: 0.22), value: isSelected)

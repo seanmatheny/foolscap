@@ -95,6 +95,7 @@ struct ThumbIndexView: View {
 }
 
 private struct ThumbCut: View {
+    @Environment(\.notebookTheme) private var theme
     let group: LetterGroup
     let isSelected: Bool
     let isActive: Bool
@@ -111,12 +112,14 @@ private struct ThumbCut: View {
             ZStack {
                 ZStack {
                     shape.fill(color.color)
-                    shape.fill(LinearGradient(colors: freeEdgeOnLeft ? [.black.opacity(0.10), .clear, .white.opacity(0.22)] : [.white.opacity(0.22), .clear, .black.opacity(0.10)],
-                                              startPoint: .leading, endPoint: .trailing))
-                    TextureOverlay(tile: "paper", opacity: 0.5)
+                    if !theme.flat {
+                        shape.fill(LinearGradient(colors: freeEdgeOnLeft ? [.black.opacity(0.10), .clear, .white.opacity(0.22)] : [.white.opacity(0.22), .clear, .black.opacity(0.10)],
+                                                  startPoint: .leading, endPoint: .trailing))
+                        TextureOverlay(tile: "paper", opacity: 0.5)
+                    }
                 }
                 .clipShape(shape)
-                shape.stroke(Color.black.opacity(isSelected ? 0.3 : 0.22), lineWidth: 0.5)
+                if !theme.flat { shape.stroke(Color.black.opacity(isSelected ? 0.3 : 0.22), lineWidth: 0.5) }
                 Text(group.label)
                     .font(.system(size: group.letters.count > 1 ? 9.5 : (isSelected ? 13 : 11.5), weight: .semibold, design: .serif))
                     .foregroundStyle(Color.black.opacity(0.72))
