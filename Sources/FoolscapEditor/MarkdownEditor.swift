@@ -4,25 +4,6 @@ import FoolscapCore
 import FoolscapStore
 import FoolscapUI
 
-/// Lets a view hosted inside the editor (the header or footer panel) add to the
-/// note through the editor, so the edit is undoable and saved like typing.
-@MainActor
-public final class EditorInsertion {
-    weak var textView: MarkdownTextView?
-    public func append(_ markdown: String) { textView?.appendMarkdownBlock(markdown) }
-}
-
-private struct EditorInsertionKey: EnvironmentKey {
-    static let defaultValue: EditorInsertion? = nil
-}
-
-public extension EnvironmentValues {
-    var editorInsertion: EditorInsertion? {
-        get { self[EditorInsertionKey.self] }
-        set { self[EditorInsertionKey.self] = newValue }
-    }
-}
-
 /// SwiftUI wrapper: a scrolling MarkdownTextView bound to one document.
 public struct MarkdownEditor: NSViewRepresentable {
     let document: NoteDocument
@@ -69,9 +50,8 @@ public struct MarkdownEditor: NSViewRepresentable {
         scroll.documentView = textView
         scroll.contentView.postsBoundsChangedNotifications = true
         context.coordinator.textView = textView
-        context.coordinator.insertion.textView = textView
-        updateHeader(textView, insertion: context.coordinator.insertion)
-        updateFooter(textView, insertion: context.coordinator.insertion)
+        updateHeader(textView)
+        updateFooter(textView)
         DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         return scroll
     }
@@ -81,8 +61,8 @@ public struct MarkdownEditor: NSViewRepresentable {
         let palette = EditorPalette(theme: theme)
         textView.knownTags = tags
         textView.palette.theme = theme
-        updateHeader(textView, insertion: context.coordinator.insertion)
-        updateFooter(textView, insertion: context.coordinator.insertion)
+        updateHeader(textView)
+        updateFooter(textView)
         if palette.body != textView.palette.body || palette.ink != textView.palette.ink || palette.ruling != textView.palette.ruling
             || palette.showMarginRule != textView.palette.showMarginRule {
             textView.palette = palette
@@ -111,11 +91,10 @@ public struct MarkdownEditor: NSViewRepresentable {
 
     /// The header runs in a hosting view of its own, so it is handed the theme
     /// here; it reports its height, and the text view makes room for it.
-    private func updateHeader(_ textView: MarkdownTextView, insertion: EditorInsertion) {
+    private func updateHeader(_ textView: MarkdownTextView) {
         guard let header else { textView.headerView = nil; textView.headerHeight = 0; return }
         let root = AnyView(header
             .environment(\.notebookTheme, theme)
-            .environment(\.editorInsertion, insertion)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .fixedSize(horizontal: false, vertical: true)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [weak textView] height in
@@ -133,11 +112,10 @@ public struct MarkdownEditor: NSViewRepresentable {
     }
 
     /// The footer: the same arrangement, placed after the last line.
-    private func updateFooter(_ textView: MarkdownTextView, insertion: EditorInsertion) {
+    private func updateFooter(_ textView: MarkdownTextView) {
         guard let footer else { textView.footerView = nil; textView.footerHeight = 0; return }
         let root = AnyView(footer
             .environment(\.notebookTheme, theme)
-            .environment(\.editorInsertion, insertion)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .fixedSize(horizontal: false, vertical: true)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [weak textView] height in
@@ -156,7 +134,6 @@ public struct MarkdownEditor: NSViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, NSTextViewDelegate {
         var textView: MarkdownTextView?
-        let insertion = EditorInsertion()
         var revealedLine: Int?
         let onEdit: () -> Void
         init(onEdit: @escaping () -> Void) { self.onEdit = onEdit }

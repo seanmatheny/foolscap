@@ -98,8 +98,9 @@ extension MarkdownTextView {
 
     // MARK: Drawing
 
-    /// Chevrons beside headings (every folded one; an open one while the pointer or
-    /// caret is on its line) and a "n lines" pill after a folded heading's text.
+    /// Chevrons beside every heading with lines under it (faint while open, firmer
+    /// under the pointer or caret, solid when folded) and a "n lines" pill after a
+    /// folded heading's text.
     func drawFoldControls(in rect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext, let span = characterSpan(under: rect) else { return }
         let lines = styler.blockMap.lines
@@ -110,11 +111,12 @@ extension MarkdownTextView {
             let line = lines[i]
             guard case .heading = line.kind, !styler.isHidden(line: i), styler.sectionEnd(afterHeading: i) > i + 1 else { continue }
             let folded = styler.isFolded(heading: i)
-            guard folded || hoverHeading == i || styler.isRevealed(line: i), let frame = fragmentRect(for: line.range) else { continue }
+            guard let frame = fragmentRect(for: line.range) else { continue }
+            let active = hoverHeading == i || styler.isRevealed(line: i)
             let cy = frame.minY + palette.pitch * 0.55
             let cx = Self.foldChevronX
             ctx.saveGState()
-            ctx.setStrokeColor(palette.dimInk.withAlphaComponent(folded ? 0.9 : 0.6).cgColor)
+            ctx.setStrokeColor(palette.dimInk.withAlphaComponent(folded ? 0.9 : (active ? 0.6 : 0.3)).cgColor)
             ctx.setLineWidth(1.6); ctx.setLineCap(.round); ctx.setLineJoin(.round)
             if folded {
                 ctx.move(to: CGPoint(x: cx - 2, y: cy - 3.5)); ctx.addLine(to: CGPoint(x: cx + 2, y: cy)); ctx.addLine(to: CGPoint(x: cx - 2, y: cy + 3.5))

@@ -106,9 +106,9 @@ struct DailyNotesPage: View {
     }
 
     /// The day's handwritten pages, after the note.
-    private func appendix(for document: NoteDocument) -> AnyView? {
+    private var appendix: AnyView? {
         guard !section.dayPagesProviders.isEmpty else { return nil }
-        return AnyView(DayPagesAppendix(section: section, day: section.selectedDay, document: document, providers: section.dayPagesProviders))
+        return AnyView(DayPagesAppendix(section: section, day: section.selectedDay, providers: section.dayPagesProviders))
     }
 
     var body: some View {
@@ -120,7 +120,7 @@ struct DailyNotesPage: View {
             if let document, document.isLoaded {
                 MarkdownEditor(document: document, revealLine: section.pendingLine,
                                tags: { [library = section.library] in library.knownTags },
-                               header: todayHeader, footer: appendix(for: document)) { section.library.scheduleSave() }
+                               header: todayHeader, footer: appendix) { section.library.scheduleSave() }
                     // Keyed on the library generation too: a folder switch or a restore replaces every document.
                     .id("\(document.path)/\(section.library.generation)")
                     .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),

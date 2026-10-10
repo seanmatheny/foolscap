@@ -455,24 +455,6 @@ public final class MarkdownTextView: NSTextView {
         return false
     }
 
-    /// Add a block after everything in the note, separated by a blank line, as
-    /// an edit the user can undo.
-    func appendMarkdownBlock(_ text: String) {
-        guard let storage = textStorage else { return }
-        let ns = storage.string as NSString
-        var insert = text.hasSuffix("\n") ? text : text + "\n"
-        if ns.length > 0 {
-            if !ns.hasSuffix("\n") { insert = "\n\n" + insert } else if !ns.hasSuffix("\n\n") { insert = "\n" + insert }
-        }
-        let range = NSRange(location: ns.length, length: 0)
-        guard shouldChangeText(in: range, replacementString: insert) else { return }
-        storage.replaceCharacters(in: range, with: insert)
-        didChangeText()
-        let end = NSRange(location: range.location + (insert as NSString).length, length: 0)
-        setSelectedRange(end)
-        scrollRangeToVisible(end)
-    }
-
     /// Insert text at the selection; `ownLine` puts it on a line of its own.
     func insertMarkdown(_ text: String, ownLine: Bool) {
         guard let storage = textStorage else { return }

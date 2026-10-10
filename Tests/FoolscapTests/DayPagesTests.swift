@@ -7,22 +7,6 @@ import FoolscapStore
 @testable import FoolscapScribe
 @testable import FoolscapEditor
 
-@Suite struct DayPageMarkdownTests {
-    let page = DayPage(id: "scribe:Scribe/Work/Notes.md#4", sectionID: "scribe", title: "Daily Work Notes", subtitle: "Page 1",
-                       headline: "July 24th #meeting", text: "July 24th #meeting\n- Setting up lab\n\nKatrina - platform",
-                       route: SectionRoute(path: "Scribe/Work/Notes.md", line: 4))
-
-    @Test func blockIsAHeadingAndAQuoteWithEscapedText() {
-        #expect(DayPageMarkdown.block(for: page) == "## July 24th \\#meeting\n> July 24th \\#meeting\n> - Setting up lab\n>\n> Katrina - platform")
-    }
-
-    @Test func presenceIsTheHeadingLine() {
-        let note = "# Friday\n\ntyped notes\n\n" + DayPageMarkdown.block(for: page) + "\n"
-        #expect(DayPageMarkdown.isPresent(in: note, page: page))
-        #expect(!DayPageMarkdown.isPresent(in: "# Friday\n\nJuly 24th #meeting\n", page: page))
-    }
-}
-
 @Suite struct ScribeSpreadTests {
     @Test func spreadNeedsRoomForTwoLeaves() {
         #expect(ScribeNotebookView.columns(for: 759) == nil)
@@ -92,15 +76,5 @@ import FoolscapStore
         view.footerHeight = 0
         view.layout()
         #expect(view.minSize.height == 300)
-    }
-
-    @Test func appendedBlockLandsAfterABlankLineAndCanBeUndone() {
-        let doc = NoteDocument(path: "x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)
-        doc.setText("# Friday\n\ntyped")
-        let view = MarkdownTextView(document: doc, palette: EditorPalette(theme: .classicBlack))
-        view.appendMarkdownBlock("## Meeting\n> notes")
-        #expect(doc.text == "# Friday\n\ntyped\n\n## Meeting\n> notes\n")
-        view.appendMarkdownBlock("## Second")
-        #expect(doc.text.hasSuffix("> notes\n\n## Second\n"))
     }
 }

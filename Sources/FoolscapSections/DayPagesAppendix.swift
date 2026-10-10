@@ -4,36 +4,13 @@ import FoolscapStore
 import FoolscapEditor
 import FoolscapUI
 
-/// What a page becomes when added to the day's note: its first line as a
-/// heading and the text as a quote, escaped so recognised text cannot make tags.
-public enum DayPageMarkdown {
-    public static func heading(for page: DayPage) -> String { "## " + MarkdownEscaping.escape(page.headline) }
-
-    public static func block(for page: DayPage) -> String {
-        var lines = [heading(for: page)]
-        for (index, paragraph) in page.text.components(separatedBy: "\n\n").enumerated() {
-            if index > 0 { lines.append(">") }
-            lines += paragraph.components(separatedBy: "\n").map { "> " + MarkdownEscaping.escape($0) }
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    /// Whether the note already holds the page (its heading line), so it is added once.
-    public static func isPresent(in text: String, page: DayPage) -> Bool {
-        let heading = heading(for: page)
-        return text.components(separatedBy: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == heading }
-    }
-}
-
 /// "From your Scribe": the handwritten pages dated this day, after the note, read
-/// live from their transcripts. A click opens the page in its tab; "Add to this
-/// note" copies the text in, once, on request.
+/// live from their transcripts. A click opens the page in its tab; the text is
+/// selectable for copying the lines worth keeping into the note.
 struct DayPagesAppendix: View {
     @Environment(\.notebookTheme) private var theme
-    @Environment(\.editorInsertion) private var insertion
     @Bindable var section: DailyNotesSection
     let day: DayKey
-    let document: NoteDocument
     let providers: [any DayPagesProvider]
     @State private var pages: [DayPage] = []
     @State private var thumbnails: [String: CGImage] = [:]
@@ -81,8 +58,7 @@ struct DayPagesAppendix: View {
     }
 
     private func pageRow(_ page: DayPage, font: Font, slack: CGFloat) -> some View {
-        let added = DayPageMarkdown.isPresent(in: document.text, page: page)
-        return HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: 14) {
             Button { open(page) } label: { thumbnail(page) }
                 .buttonStyle(.plain)
                 .help("Open the page in the Scribe tab")
@@ -95,16 +71,6 @@ struct DayPagesAppendix: View {
                     }
                     .buttonStyle(.plain)
                     Spacer()
-                    Button {
-                        insertion?.append(DayPageMarkdown.block(for: page))
-                    } label: {
-                        Label(added ? "Added" : "Add to this note", systemImage: added ? "checkmark" : "text.insert")
-                            .font(.system(size: 11.5, weight: .medium, design: .serif))
-                            .padding(.horizontal, 9).padding(.vertical, 3)
-                            .background(Capsule().fill(theme.accent.color.opacity(added ? 0.07 : 0.14)))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(added || insertion == nil)
                 }
                 .frame(height: pitch)
                 Text(page.text)
@@ -116,8 +82,6 @@ struct DayPagesAppendix: View {
                     .textSelection(.enabled)
             }
         }
-        // The note's text changing (the block added, or removed again) re-reads presence.
-        .id("\(page.id)|\(document.editCount)")
     }
 
     private func thumbnail(_ page: DayPage) -> some View {

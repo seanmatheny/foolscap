@@ -208,12 +208,13 @@
   transcript key). The Daily page shows that day's pages after the note ("From your Scribe",
   `DayPagesAppendix`) through the Core `DayPagesProvider` protocol (`NotebookSection.
   dayPagesProvider`; `ScribeDayPagesProvider` reads the transcripts, `AppModel.rewireSections`
-  hands the providers to `DailyNotesSection`, `openRoute` opens the page); nothing is copied
-  into the note unless "Add to this note" is clicked (`DayPageMarkdown.block`: `## first line`
-  + the text as a quote, once; presence = the heading line). The editor hosts it as a
-  footer (`MarkdownTextView.footerView`, symmetrical to the header but the room comes from
-  `minSize`/`visibleHeight`, since the last paragraph has no trailing spacing) and panels add
-  text through the `\.editorInsertion` environment (`appendMarkdownBlock`, undoable).
+  hands the providers to `DailyNotesSection`, `openRoute` opens the page); nothing is ever
+  copied into the note (an "Add to this note" button was tried and dropped on 2026-10-10:
+  it duplicated the page under a second heading; the appendix text is selectable instead).
+  The editor hosts it as a footer (`MarkdownTextView.footerView`, symmetrical to the header
+  but the room comes from `minSize`/`visibleHeight`, since the last paragraph has no
+  trailing spacing). Fold chevrons show on every heading with lines under it (faint open,
+  solid folded), not only under the pointer.
 - Verification launches: `-jiraEnabled NO` in the argument domain skips the Jira keychain
   read, which otherwise raises a keychain prompt for every freshly signed debug build and
   leaves the app windowless until Sean clicks Always Allow; `-flyleafOnOpen NO --no-opening`
