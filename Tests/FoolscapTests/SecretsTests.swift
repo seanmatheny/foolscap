@@ -155,6 +155,14 @@ import CryptoKit
         #expect(throws: KeyWrapError.wrongPassphrase) { try PassphraseWrap.unwrap(wrapped, passphrase: "wrong horse") }
     }
 
+    @Test func wrongDeviceKeyIsNamed() throws {
+        let wrapped = try AgreementWrap.wrap(VaultKey.random(), recipient: P256.KeyAgreement.PrivateKey().publicKey)
+        #expect(throws: KeyWrapError.wrongDeviceKey) { try AgreementWrap.unwrap(wrapped, using: P256.KeyAgreement.PrivateKey()) }
+        let store = MemoryKeyStore()
+        let pub = try store.enrol()
+        #expect(try store.enrol().rawRepresentation == pub.rawRepresentation)
+    }
+
     @Test func agreementWrapRoundTripsWithASoftwareKey() throws {
         let device = P256.KeyAgreement.PrivateKey()
         let key = VaultKey.random()
@@ -175,6 +183,12 @@ import CryptoKit
             let again = try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: enclave.dataRepresentation)
             #expect(try AgreementWrap.unwrap(wrapped, using: again).bytes == key.bytes)
             print("Secure Enclave: key created and agreement round-tripped")
+            // The store keeps the Mac's one key: a second enrolment (another vault) returns it.
+            let blob = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-enclave-\(UUID().uuidString).bin")
+            let store = EnclaveKeyStore(blobURL: blob)
+            let first = try store.enrol().rawRepresentation
+            #expect(try store.enrol().rawRepresentation == first)
+            try store.destroy()
         } catch {
             print("Secure Enclave: refused in the test process: \(error)")
         }

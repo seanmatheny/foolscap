@@ -44,10 +44,13 @@ public enum KeyWrapError: LocalizedError, Equatable {
     case wrongKind(String)
     case keyDerivationFailed(Int32)
     case deviceKeyMissing
+    /// The device key does not fit the vault's wrap: a vault from another Mac, or a key replaced.
+    case wrongDeviceKey
 
     public var errorDescription: String? {
         switch self {
         case .wrongPassphrase: return "That is not the recovery passphrase."
+        case .wrongDeviceKey: return "This Mac's Touch ID key does not fit this vault (it was wrapped with another key). Unlock with the recovery passphrase, then Re-enrol in Settings ▸ Secrets."
         case .wrongKind(let k): return "This vault was wrapped another way (\(k))."
         case .keyDerivationFailed(let s): return "Key derivation failed (\(s))."
         case .deviceKeyMissing: return "No Touch ID key on this Mac; use the recovery passphrase."
@@ -140,7 +143,11 @@ public enum AgreementWrap {
         let ephemeral = try P256.KeyAgreement.PublicKey(x963Representation: ephemeralPublic)
         let shared = try device.sharedSecretFromKeyAgreement(with: ephemeral)
         let box = try AES.GCM.SealedBox(combined: wrapped.sealed)
-        return VaultKey(bytes: try AES.GCM.open(box, using: kek(shared, salt: salt, ephemeralPublic: ephemeralPublic), authenticating: ephemeralPublic))
+        do {
+            return VaultKey(bytes: try AES.GCM.open(box, using: kek(shared, salt: salt, ephemeralPublic: ephemeralPublic), authenticating: ephemeralPublic))
+        } catch {
+            throw KeyWrapError.wrongDeviceKey
+        }
     }
 }
 
@@ -178,7 +185,11 @@ public final class EnclaveKeyStore: DeviceKeyStore, @unchecked Sendable {
         return try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: blob).publicKey
     }
 
+    /// The Mac's one key: an existing blob is kept (every vault on this Mac, scratch
+    /// notebooks included, is wrapped against it; a fresh key would orphan the others)
+    /// and a new key is only made when there is none.
     public func enrol() throws -> P256.KeyAgreement.PublicKey {
+        if let existing = try? publicKey() { return existing }
         var error: Unmanaged<CFError>?
         guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
                                                            [.privateKeyUsage, .userPresence], &error) else {
@@ -220,6 +231,7 @@ public final class KeychainKeyStore: DeviceKeyStore, @unchecked Sendable {
     }
 
     public func enrol() throws -> P256.KeyAgreement.PublicKey {
+        if let existing = try? publicKey() { return existing }
         let key = P256.KeyAgreement.PrivateKey()
         try item.write(key.rawRepresentation)
         return key.publicKey
@@ -256,7 +268,10 @@ public final class MemoryKeyStore: DeviceKeyStore, @unchecked Sendable {
     public init() {}
     public var isEnrolled: Bool { key != nil }
     public func publicKey() throws -> P256.KeyAgreement.PublicKey? { key?.publicKey }
-    public func enrol() throws -> P256.KeyAgreement.PublicKey { let k = P256.KeyAgreement.PrivateKey(); key = k; return k.publicKey }
+    public func enrol() throws -> P256.KeyAgreement.PublicKey {
+        if let key { return key.publicKey }
+        let k = P256.KeyAgreement.PrivateKey(); key = k; return k.publicKey
+    }
     public func privateKey(context: LAContext) throws -> any AgreementPrivateKey {
         guard let key else { throw KeyWrapError.deviceKeyMissing }
         return key

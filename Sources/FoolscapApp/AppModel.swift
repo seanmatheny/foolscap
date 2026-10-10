@@ -51,7 +51,12 @@ final class AppModel {
     private var highlightsForced = false
     private(set) var highlightsSection: HighlightsSection?
     /// The day's highlights lie on a loose page over the notebook until clicked away.
-    var flyleafPresented = false
+    var flyleafPresented = false {
+        didSet {
+            // Turning the flyleaf away onto a locked Secrets page counts as turning to the tab.
+            if oldValue, !flyleafPresented, selectedSectionID == SecretsSection.sectionID { secretsSection?.didEnterTab() }
+        }
+    }
     /// The Jira tab is a hard toggle: off means no section, no requests.
     private(set) var jiraEnabled = false
     /// `--jira` keeps the tab on for this launch whatever Settings says.
@@ -189,7 +194,8 @@ final class AppModel {
         }
         registerHotKeys()
         // Opening on the Secrets tab asks for Touch ID once the cover has opened (the
-        // property observer does not run for assignments inside init).
+        // property observer does not run for assignments inside init); under the flyleaf
+        // it waits for the flyleaf to be turned away.
         if selectedSectionID == SecretsSection.sectionID, !flyleafPresented {
             secretsSection?.didEnterTab(after: .milliseconds(args.contains("--no-opening") ? 800 : 2200))
         }

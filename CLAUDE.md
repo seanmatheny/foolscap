@@ -169,7 +169,10 @@
   (ECDH with a one-time P-256 key against this Mac's key + HKDF-SHA256 + AES-GCM; the key is a
   Secure Enclave key with `.userPresence` whose blob sits in Application Support/Foolscap/Secrets,
   or, when the Enclave refuses the self-signed app, a software P-256 key in the login keychain
-  read after `LAContext.evaluatePolicy`; `header.deviceKind` says which) and `passphrase`
+  read after `LAContext.evaluatePolicy`; `header.deviceKind` says which; the store keeps the
+  Mac's one key and `enrol` returns it when it exists, since every vault on this Mac, a scratch
+  notebook's included, is wrapped against it: a fresh key orphaned Sean's real vault on
+  2026-10-10 and he re-enrolled after a passphrase unlock) and `passphrase`
   (PBKDF2-HMAC-SHA256, calibrated ≥600k rounds, the recovery passphrase chosen on first run).
   The plaintext is one markdown document (`SecretsDocument`, lossless): `## Title #tags`, then
   `- label: value` lines (a value in backticks is a secret and is masked; `- changed: yyyy-MM-dd`
