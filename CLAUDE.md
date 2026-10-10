@@ -391,6 +391,9 @@
   drawn in the margin (the fold chevrons) must be drawn before it; list bullets (a `•` drawn as
   text over the clear `-`) go after. Bullets and chevrons are ours, so lines whose reveal state
   changes with the caret are invalidated by hand (`invalidate(lines:)`).
+- Spelling is not checked in code: the editor's delegate drops the checker's results
+  (`textView(_:didCheckTextIn:…)`) for fenced lines and inline spans (`MarkdownTextView.isCode`,
+  which reads the block map and the code background attribute).
 - Return continues lists, tasks and quotes (`LinePrefix`, `MarkdownCommands.swift`); ⇧↩/⌥↩ do
   not; Tab/⇧Tab indent list lines by two spaces. The Format menu sends `EditorCommand`
   selectors down the responder chain to `MarkdownTextView`.

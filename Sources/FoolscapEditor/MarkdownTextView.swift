@@ -133,6 +133,21 @@ public final class MarkdownTextView: NSTextView {
         if !features.contains(.textChecking) { isContinuousSpellCheckingEnabled = false }
     }
 
+    /// True when the characters at `range` are code: a fenced block's lines, or an
+    /// inline `span` (the styler gives those the code background). The spell checker
+    /// is told to leave them alone.
+    public func isCode(_ range: NSRange) -> Bool {
+        if let line = styler.blockMap.line(at: range.location) {
+            switch line.kind {
+            case .fenceOpen, .fenceInside, .fenceClose: return true
+            default: break
+            }
+        }
+        guard let storage = textStorage, range.location < storage.length else { return false }
+        let bg = storage.attribute(.backgroundColor, at: range.location, effectiveRange: nil) as? NSColor
+        return bg == palette.codeBackground
+    }
+
     /// Plain-text views only declare text as pasteable, which disables the
     /// Paste menu item (and ⌘V) whenever the clipboard holds a screenshot.
     public override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {

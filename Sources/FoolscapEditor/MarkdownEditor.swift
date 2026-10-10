@@ -144,6 +144,15 @@ public struct MarkdownEditor: NSViewRepresentable {
             onEdit()
         }
 
+        /// Spelling is not checked inside code: the checker's results for fenced blocks
+        /// and inline spans are dropped before they are drawn.
+        public func textView(_ textView: NSTextView, didCheckTextIn range: NSRange, types checkingTypes: NSTextCheckingTypes,
+                             options: [NSSpellChecker.OptionKey: Any], results: [NSTextCheckingResult],
+                             orthography: NSOrthography, wordCount: Int) -> [NSTextCheckingResult] {
+            guard let view = textView as? MarkdownTextView else { return results }
+            return results.filter { !view.isCode($0.range) }
+        }
+
         public func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             if let s = link as? String, let url = URL(string: s) { NSWorkspace.shared.open(url); return true }
             if let url = link as? URL { NSWorkspace.shared.open(url); return true }
