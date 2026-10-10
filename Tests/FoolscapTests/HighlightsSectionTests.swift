@@ -75,12 +75,16 @@ import AppKit
         #expect(section.highlightTags == ["sea", "mood"])
 
         section.searchText = "spleen"
+        await section.settleSearch()
         #expect(section.searchResults.map(\.line) == [7])
         section.searchText = "#mood "
+        await section.settleSearch()
         #expect(section.searchResults.map(\.line) == [7])
         section.searchText = "ishmael #se"
+        await section.settleSearch()
         #expect(section.searchResults.map(\.line) == [4])
         section.searchText = "melville"
+        await section.settleSearch()
         #expect(section.searchResults.count == 2)
         let hits = try await section.searchProvider!.search("driving", limit: 10)
         #expect(hits.map(\.route.line) == [7] && hits[0].title == "Moby Dick · Herman Melville")

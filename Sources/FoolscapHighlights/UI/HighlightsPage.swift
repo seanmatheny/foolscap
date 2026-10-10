@@ -143,9 +143,14 @@ struct SearchResults: View {
 
     var body: some View {
         let results = section.searchResults
-        VStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: 0) {
             if results.isEmpty {
-                Text("Nothing matches.").font(.system(size: 14, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
+                Text(section.searchQuery.wordText.count < 2 && !section.searchQuery.hasTagFilter ? "Keep typing…" : "Nothing matches.")
+                    .font(.system(size: 14, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
+                    .padding(.top, 6)
+            } else if section.searchResultTotal > results.count {
+                Text("The first \(results.count) of \(section.searchResultTotal) matches; add a word or a #tag to narrow it.")
+                    .font(.system(size: 12 * scale, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
                     .padding(.top, 6)
             }
             ForEach(groups(results), id: \.path) { group in

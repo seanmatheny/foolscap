@@ -73,7 +73,17 @@ public final class HighlightsSection: NotebookSection {
     }
 
     public var mode: Mode = .today
-    public var searchText = ""
+    public var searchText = "" {
+        didSet { if searchText != oldValue { scheduleSearch() } }
+    }
+    /// Highlights matching the search field, across every book: found off the main
+    /// actor a moment after typing stops, and capped, so a short query cannot stall
+    /// the page by building thousands of rows.
+    public private(set) var searchResults: [HighlightItem] = []
+    /// How many matched in all, when more than `searchResultLimit` did.
+    public private(set) var searchResultTotal = 0
+    public static let searchResultLimit = 150
+    @ObservationIgnored private var searchTask: Task<Void, Never>?
     public var selectedTag: String?
     /// Every highlight in the index, in reading order per book.
     public private(set) var items: [HighlightItem] = []
@@ -291,6 +301,7 @@ public final class HighlightsSection: NotebookSection {
             ((try? index.highlights()) ?? [], (try? index.highlightBooks()) ?? [])
         }.value
         self.items = items
+        refreshSearch()
         var seen = Set<String>()
         self.books = books.filter { seen.insert($0.path).inserted }
         let folder = library.folder
@@ -339,14 +350,42 @@ public final class HighlightsSection: NotebookSection {
 
     public var searchQuery: SearchQuery { SearchQuery(searchText) }
 
-    /// Highlights matching the search field, across every book.
-    public var searchResults: [HighlightItem] {
+    private func scheduleSearch() {
+        searchTask?.cancel()
         let query = searchQuery
-        guard !query.isEmpty else { return [] }
-        return items.filter { Self.matches($0, query) }
+        // A lone `#` only wants suggestions; one letter would match nearly everything.
+        guard !query.isEmpty, query.wordText.count >= 2 || query.hasTagFilter else {
+            searchResults = []; searchResultTotal = 0
+            return
+        }
+        let pool = items
+        let limit = Self.searchResultLimit
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            let (hits, total) = await Task.detached(priority: .userInitiated) { () -> ([HighlightItem], Int) in
+                var hits: [HighlightItem] = []
+                var total = 0
+                for item in pool where Self.matches(item, query) {
+                    total += 1
+                    if hits.count < limit { hits.append(item) }
+                    if total % 200 == 0, Task.isCancelled { break }
+                }
+                return (hits, total)
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            self.searchResults = hits
+            self.searchResultTotal = total
+        }
     }
 
-    static func matches(_ item: HighlightItem, _ query: SearchQuery) -> Bool {
+    /// Rerun after a reload, so results follow edits (a tag added, a highlight hidden).
+    func refreshSearch() { scheduleSearch() }
+
+    /// Wait for the search typed so far to land (tests).
+    public func settleSearch() async { await searchTask?.value }
+
+    nonisolated static func matches(_ item: HighlightItem, _ query: SearchQuery) -> Bool {
         let words = query.words.map { $0.lowercased() }
         if !words.isEmpty {
             let hay = (item.text + "\n" + (item.note ?? "") + "\n" + item.bookTitle + "\n" + item.bookAuthor).lowercased()

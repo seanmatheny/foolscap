@@ -293,6 +293,10 @@
   `NoteDocument.replaceHighlightMeta` + `library.save()` like task edits. The index
   keeps `highlights`/`highlight_tags`/`highlight_books` (migration `v4-highlights`);
   Daily search uses `PathScope.notUnderAny` to leave out `Scribe/` and `Highlights/`.
+- Highlights search (`HighlightsSection.searchText`) runs off the main actor 120 ms after the
+  last keystroke into `searchResults` (capped at `searchResultLimit`, `searchResultTotal` says how
+  many matched), and `SearchResults` is a `LazyVStack`: the synchronous filter plus a plain
+  `VStack` of every match beachballed on short queries. Tests `await settleSearch()`.
 - The Kindle app's databases hold positions, not text: `KindleLibrary` (BookData.sqlite,
   WAL, read in place, never `immutable`) and `KindleAnnotations` (ksdk_annotation_v1.db)
   give ranges; `MOBIBook` decodes `.azw` natively (PalmDOC), `KFXExtractor` runs
