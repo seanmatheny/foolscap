@@ -19,7 +19,6 @@ struct TodayView: View {
         VStack(alignment: .leading, spacing: 34) {
             Text(Self.dateLine(Date()))
                 .font(.system(size: 20 * scale, weight: .bold, design: .serif))
-                .highlighted(theme.highlighter[.today])
                 .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
             if items.isEmpty {
                 Text("Nothing to show today. Un-hide a few highlights, or import more.")
@@ -36,7 +35,7 @@ struct TodayView: View {
     static func dateLine(_ date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "EEEE d MMMM"
-        return "Three for " + f.string(from: date)
+        return "Highlights for " + f.string(from: date)
     }
 }
 
