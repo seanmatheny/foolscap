@@ -13,6 +13,9 @@ public final class SecretsSection: NotebookSection {
     public static let enabledKey = "secretsEnabled"
     public static let lockMinutesKey = "secretsLockMinutes"
     public static let lockOnLeaveKey = "secretsLockOnLeave"
+    /// Turning to the tab while locked asks for Touch ID at once (default on; `-secretsAutoUnlock NO`
+    /// in the argument domain keeps a screenshot launch quiet).
+    public static let autoUnlockKey = "secretsAutoUnlock"
     public static let defaultLockMinutes = 5
     public static let vaultFileName = "vault.foolscap-secrets"
     /// The draft being edited is a marker, not an entry id.
@@ -27,6 +30,8 @@ public final class SecretsSection: NotebookSection {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let autoLock: AutoLock
     @ObservationIgnored private var copiedReset: Task<Void, Never>?
+    /// The Touch ID prompt scheduled by `didEnterTab`, cancelled on leaving.
+    @ObservationIgnored private var autoPrompt: Task<Void, Never>?
 
     // Page state (in memory only; nothing here is written anywhere).
     public var selectedLetter: SecretLetter = .letter("A")
@@ -70,6 +75,7 @@ public final class SecretsSection: NotebookSection {
         defaults.object(forKey: Self.lockMinutesKey) == nil ? Self.defaultLockMinutes : max(1, defaults.integer(forKey: Self.lockMinutesKey))
     }
     public var lockOnLeave: Bool { defaults.bool(forKey: Self.lockOnLeaveKey) }
+    public var autoUnlock: Bool { defaults.object(forKey: Self.autoUnlockKey) == nil ? true : defaults.bool(forKey: Self.autoUnlockKey) }
 
     /// Called by the settings pane after the slider moves: the deadline follows at once.
     public func settingsChanged() {
@@ -85,6 +91,7 @@ public final class SecretsSection: NotebookSection {
     }
 
     public func stop() {
+        autoPrompt?.cancel()
         lockNow()
         autoLock.stop()
     }
@@ -110,7 +117,25 @@ public final class SecretsSection: NotebookSection {
     public func saveIfDirty() { vault.saveNow() }
 
     /// The tab was turned away from; locks only when the setting asks for it.
-    public func didLeaveTab() { if lockOnLeave { lockNow() } }
+    public func didLeaveTab() {
+        autoPrompt?.cancel()
+        autoPrompt = nil
+        if lockOnLeave { lockNow() }
+    }
+
+    /// The tab was turned to (or the app opened on it): a locked vault with a device key
+    /// asks for Touch ID by itself, like a locked note in Apple Notes, once the page turn
+    /// (or the cover opening) has finished. A cancelled prompt leaves the padlock and
+    /// its button until the tab is entered again; nothing re-asks on its own.
+    public func didEnterTab(after delay: Duration = .milliseconds(700)) {
+        autoPrompt?.cancel()
+        guard autoUnlock, vault.state == .locked, vault.hasDeviceWrap else { return }
+        autoPrompt = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self, self.vault.state == .locked else { return }
+            await self.unlockWithDevice()
+        }
+    }
 
     public func unlockWithDevice() async {
         await vault.unlockWithDevice()
@@ -250,16 +275,16 @@ public final class SecretsSection: NotebookSection {
     /// Done: the draft's text goes into the vault (an empty title drops the entry).
     public func commitEdit() {
         guard let editingID, let draft else { return }
-        let text = draft.text
+        let text = editingID == Self.newEntryID ? Self.withoutTemplateLeftovers(draft.text) : draft.text
         let today = Date()
         var landed: SecretLetter?
         vault.edit { doc in
             if editingID == Self.newEntryID {
-                if let id = doc.insert(text) {
-                    // The stamp rewrites the entry (and so its id): read the letter first.
-                    landed = doc.entries.first { $0.id == id }?.letter
-                    doc.stamp(id: id, changed: today)
-                }
+                // A pasted list with several `## ` headings makes several entries.
+                let ids = doc.insertAll(text).added
+                // The stamps rewrite the entries (and so their ids): read the letter first.
+                landed = ids.first.flatMap { id in doc.entries.first { $0.id == id }?.letter }
+                for id in ids { doc.stamp(id: id, changed: today) }
             } else if let before = doc.entries.first(where: { $0.id == editingID }) {
                 if SecretsDocument.normalised(text) != before.raw {
                     for id in doc.replace(id: editingID, with: text) { doc.stamp(id: id, changed: today) }
@@ -271,9 +296,37 @@ public final class SecretsSection: NotebookSection {
         if let landed, !isSearching { selectedLetter = landed }
     }
 
+    /// A list pasted into the new card lands around the template's lines: the empty
+    /// `- user:`, `- password:` and `- site:` would otherwise tail the last pasted entry.
+    /// Only a text with several entries is cleaned; a single card keeps what was typed.
+    public static func withoutTemplateLeftovers(_ text: String) -> String {
+        guard SecretsDocument.pieces(of: text).count > 1 else { return text }
+        return text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { $0.firstMatch(of: /^- (?:user|site):\s*$|^- password:\s*``\s*$/) == nil }
+            .joined(separator: "\n")
+    }
+
     public func cancelEdit() {
         editingID = nil
         draft = nil
+    }
+
+    /// Add the entries of a markdown text in the vault's own format (`## Title #tags`,
+    /// `- label: value`, a value in backticks secret). Entries without a `changed` line
+    /// are stamped today; an entry already there byte for byte is skipped.
+    public struct ImportResult: Equatable, Sendable { public var added: Int; public var skipped: Int }
+    @discardableResult
+    public func importMarkdown(_ text: String) -> ImportResult {
+        guard isUnlocked else { return ImportResult(added: 0, skipped: 0) }
+        if editingID != nil { commitEdit() }
+        let today = Date()
+        var result = ImportResult(added: 0, skipped: 0)
+        vault.edit { doc in
+            let (ids, skipped) = doc.insertAll(text)
+            result = ImportResult(added: ids.count, skipped: skipped)
+            for id in ids where doc.entries.first(where: { $0.id == id })?.changed == nil { doc.stamp(id: id, changed: today) }
+        }
+        return result
     }
 
     public func delete(_ entry: SecretEntry) {

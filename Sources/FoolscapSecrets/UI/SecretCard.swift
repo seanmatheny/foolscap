@@ -306,7 +306,13 @@ struct SecretEntryEditor: View {
             MarkdownEditor(document: document, tags: { [section] in section.knownTags }, features: []) {}
                 .frame(height: rows * pitch)
                 .padding(.horizontal, 6)
-                .padding(.bottom, 6)
+                .padding(.bottom, section.editingID == SecretsSection.newEntryID ? 2 : 6)
+            if section.editingID == SecretsSection.newEntryID {
+                Text("Several at once: paste a list with a heading per entry (any level, `## Title`, `# Title`…) and each becomes its own card. Ones already in the vault are skipped.")
+                    .font(.system(size: 10.5 * scale, design: .serif))
+                    .foregroundStyle(theme.dimInk.color.opacity(0.8))
+                    .padding(.horizontal, 14).padding(.bottom, 6)
+            }
         }
         .background(RoundedRectangle(cornerRadius: 3).fill(theme.secretEditingFill))
         .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.accent.color.opacity(0.45), lineWidth: 0.8))

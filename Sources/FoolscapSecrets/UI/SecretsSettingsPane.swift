@@ -7,6 +7,7 @@ struct SecretsSettingsPane: View {
     @Bindable var section: SecretsSection
     @AppStorage(SecretsSection.lockMinutesKey) private var lockMinutes = SecretsSection.defaultLockMinutes
     @AppStorage(SecretsSection.lockOnLeaveKey) private var lockOnLeave = false
+    @AppStorage(SecretsSection.autoUnlockKey) private var autoUnlock = true
     @State private var showPassphraseChange = false
     @State private var newPassphrase = ""
     @State private var confirmation = ""
@@ -27,6 +28,8 @@ struct SecretsSettingsPane: View {
         Text("Minutes without a keystroke or click in Foolscap before the vault locks. It also locks at once when the Mac sleeps, the screen locks and Foolscap quits.")
             .font(.caption).foregroundStyle(.secondary)
         Toggle("Lock when I turn to another tab", isOn: $lockOnLeave)
+        Toggle("Ask for Touch ID when I turn to the tab", isOn: $autoUnlock)
+            .disabled(!section.vault.hasDeviceWrap)
         LabeledContent("Touch ID") {
             HStack {
                 Text(deviceStatus).foregroundStyle(.secondary)
@@ -47,12 +50,15 @@ struct SecretsSettingsPane: View {
             Button("Save passphrase") { changePassphrase() }
                 .disabled(newPassphrase.count < 8 || newPassphrase != confirmation)
         }
-        LabeledContent("Export") {
-            Button("Export decrypted markdown…") { export() }.disabled(!section.isUnlocked)
+        LabeledContent("Markdown") {
+            HStack {
+                Button("Import…") { importFile() }.disabled(!section.isUnlocked)
+                Button("Export decrypted…") { export() }.disabled(!section.isUnlocked)
+            }
         }
         Text(section.isUnlocked
-             ? "Export writes the vault's markdown as a plain, readable file: for moving on, not for keeping."
-             : "Unlock Secrets in the notebook first to enrol Touch ID, change the passphrase or export.")
+             ? "Import adds the entries of a markdown file in the vault's own format: a heading per entry (`## Title #tags`; any heading level is taken), then `- label: value` lines, a value in backticks kept secret. Entries already in the vault are skipped. (The same text pasted into a new card does the same.) Export writes the vault's markdown as a plain, readable file: for moving on, not for keeping."
+             : "Unlock Secrets in the notebook first to enrol Touch ID, change the passphrase, import or export.")
             .font(.caption).foregroundStyle(.secondary)
         Text(vaultStatus).font(.caption).foregroundStyle(.secondary)
         if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
@@ -94,6 +100,24 @@ struct SecretsSettingsPane: View {
             newPassphrase = ""; confirmation = ""
         } catch {
             message = "Could not change the passphrase: \(error.localizedDescription)"
+        }
+    }
+
+    private func importFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.plainText, .text]
+        panel.allowsMultipleSelection = false
+        panel.message = "A markdown file of entries: ## Title, then - label: value lines."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            guard !SecretsDocument.pieces(of: text).isEmpty else { message = "No entries found in \(url.lastPathComponent): each needs a `## Title` heading."; return }
+            let result = section.importMarkdown(text)
+            var parts = ["Added \(result.added) entr\(result.added == 1 ? "y" : "ies") from \(url.lastPathComponent)"]
+            if result.skipped > 0 { parts.append("\(result.skipped) already there") }
+            message = parts.joined(separator: ", ") + ". The file itself is still readable: delete it once the entries are in."
+        } catch {
+            message = "Could not read \(url.lastPathComponent): \(error.localizedDescription)"
         }
     }
 

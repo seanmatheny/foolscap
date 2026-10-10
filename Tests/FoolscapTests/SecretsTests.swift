@@ -81,6 +81,35 @@ import CryptoKit
         #expect(doc.entries.count == 3)
     }
 
+    @MainActor @Test func insertAllSplitsFilesAndSkipsDuplicates() {
+        var doc = SecretsDocument.parse("## Beta\n- b: 2\n")
+        let pasted = "Some notes first\n\n## Alpha #work\n- user: a\n- password: `pw`\n\n## Gamma\n```\nkey\n```\n## \n- user: \n## Beta\n- b: 2\n"
+        let first = doc.insertAll(pasted)
+        #expect(first.added.count == 2 && first.skipped == 1)
+        #expect(doc.entries.map(\.title) == ["Alpha", "Beta", "Gamma"])
+        #expect(doc.entries[0].raw == "## Alpha #work\n- user: a\n- password: `pw`\n")
+        #expect(doc.entries[2].blocks.count == 1)
+        let again = doc.insertAll(pasted)
+        #expect(again.added.isEmpty && again.skipped == 3)
+        #expect(doc.entries.count == 3)
+        // Other heading levels start entries too (not inside a fence), stored as `## `.
+        let levels = doc.insertAll("# Delta\n- d: 4\n### Epsilon\n```\n# not a heading\n```\n")
+        #expect(levels.added.count == 2)
+        #expect(doc.entries.map(\.title) == ["Alpha", "Beta", "Delta", "Epsilon", "Gamma"])
+        #expect(doc.entries[3].raw == "## Epsilon\n```\n# not a heading\n```\n")
+        // No heading at all: one entry titled by its first line, as typed into the new card.
+        #expect(doc.insertAll("Zeta\n- z: 6").added.count == 1)
+        #expect(doc.entries.last?.raw == "## Zeta\n- z: 6\n")
+        // A list pasted after the new card's `## `: its introduction is a bare heading
+        // (dropped), the first real heading doubles up, the template's lines tail the end.
+        let card = "## A few entries\n\n# Eta #x\n- e: 7\n\n## Theta\n- t: 8\n- user: \n- password: ``\n- site: \n"
+        let cleaned = SecretsSection.withoutTemplateLeftovers(card)
+        #expect(SecretsDocument.pieces(of: cleaned) == ["## Eta #x\n- e: 7\n", "## Theta\n- t: 8\n"])
+        // A single card keeps its empty lines and a bare title.
+        #expect(SecretsSection.withoutTemplateLeftovers("## Iota\n- user: \n") == "## Iota\n- user: \n")
+        #expect(SecretsDocument.pieces(of: "## Iota\n") == ["## Iota\n"])
+    }
+
     @Test func replaceSplitsAndRemoves() {
         var doc = SecretsDocument.parse("## One\n- a: 1\n## Two\n- b: 2")
         let ids = doc.replace(id: doc.entries[0].id, with: "## One\n- a: 1\n## One and a half\n- c: 3")

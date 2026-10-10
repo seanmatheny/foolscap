@@ -17,6 +17,7 @@ final class AppModel {
         didSet {
             UserDefaults.standard.set(selectedSectionID, forKey: "selectedSection")
             if oldValue == SecretsSection.sectionID, selectedSectionID != oldValue { secretsSection?.didLeaveTab() }
+            if selectedSectionID == SecretsSection.sectionID, selectedSectionID != oldValue { secretsSection?.didEnterTab() }
             // Going somewhere (a tab, the Go menu, a search result) turns the flyleaf away.
             if flyleafPresented { flyleafPresented = false }
         }
@@ -187,6 +188,11 @@ final class AppModel {
             }
         }
         registerHotKeys()
+        // Opening on the Secrets tab asks for Touch ID once the cover has opened (the
+        // property observer does not run for assignments inside init).
+        if selectedSectionID == SecretsSection.sectionID, !flyleafPresented {
+            secretsSection?.didEnterTab(after: .milliseconds(args.contains("--no-opening") ? 800 : 2200))
+        }
         if args.contains("--fullscreen") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { NSApp.windows.first { $0.isVisible }?.toggleFullScreen(nil) }
         }
@@ -334,7 +340,7 @@ final class AppModel {
         rewireSections()
     }
 
-    /// Add or remove the Highlights section at runtime; it sits before Scribe.
+    /// Add or remove the Highlights section at runtime (`rewireSections` places it).
     func setHighlightsEnabled(_ on: Bool) {
         guard on != highlightsEnabled, let library else { return }
         highlightsEnabled = on
@@ -344,7 +350,7 @@ final class AppModel {
                 .map { URL(fileURLWithPath: String($0.dropFirst("--kindle-data=".count))) }
             let highlights = HighlightsSection(library: library,
                                                extractor: NativeKindleExtractor(dataDirectory: kindleData ?? KindleLibrary.defaultDataDirectory))
-            sections.insert(highlights, at: sections.firstIndex { $0.id == ScribeSection.sectionID } ?? sections.endIndex)
+            sections.append(highlights)
             highlightsSection = highlights
             library.indexesHighlights = true
             highlights.start()
@@ -359,15 +365,14 @@ final class AppModel {
         rewireSections()
     }
 
-    /// Add or remove the Jira section at runtime; it sits right after Tasks.
+    /// Add or remove the Jira section at runtime (`rewireSections` places it after Tasks).
     /// Nothing is indexed: it writes only task lines, through the library.
     func setJiraEnabled(_ on: Bool) {
         guard on != jiraEnabled, let library else { return }
         jiraEnabled = on
         if on {
             let jira = JiraSection(library: library)
-            let after = sections.firstIndex { $0.id == "tasks" }.map { $0 + 1 } ?? sections.endIndex
-            sections.insert(jira, at: after)
+            sections.append(jira)
             jiraSection = jira
             jira.start()
         } else {
@@ -379,15 +384,14 @@ final class AppModel {
         rewireSections()
     }
 
-    /// Add or remove the Secrets section at runtime; it sits after Jira (or Tasks).
+    /// Add or remove the Secrets section at runtime (`rewireSections` puts it last).
     /// Nothing is indexed: the vault never enters the library.
     func setSecretsEnabled(_ on: Bool) {
         guard on != secretsEnabled, let library else { return }
         secretsEnabled = on
         if on {
             let secrets = SecretsSection(library: library)
-            let after = sections.lastIndex { $0.id == JiraSection.sectionID || $0.id == "tasks" }.map { $0 + 1 } ?? sections.endIndex
-            sections.insert(secrets, at: after)
+            sections.append(secrets)
             secretsSection = secrets
             secrets.start()
         } else {
@@ -399,7 +403,24 @@ final class AppModel {
         rewireSections()
     }
 
+    /// Where a tab sits whatever order the sections were switched on in: Daily Notes first,
+    /// Tasks next, Jira after Tasks, Secrets last; everything else (Highlights, Scribe,
+    /// plug-ins) in between in the order it was added.
+    static func tabRank(_ id: String) -> Int {
+        switch id {
+        case "daily": return 0
+        case "tasks": return 1
+        case JiraSection.sectionID: return 2
+        case HighlightsSection.sectionID: return 10
+        case ScribeSection.sectionID: return 11
+        case SecretsSection.sectionID: return 100
+        default: return 50
+        }
+    }
+
     private func rewireSections() {
+        // `sort` is stable, so same-ranked sections keep their order.
+        sections.sort { Self.tabRank($0.id) < Self.tabRank($1.id) }
         tasksSection?.aggregator.setProviders(sections.compactMap(\.taskProvider))
         (section(id: "daily") as? DailyNotesSection)?.dayPagesProviders = sections.compactMap(\.dayPagesProvider)
         search.setSections(sections)

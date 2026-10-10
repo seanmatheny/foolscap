@@ -29,6 +29,8 @@
   the overlay or the blend flattens.
 - Resource bundles are copied into `Foolscap.app/Contents/Resources`; look them
   up through `FoolscapUIResources.bundle`, not `Bundle.module` directly.
+- Tab order is fixed by `AppModel.tabRank` in `rewireSections` whatever order the sections were
+  switched on in: Daily Notes, Tasks, Jira, then Highlights, Scribe and plug-ins, Secrets last.
 - Sections plug in through `NotebookSection` (FoolscapCore/Sections.swift);
   tasks through `TaskProvider`. Third-party sections should depend only on
   FoolscapCore (and FoolscapStore for files/index); `FoolscapScribe` is first-party
@@ -184,7 +186,14 @@
   is a layout directory so backups and moves carry the ciphertext. Auto-lock (`AutoLock`) after
   `secretsLockMinutes` (default 5, slider) without a key/mouse event in Foolscap, and at once on
   sleep, screen lock, session switch, quit (`AppModel.flush`) and, with `secretsLockOnLeave`, on
-  turning to another tab. Copies go to the pasteboard as `org.nspasteboard.ConcealedType` and
+  turning to another tab. Turning to the tab while locked asks for Touch ID by itself
+  (`SecretsSection.didEnterTab`, 0.7 s after the turn, 2.2 s after a launch landing on it;
+  `secretsAutoUnlock` default, so `-secretsAutoUnlock NO` keeps a screenshot launch quiet; a
+  cancelled prompt leaves the button until the tab is entered again). Import: a pasted text with
+  several headings in the + card makes one entry each (`SecretsDocument.insertAll`; any heading
+  level starts an entry and is stored as `## `, byte-equal entries skipped, text before the first
+  heading dropped), and Settings ▸ Secrets ▸ Import… reads
+  such a file (`SecretsSection.importMarkdown`). Copies go to the pasteboard as `org.nspasteboard.ConcealedType` and
   clear after 30 s. Search within the tab never looks at secret values. Nothing about secrets is
   logged.
 - Task statuses (`TaskStatus`, declaration order is display order): today `[/]`,

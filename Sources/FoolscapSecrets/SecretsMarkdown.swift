@@ -231,6 +231,39 @@ public struct SecretsDocument: Equatable, Sendable {
         return entries[index].id
     }
 
+    /// Add every `## ` entry in a text (an import, or a paste into the new card), each
+    /// filed by its letter. An entry already in the vault byte for byte is skipped, so
+    /// importing the same list twice adds nothing. Returns the new ids and the skipped count.
+    public mutating func insertAll(_ text: String) -> (added: [String], skipped: Int) {
+        var added: [String] = []
+        var skipped = 0
+        for raw in Self.pieces(of: text) {
+            if entries.contains(where: { $0.raw == raw }) { skipped += 1; continue }
+            if let id = insert(raw) { added.append(id) }
+        }
+        return (added, skipped)
+    }
+
+    /// The entries a pasted or imported text holds, normalised, titles present; text before
+    /// the first heading is dropped. Any heading level (`#` to `######`) outside a fence
+    /// starts an entry, stored as the vault's `## ` (a `## # Title`, from a paste after the
+    /// new card's `## `, is one heading). A text with no heading at all is one entry whose
+    /// first line is its title, as typed into the new card. Among several, a heading with
+    /// nothing under it (a list's introduction that landed after that `## `) is dropped.
+    public static func pieces(of text: String) -> [String] {
+        var inFence = false
+        let levelled = text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") { inFence.toggle(); return String(line) }
+            guard !inFence, let match = line.firstMatch(of: /^(?:#{1,6} +)+(.*)$/) else { return String(line) }
+            return "## " + match.1
+        }.joined(separator: "\n")
+        let parsed = parse(levelled).entries
+        let raws = parsed.isEmpty ? [text] : parsed.map(\.raw)
+        let titled = raws.map(normalised).filter { !$0.isEmpty && !SecretEntry(raw: $0, ordinal: 0).title.isEmpty }
+        guard titled.count > 1 else { return titled }
+        return titled.filter { raw in raw.split(separator: "\n").dropFirst().contains { !$0.allSatisfy(\.isWhitespace) } }
+    }
+
     /// Replace an entry with the edited text; a text holding several `## ` splits
     /// into several entries, an empty one removes it. Returns the ids that took its place.
     @discardableResult
