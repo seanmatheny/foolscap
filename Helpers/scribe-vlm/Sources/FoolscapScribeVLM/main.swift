@@ -339,6 +339,18 @@ func runDownload(_ options: Options) async {
     writeJSON(statusObject(options.model, in: options.modelsDir))
 }
 
+/// Foolscap launched this helper and waits for it; if Foolscap is quit or dies
+/// mid-run the helper is reparented to launchd, and must not go on holding the
+/// models (gigabytes, for the VLM) to finish pages nobody will read.
+func exitWhenParentDies() {
+    let parent = getppid()
+    Thread.detachNewThread {
+        while getppid() == parent { Thread.sleep(forTimeInterval: 1) }
+        exit(0)
+    }
+}
+exitWhenParentDies()
+
 let options = parseOptions()
 switch options.command {
 case "recognise", "recognize":

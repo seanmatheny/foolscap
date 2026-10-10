@@ -154,13 +154,18 @@ struct PlaceholderCover: View {
 @MainActor
 final class CoverCache {
     static let shared = CoverCache()
-    private var images: [String: NSImage] = [:]
+    /// Bounded, and emptied under memory pressure: the JPEGs on disk bring a cover back in a moment.
+    private let images: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.totalCostLimit = 24 << 20
+        return cache
+    }()
     private var loading: [String: Task<NSImage?, Never>] = [:]
     nonisolated static let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Foolscap/Covers", isDirectory: true)
 
     /// What is already in memory, for a first render without a hop.
-    func cached(for url: URL, maxPixels: Int) -> NSImage? { images["\(url.path)|\(maxPixels)"] }
+    func cached(for url: URL, maxPixels: Int) -> NSImage? { images.object(forKey: "\(url.path)|\(maxPixels)" as NSString) }
 
     /// Load every cover once, a few at a time, so scrolling never decodes.
     func warm(_ urls: [URL], maxPixels: Int) {
@@ -182,13 +187,16 @@ final class CoverCache {
 
     func image(for url: URL, maxPixels: Int) async -> NSImage? {
         let key = "\(url.path)|\(maxPixels)"
-        if let cached = images[key] { return cached }
+        if let cached = images.object(forKey: key as NSString) { return cached }
         if let task = loading[key] { return await task.value }
         let task = Task.detached(priority: .userInitiated) { Self.load(url, maxPixels: maxPixels) }
         loading[key] = task
         let image = await task.value
         loading[key] = nil
-        if let image { images[key] = image }
+        if let image {
+            let pixels = image.representations.first.map { $0.pixelsWide * $0.pixelsHigh } ?? Int(image.size.width * image.size.height * 4)
+            images.setObject(image, forKey: key as NSString, cost: pixels * 4)
+        }
         return image
     }
 

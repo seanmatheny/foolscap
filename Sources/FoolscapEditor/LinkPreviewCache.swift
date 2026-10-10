@@ -13,7 +13,12 @@ public final class LinkPreviewCache {
     private var queue: [URL] = []
     private var active = 0
     private let maxConcurrent = 2
-    private var memory: [String: LPLinkMetadata] = [:]
+    /// The last few dozen previews; the plists on disk hold the rest.
+    private let memory: NSCache<NSString, LPLinkMetadata> = {
+        let cache = NSCache<NSString, LPLinkMetadata>()
+        cache.countLimit = 64
+        return cache
+    }()
 
     init() {
         directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -31,10 +36,10 @@ public final class LinkPreviewCache {
     /// Cached metadata if present on disk.
     public func cached(_ url: URL) -> LPLinkMetadata? {
         let k = key(url)
-        if let m = memory[k] { return m }
+        if let m = memory.object(forKey: k as NSString) { return m }
         guard let data = try? Data(contentsOf: file(url)),
               let m = try? NSKeyedUnarchiver.unarchivedObject(ofClass: LPLinkMetadata.self, from: data) else { return nil }
-        memory[k] = m
+        memory.setObject(m, forKey: k as NSString)
         return m
     }
 
@@ -70,7 +75,7 @@ public final class LinkPreviewCache {
         active -= 1
         let k = key(url)
         if let metadata {
-            memory[k] = metadata
+            memory.setObject(metadata, forKey: k as NSString)
             if let data = try? NSKeyedArchiver.archivedData(withRootObject: metadata, requiringSecureCoding: true) {
                 try? data.write(to: file(url), options: .atomic)
             }

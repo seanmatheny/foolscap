@@ -22,7 +22,8 @@ let package = Package(
         .package(path: "Helpers/ScribeRaster"),
     ],
     targets: [
-        // Platform-neutral models, protocols and markdown parsing helpers.
+        // Models, protocols and markdown parsing helpers (SwiftUI only for the theme
+        // environment key, so a plug-in section needs nothing else).
         .target(
             name: "FoolscapCore",
             dependencies: [.product(name: "Markdown", package: "swift-markdown")]

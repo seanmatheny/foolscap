@@ -32,6 +32,9 @@ enum HelperProcess {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
+        // Recognition is background work: the scheduler keeps the window ahead of it
+        // (the VLM helper otherwise competes with the page curl and typing for the GPU and CPU).
+        process.qualityOfService = .utility
         let stdout = Pipe(), stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr

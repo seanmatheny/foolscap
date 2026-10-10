@@ -71,7 +71,9 @@ final class ScribeDayPagesProvider: DayPagesProvider {
         }
         // A PDF iCloud has evicted is left alone: the Daily page never forces a download.
         guard !ICloudPlaceholders.needsDownload(url) else { return nil }
-        return await renderer.image(id: notebook.id, url: url, version: version, page: index, width: width, backingScale: backingScale)?
-            .image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        let drawn = await renderer.image(id: notebook.id, url: url, version: version, page: index, width: width, backingScale: backingScale)
+        // The Daily page is not reading this notebook: the PDF need not stay open.
+        await renderer.release(id: notebook.id)
+        return drawn?.image.cgImage(forProposedRect: nil, context: nil, hints: nil)
     }
 }

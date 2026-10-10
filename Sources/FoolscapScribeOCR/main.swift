@@ -29,6 +29,18 @@ func fail(_ code: String, _ message: String, status: Int32 = 1) -> Never {
     exit(status)
 }
 
+/// Foolscap launched this helper and waits for it; if Foolscap is quit or dies
+/// mid-run the helper is reparented to launchd, and must not go on holding the
+/// models (gigabytes, for the VLM) to finish pages nobody will read.
+func exitWhenParentDies() {
+    let parent = getppid()
+    Thread.detachNewThread {
+        while getppid() == parent { Thread.sleep(forTimeInterval: 1) }
+        exit(0)
+    }
+}
+exitWhenParentDies()
+
 let usage = "usage: scribe-ocr <pdf> [--languages en-US,en-GB] [--dpi 96] [--keep-template]"
 
 func recogniseText(in image: CGImage, languages: [String]) throws -> [[String: Any]] {

@@ -14,7 +14,6 @@ public final class PeriodicScheduler {
         self.work = work
     }
 
-    public var isRunning: Bool { scheduler != nil }
 
     public func start(minutes: Int) {
         stop()

@@ -203,6 +203,8 @@ public struct KFXExtractor: Sendable {
         let process = Process()
         process.executableURL = calibre
         process.arguments = ["-e", helper.path]
+        // Background work: Calibre's Python must not compete with the window for the CPU.
+        process.qualityOfService = .utility
         var environment = ProcessInfo.processInfo.environment
         environment["KFX_PLUGIN"] = plugin.path
         environment["KFX_JOBS"] = jobsFile.path

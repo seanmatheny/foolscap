@@ -69,6 +69,27 @@
 - Markdown syntax hiding: `MarkdownStyler` keeps syntax visible (dimmed) only on
   lines under the selection; elsewhere it applies `EditorPalette.hiddenAttributes`
   (0.01pt clear font). The text view forwards selection changes to the styler.
+- Re-render discipline: `NotebookView.body` must not read `WindowState.shared` (the stamp and the
+  full-screen inset read it in `CoverStamp`/`FullScreenTopInset`) and `RootView` must not read the
+  search coordinator (`SearchOverlay` does): either read re-evaluated the whole notebook down to
+  `MarkdownEditor.updateNSView` on every hover over the leather band or palette open (found
+  2026-10-10, the "hitch at drag start"). `updateNSView` only rebuilds the palette and the hosted
+  header/footer when the theme changed or one came or went. The window shadow is invalidated 0.65 s
+  after a tab change, once the curl has ended.
+- The curl is paced by a `CAMetalDisplayLink` on the curl thread (`preferredFrameRateRange`
+  80–120, latency 1), with the old `nextDrawable` loop as the fallback if it never fires. Measured
+  2026-10-10: `nextDrawable` alone gave 37–49 frames a turn (the ProMotion panel sat at 60–80 Hz; a
+  main-thread `CADisplayLink` hint did not lift it), the Metal display link gives 65–66 in 548 ms,
+  120 Hz, every turn. The photograph's `hasContent` byte check runs on the curl thread too: on the
+  main thread it copied the 28 MB image, 30 ms a turn (the window-server call itself is 1–4 ms
+  warm, 40 ms the first time). Main thread before the page swap is now 18–37 ms. To measure:
+  `log show` never showed the app's NSLog lines, so run the binary directly with stderr to a file,
+  `FOOLSCAP_TURN_LOG=1 ./Foolscap.app/Contents/MacOS/Foolscap -jiraEnabled NO … --tab=daily
+  --turn-to=tasks,daily,tasks > turn.log 2>&1 &` (`--turn-to` takes a list, 2.5 s apart).
+- Helpers (`scribe-ocr`, `scribe-vlm`, `calibre-debug`) run at `.utility` QoS and exit when their
+  parent dies (`exitWhenParentDies`, polling `getppid`); `AppModel.flush` stops the Scribe and
+  Highlights sections so quitting kills a sync in flight. The review of 2026-10-10 and its
+  remaining recommendations are in `Docs/Review-2026-10-10.md`.
 - Index tabs are the page's `.background` offset to the right, so they draw behind
   the page edge and inside the cover; the window never needs a transparent margin.
 - The spine side shows the fold and a 40 pt strip of the facing page (`FacingPageView`,
@@ -272,6 +293,15 @@
   serves at most 10 pages a request (400 "exceed the maximum of 10 pages" beyond
   that) and numbers every tar's images from `img_0.png`, so `fetchPages` fetches
   runs of ten and joins them; a rapid second `openNotebook` gets 400 "Rate exceeded".
+- Scribe page zoom (`ScribePageZoom`, geometry in `ScribeZoomLayout`): a click on a page's ink
+  in the Scribe tab (a magnifier shows on hover; the pointer is `.zoomIn`), or Space for the
+  page at the top of the view, lifts the page over the notebook area fitted to its height; pinch,
+  `=`/`-` or double-click zoom to 4×, ←/→ step pages, ⎋/Space/a click beside the page put it
+  back. Bitmaps are drawn through `ScribePageRenderer.image(persist: false)` in 100 pt steps,
+  capped at `maxPixelWidth` (2400 px, the Scribe draws 1860) and kept in memory only; the
+  spread's facsimile bitmap stands in until the sharp one lands. `--scribe-zoom=N` (with
+  `--scribe=Folder/Notebook`) opens page N zoomed for screenshots. The notebook header hides while
+  a page is lifted.
 - The Scribe tab reopens on the notebook and page last read (`scribeLastNotebook`,
   `scribeLastPage` defaults; `ScribeSection.reading(page:)`, `pendingPage`). The
   notebook view's page stack is a plain `VStack` with `scrollPosition(id:)`: a

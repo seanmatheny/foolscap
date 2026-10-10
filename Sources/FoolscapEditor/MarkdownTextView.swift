@@ -47,7 +47,6 @@ public enum PageRuling {
         return offset
     }
 
-    @MainActor public static func ruleOffset(theme: NotebookTheme) -> CGFloat { ruleOffset(EditorPalette(theme: theme)) }
 
     /// How far a band of SwiftUI rows `pitch` tall (the Tasks tab's) moves down so each
     /// row's rule falls 4 pt above its bottom, where it sits on the Tasks tab.
@@ -323,7 +322,7 @@ public final class MarkdownTextView: NSTextView {
 
     // MARK: Header
 
-    /// A view laid under the note's opening heading (today's #today tasks), in
+    /// A view laid under the note's opening heading (today's Today-status tasks), in
     /// space the styler reserves below that line, so it sits on the ruling and
     /// scrolls with the note. The text storage is untouched.
     var headerView: NSView? {

@@ -12,12 +12,15 @@ import FoolscapStore
 final class OverlayController {
     unowned let textView: MarkdownTextView
     private var overlays: [Key: Overlay] = [:]
-    /// Decoded thumbnails by image path; bounded, since each is up to 1800 px.
-    private let imageCache: NSCache<NSString, NSImage> = {
+    /// Decoded thumbnails by image path, shared by every editor (a day switch makes a
+    /// new one) and bounded: each is up to 1800 px, and the image views hold the ones
+    /// in the open note anyway, so the cache only needs to cover a return to a note.
+    private static let sharedImageCache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
-        cache.totalCostLimit = 256 << 20
+        cache.totalCostLimit = 96 << 20
         return cache
     }()
+    private var imageCache: NSCache<NSString, NSImage> { Self.sharedImageCache }
     /// Display sizes read from image headers, so space is reserved before decoding.
     private var imageSizes: [String: NSSize] = [:]
     private var decoding: Set<String> = []

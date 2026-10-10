@@ -92,7 +92,8 @@ public extension SearchProvider {
     func tags() async throws -> [String] { [] }
 }
 
-/// A tab in the notebook. Daily Notes and Tasks are built in; Scribe will be another.
+/// A tab in the notebook. Daily Notes and Tasks are built in; Scribe, Highlights, Jira
+/// and Secrets are optional sections added and removed at runtime by the app.
 @MainActor
 public protocol NotebookSection: AnyObject, Identifiable {
     var id: String { get }

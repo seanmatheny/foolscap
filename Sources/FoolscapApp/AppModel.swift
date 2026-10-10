@@ -129,11 +129,16 @@ final class AppModel {
                 if value == "books" { highlights.showBooks() } else if !value.isEmpty { highlights.open(book: String(value)) }
             }
         }
-        // `--scribe=<Folder>/<Notebook>` opens the Scribe tab on that notebook.
+        // `--scribe=<Folder>/<Notebook>` opens the Scribe tab on that notebook;
+        // `--scribe-zoom=N` lifts its page N into the zoom view once it is shown.
         if let value = CommandLine.arguments.first(where: { $0.hasPrefix("--scribe=") })?.dropFirst("--scribe=".count),
            !value.isEmpty, let scribe = section(id: ScribeSection.sectionID) {
             selectedSectionID = ScribeSection.sectionID
             scribe.navigate(to: SectionRoute(path: "\(NotesFolder.scribeDirectoryName)/\(value).md"))
+        }
+        if let value = CommandLine.arguments.first(where: { $0.hasPrefix("--scribe-zoom=") })?.dropFirst("--scribe-zoom=".count),
+           let page = Int(value), let scribe = section(id: ScribeSection.sectionID) as? ScribeSection {
+            scribe.pendingZoomPage = page
         }
         flyleafPresented = highlightsEnabled && (CommandLine.arguments.contains("--flyleaf") || defaults.bool(forKey: "flyleafOnOpen"))
         // `Foolscap --day=2026-09-22` opens on a given day (handy for scripted screenshots).
@@ -152,9 +157,12 @@ final class AppModel {
         if let tab = flagValue("--tab"), sections.contains(where: { $0.id == tab }) {
             selectedSectionID = tab
         }
-        // A page turn to watch: the tab changes once the window is up, as from the Go menu.
-        if let tab = flagValue("--turn-to"), sections.contains(where: { $0.id == tab }) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.selectedSectionID = tab }
+        // Page turns to watch: the tab changes once the window is up, as from the Go menu;
+        // `--turn-to=tasks,daily,tasks` turns on, 2.5 s apart.
+        if let list = flagValue("--turn-to") {
+            for (i, tab) in list.split(separator: ",").map(String.init).enumerated() where sections.contains(where: { $0.id == tab }) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5 * Double(i + 1)) { [weak self] in self?.selectedSectionID = tab }
+            }
         }
         if let query = flagValue("--search") {
             search.open(with: query)
@@ -458,9 +466,13 @@ final class AppModel {
         Task { await library?.rebuildIndex() }
     }
 
-    /// Synchronous, for quitting: the vault locks (and saves) first.
+    /// Synchronous, for quitting: the vault locks (and saves) first, and a sync or
+    /// import under way is cancelled so its helper (scribe-vlm, Calibre, the hidden
+    /// Kindle) does not outlive the app.
     func flush() {
         secretsSection?.lockNow()
+        (section(id: ScribeSection.sectionID) as? ScribeSection)?.stop()
+        highlightsSection?.stop()
         library?.flushAll()
     }
 
@@ -468,43 +480,6 @@ final class AppModel {
         secretsSection?.saveIfDirty()
         guard let library else { return }
         Task { await library.save() }
-    }
-}
-
-/// Phase 0 stand-in until the real sections exist.
-@MainActor
-final class PlaceholderSection: NotebookSection {
-    let id: String
-    let tab: TabAppearance
-    init(id: String, label: String, symbol: String) {
-        self.id = id
-        self.tab = TabAppearance(label: label, systemImage: symbol)
-    }
-    func makeRootView() -> AnyView {
-        AnyView(PlaceholderPage(label: tab.label))
-    }
-}
-
-private struct PlaceholderPage: View {
-    @Environment(\.notebookTheme) private var theme
-    @Environment(AppModel.self) private var model
-    let label: String
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(label).font(.system(size: 26, weight: .bold, design: .serif))
-            Text("Coming in the next phase.").font(.system(size: 15, design: .serif)).opacity(0.6)
-            if let lib = model.library {
-                Text("\(lib.days.count) daily notes in \(lib.folder.root.path) · index v\(lib.indexVersion)")
-                    .font(.system(size: 12, design: .monospaced)).opacity(0.5)
-            }
-            if let err = model.startupError ?? model.library?.lastError {
-                Text(err).foregroundStyle(.red)
-            }
-            Spacer()
-        }
-        .foregroundStyle(theme.ink.color)
-        .padding(EdgeInsets(top: 34, leading: 64, bottom: 24, trailing: 40))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
