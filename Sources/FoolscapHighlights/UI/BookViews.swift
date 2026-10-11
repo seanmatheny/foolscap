@@ -45,17 +45,7 @@ struct BookCover: View {
     var body: some View {
         Button { section.open(book: book.path) } label: {
             VStack(spacing: 7) {
-                // Cover and shadow flattened into one layer (`drawingGroup`), so scrolling
-                // composites a texture instead of re-blurring two dozen shadows a frame.
-                // Two shadows: a tight one where the book meets the shelf, a soft one it casts.
-                CoverThumbnail(url: section.coverURL(for: book.path), title: book.title, author: book.author, width: 96)
-                    .shadow(color: .black.opacity(0.28), radius: 1.5, x: 0, y: 1)
-                    .shadow(color: .black.opacity(0.32), radius: 10, x: 0, y: 7)
-                    .padding(20)
-                    .drawingGroup()
-                    .padding(-20)
-                    .scaleEffect(hovering ? 1.03 : 1)
-                    .offset(y: hovering ? -2 : 0)
+                ShelfCover(url: section.coverURL(for: book.path), title: book.title, author: book.author, width: 96, lifted: hovering)
                 Text(book.title)
                     .font(.system(size: 11.5 * scale, design: .serif))
                     .multilineTextAlignment(.center)
@@ -74,6 +64,32 @@ struct BookCover: View {
     }
 }
 
+/// A cover as it stands on the shelf: its two shadows, and a slight lift under the pointer.
+/// The shadows are drawn for the shelf's 96 pt cover and scale with the width.
+struct ShelfCover: View {
+    let url: URL?
+    let title: String
+    let author: String
+    var width: CGFloat = 96
+    let lifted: Bool
+
+    var body: some View {
+        let k = width / 96
+        // Cover and shadow flattened into one layer (`drawingGroup`), so scrolling
+        // composites a texture instead of re-blurring two dozen shadows a frame.
+        // Two shadows: a tight one where the book meets the shelf, a soft one it casts.
+        CoverThumbnail(url: url, title: title, author: author, width: width)
+            .shadow(color: .black.opacity(0.28), radius: 1.5 * k, x: 0, y: 1 * k)
+            .shadow(color: .black.opacity(0.32), radius: 10 * k, x: 0, y: 7 * k)
+            .padding(20)
+            .drawingGroup()
+            .padding(-20)
+            .scaleEffect(lifted ? 1.03 : 1)
+            .offset(y: lifted ? -2 : 0)
+            .animation(.easeOut(duration: 0.12), value: lifted)
+    }
+}
+
 /// The cover JPEG beside the book file, downsampled once and cached; a
 /// typographic card when the book has none.
 struct CoverThumbnail: View {
@@ -89,10 +105,13 @@ struct CoverThumbnail: View {
 
     private var height: CGFloat { width * 1.5 }
 
+    /// Anything up to shelf size shares the shelf's warmed bitmap rather than decoding its own.
+    private static func pixels(width: CGFloat) -> Int { max(shelfPixels, Int(width * 1.5 * 3)) }
+
     init(url: URL?, title: String, author: String, width: CGFloat = 96) {
         self.url = url; self.title = title; self.author = author; self.width = width
         // A cell scrolling back into view draws its cover on the first frame.
-        _image = State(initialValue: url.flatMap { CoverCache.shared.cached(for: $0, maxPixels: Int(width * 1.5 * 3)) })
+        _image = State(initialValue: url.flatMap { CoverCache.shared.cached(for: $0, maxPixels: Self.pixels(width: width)) })
     }
 
     var body: some View {
@@ -114,7 +133,7 @@ struct CoverThumbnail: View {
         }
         .task(id: url) {
             guard let url else { image = nil; return }
-            if image == nil { image = await CoverCache.shared.image(for: url, maxPixels: Int(height * 3)) }
+            if image == nil { image = await CoverCache.shared.image(for: url, maxPixels: Self.pixels(width: width)) }
         }
     }
 }

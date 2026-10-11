@@ -47,45 +47,70 @@ struct QuoteCard: View {
     let item: HighlightItem
     var showsBook: Bool
     @State private var hovering = false
+    @State private var overCover = false
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            cover
+            quote
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .contextMenu { HighlightMenu(section: section, item: item, showsBook: showsBook) }
+    }
+
+    /// The book's cover beside its quote, as on the shelf; it opens the book where the attribution does.
+    @ViewBuilder private var cover: some View {
+        let url = section.coverURL(for: item.path)
+        if showsBook {
+            Button { section.open(book: item.path, highlight: item.id) } label: {
+                ShelfCover(url: url, title: item.bookTitle, author: item.bookAuthor, width: 54 * scale, lifted: overCover)
+            }
+            .buttonStyle(.plain)
+            .onHover { overCover = $0 }
+            .help("Open the book")
+            .padding(.top, 4)
+        } else {
+            ShelfCover(url: url, title: item.bookTitle, author: item.bookAuthor, width: 54 * scale, lifted: false)
+                .padding(.top, 4)
+        }
+    }
+
+    private var quote: some View {
         // The rule is an overlay of the text block, so it always spans the block's final
         // height (a sibling in an HStack can be measured before long text has wrapped).
         VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(item.paragraphs.enumerated()), id: \.offset) { _, paragraph in
-                    Text(paragraph)
-                        .font(.system(size: 19 * scale, design: .serif))
-                        .lineSpacing(5)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                }
-                if let note = item.note {
-                    Text(note)
-                        .font(.system(size: 13.5 * scale, design: .serif)).italic()
-                        .foregroundStyle(theme.dimInk.color)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    attribution
-                    Spacer()
-                    HighlightControls(section: section, item: item, visible: hovering, size: 13 * scale)
-                }
-                if !item.tags.isEmpty {
-                    FlowLayout(spacing: 6) {
-                        ForEach(item.tags, id: \.self) { tag in
-                            TagChip(tag: tag, scale: scale) { section.removeTag(tag, from: item) }
-                        }
+            ForEach(Array(item.paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                Text(paragraph)
+                    .font(.system(size: 19 * scale, design: .serif))
+                    .lineSpacing(5)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            if let note = item.note {
+                Text(note)
+                    .font(.system(size: 13.5 * scale, design: .serif)).italic()
+                    .foregroundStyle(theme.dimInk.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                attribution
+                Spacer()
+                HighlightControls(section: section, item: item, visible: hovering, size: 13 * scale)
+            }
+            if !item.tags.isEmpty {
+                FlowLayout(spacing: 6) {
+                    ForEach(item.tags, id: \.self) { tag in
+                        TagChip(tag: tag, scale: scale) { section.removeTag(tag, from: item) }
                     }
                 }
+            }
         }
         .padding(.leading, 18.5)
         .overlay(alignment: .leading) {
             RoundedRectangle(cornerRadius: 1).fill(theme.accent.color.opacity(0.55)).frame(width: 2.5).padding(.vertical, 4)
         }
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .contextMenu { HighlightMenu(section: section, item: item, showsBook: showsBook) }
     }
 
     private var attribution: some View {
