@@ -35,6 +35,13 @@
   tasks through `TaskProvider`. Third-party sections should depend only on
   FoolscapCore (and FoolscapStore for files/index); `FoolscapScribe` is first-party
   and also uses FoolscapUI chrome.
+- With the screen locked (Sean away), `screencapture` and `Tools/window-shot.sh` fail with "could
+  not create image"; `--dump=file.png` writes a CPU render of the main window 5 s after launch
+  instead (`cacheDisplay`: text and layout are right, textures and blends come out flat). Found
+  2026-10-14, when it showed a note's lines after the Today panel were never drawn: the panel
+  reserves its room after the first layout and TextKit 2's viewport kept the old fragment
+  positions until `textViewportLayoutController.layoutViewport()` was called after the restyle
+  (`MarkdownTextView.overlaysChanged`); `invalidateLayout` and `ensureLayout` alone did not do it.
 - Launch flags for verification: `--day=YYYY-MM-DD`, `--tab=id` (a section: `daily`, `tasks`, …), `--turn-to=id` (turns to that tab 2.5 s after launch, to watch a curl;
   with `FOOLSCAP_SLOW_OPEN=1`, capture with `screencapture`: the curl is a child window), `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
@@ -130,6 +137,19 @@
 - Screenshots do reflect the menu bar's visible state (an explicit hide blanks the
   strip), but `NSMenu.menuBarVisible()` and the Window Server's 'Menubar' window
   do not: both report the same thing whether or not the titles are drawn.
+- Settings ▸ Notebook ▸ Type picks font families over the theme's own (`bodyFont`,
+  `headingFont`, `monoFont` defaults, "" = the theme's; `NotebookTheme.withType`, applied in
+  `AppModel.theme` before scaling); `-bodyFont Georgia` in the argument domain previews one.
+- Task state changes undo with ⌘Z: `TaskAggregator.move` and the Jira sun (`JiraSection.pull`,
+  `park`, `unpull`) register with `TaskUndo.manager`, the main window's undo manager, which the
+  editor's text views share, so one stack holds typing and moves. A sun that wrote a new line is
+  undone by removing it (`NotebookLibrary.removeStandaloneTask`), one that lifted a To do task
+  by parking it again; the outcome is known only after the write, so the undo closure reads it
+  from a box filled later. `TaskUndo.override` hands tests a manager (there is no window).
+- The editor's caret starts at the end of the note (`MarkdownEditor.makeNSView`), below the
+  Today panel on a daily note, so the opening heading keeps its `#` hidden and typing lands
+  under the tasks. The Today panel is ringed (dashed, a faint wash of the Today highlighter
+  colour) instead of its rows being stroked; Today rows carry no highlighter anywhere.
 - Themes ship with no ruling and no elastic band; both are Settings options
   (`ruling`, `marginRule`, `elasticBand` defaults) applied on top of the theme in
   `AppModel.theme` via `NotebookTheme.ruled`, with rule colours per theme. Midnight

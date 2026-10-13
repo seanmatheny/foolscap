@@ -432,7 +432,18 @@ public final class MarkdownTextView: NSTextView {
         if overlays.sync(map: styler.blockMap) {
             let after = styler.overlayHeights
             let changed = Set(before.keys).union(after.keys).filter { before[$0] != after[$0] }
-            if !changed.isEmpty { styler.restyle(lines: Array(changed)) }
+            if !changed.isEmpty {
+                styler.restyle(lines: Array(changed))
+                // A paragraph that grew (the header's room under the heading) moves every line
+                // after it; TextKit 2 relays the edited paragraph alone and the viewport keeps
+                // drawing the rest at their old places, so lay out again from there to the end.
+                if let lm = textLayoutManager, let first = changed.min(), first < styler.blockMap.lines.count,
+                   let from = lm.location(lm.documentRange.location, offsetBy: styler.blockMap.lines[first].range.location),
+                   let range = NSTextRange(location: from, end: lm.documentRange.endLocation) {
+                    lm.invalidateLayout(for: range)
+                    lm.textViewportLayoutController.layoutViewport()
+                }
+            }
             needsDisplay = true
         }
         // layout() redraws the backdrops if the text under them moved.

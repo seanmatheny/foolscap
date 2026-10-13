@@ -79,3 +79,43 @@ import Foundation
         #expect(await library.migrateTodayTagToStatus() == 0)
     }
 }
+
+/// ⌘Z after a task's status changed from a list or a daily page.
+@Suite @MainActor struct TaskUndoTests {
+    @Test func undoPutsAMovedTaskBackAndRedoMovesItAgain() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-undo-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp)
+        try folder.ensureLayout()
+        try "- [ ] Ring the bank\n- [/] Buy milk\n".write(to: folder.tasksFile, atomically: true, encoding: .utf8)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
+        await library.rescan(full: true)
+        let aggregator = TaskAggregator()
+        aggregator.setProviders([DailyNotesTaskProvider(library: library)])
+        await aggregator.reload()
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        TaskUndo.override = undo
+        defer { TaskUndo.override = nil }
+
+        func text() throws -> String { try String(contentsOf: folder.tasksFile, encoding: .utf8) }
+        func settle(_ expected: String) async throws {
+            for _ in 0..<100 where try text() != expected { try await Task.sleep(for: .milliseconds(20)) }
+            await aggregator.reload()
+        }
+        let bank = try #require(aggregator.tasks.first { $0.title == "Ring the bank" })
+        let milk = try #require(aggregator.tasks.first { $0.title == "Buy milk" })
+        undo.beginUndoGrouping(); aggregator.move([bank, milk], to: .completed); undo.endUndoGrouping()
+        try await settle("- [x] Ring the bank\n- [x] Buy milk\n")
+        #expect(undo.canUndo && undo.undoActionName == "Mark Done")
+
+        undo.undo()   // closes the group itself; the move inside registers the redo
+        try await settle("- [ ] Ring the bank\n- [/] Buy milk\n")
+        #expect(try text() == "- [ ] Ring the bank\n- [/] Buy milk\n")
+        #expect(undo.canRedo)
+
+        undo.redo()
+        try await settle("- [x] Ring the bank\n- [x] Buy milk\n")
+        #expect(try text() == "- [x] Ring the bank\n- [x] Buy milk\n")
+    }
+}

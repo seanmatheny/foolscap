@@ -29,6 +29,9 @@ public struct PreferencesView: View {
     @AppStorage(PreferenceKeys.elasticBand) private var elasticBand = false
     @AppStorage(PreferenceKeys.tabEdge) private var tabEdge = TabEdge.left.rawValue
     @AppStorage(PreferenceKeys.paperTexture) private var paperTexture = PaperTexture.none.rawValue
+    @AppStorage(PreferenceKeys.bodyFont) private var bodyFont = ""
+    @AppStorage(PreferenceKeys.headingFont) private var headingFont = ""
+    @AppStorage(PreferenceKeys.monoFont) private var monoFont = ""
     @AppStorage("exportFormat") private var exportFormat = "markdown"
     @AppStorage("exportIncludeAttachments") private var exportAttachments = true
     @AppStorage("scribeEnabled") private var scribeEnabled = false
@@ -83,7 +86,7 @@ public struct PreferencesView: View {
     }
 
     private var notebookTab: some View {
-        settingsForm(height: 760) {
+        settingsForm(height: 900) {
             Section("Theme") {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 12)], spacing: 12) {
                     ForEach(NotebookTheme.builtIn) { theme in
@@ -105,6 +108,14 @@ public struct PreferencesView: View {
                         .frame(width: 330)
                     }
                 }
+            }
+            Section("Type") {
+                let theme = NotebookTheme.builtIn(id: themeID) ?? .classicBlack
+                FontFamilyPicker("Text", selection: $bodyFont, themeFace: theme.type.body.family)
+                FontFamilyPicker("Headings", selection: $headingFont, themeFace: theme.type.heading.family)
+                FontFamilyPicker("Code", selection: $monoFont, themeFace: theme.type.mono.family)
+                Text("Each theme has faces of its own; a choice here is kept across themes.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Page") {
                 LabeledContent("Text size") {
@@ -264,6 +275,33 @@ public struct PreferencesView: View {
     }
 }
 
+/// A menu of the Mac's font families, the theme's own face first, each item set in its face.
+struct FontFamilyPicker: View {
+    let label: String
+    @Binding var selection: String
+    let themeFace: String?
+
+    init(_ label: String, selection: Binding<String>, themeFace: String?) {
+        self.label = label; _selection = selection; self.themeFace = themeFace
+    }
+
+    /// Every family with a visible name, once; the font panel's hidden families (`.SF…`) left out.
+    static let families: [String] = NSFontManager.shared.availableFontFamilies
+        .filter { !$0.hasPrefix(".") }
+        .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+
+    var body: some View {
+        Picker(label, selection: $selection) {
+            Text("Theme face" + (themeFace.map { " (\($0))" } ?? "")).tag("")
+            Divider()
+            ForEach(Self.families, id: \.self) { family in
+                Text(family).font(.custom(family, size: 13)).tag(family)
+            }
+        }
+        .frame(maxWidth: 360)
+    }
+}
+
 /// Settings keys the app mirrors into the theme and the chrome environment.
 public enum PreferenceKeys {
     public static let ruling = "ruling"
@@ -271,6 +309,10 @@ public enum PreferenceKeys {
     public static let elasticBand = "elasticBand"
     public static let tabEdge = "tabEdge"
     public static let paperTexture = "paperTexture"
+    /// Font family names; empty means the theme's own face.
+    public static let bodyFont = "bodyFont"
+    public static let headingFont = "headingFont"
+    public static let monoFont = "monoFont"
 }
 
 /// The Backup section of Settings: schedule, folder, one-off backup and restore.

@@ -156,9 +156,9 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         let other = issue("CPAS-1050", "Encrypt the volume", status: "In Progress", category: .indeterminate)
         client.open = [fix, other]
 
-        #expect(await engine.pull(fix, site: credentials.site))
-        #expect(await engine.pull(other, site: credentials.site))
-        #expect(await engine.pull(fix, site: credentials.site) == false)
+        #expect(await engine.pull(fix, site: credentials.site) == .written)
+        #expect(await engine.pull(other, site: credentials.site) == .written)
+        #expect(await engine.pull(fix, site: credentials.site) == .unchanged)
         let tasksText = try String(contentsOf: folder.tasksFile, encoding: .utf8)
         #expect(tasksText.hasSuffix("- [/] CPAS-1027 Fix the thing #jira\n  https://x.atlassian.net/browse/CPAS-1027\n"
                                     + "- [/] CPAS-1050 Encrypt the volume #jira\n  https://x.atlassian.net/browse/CPAS-1050\n"))
@@ -199,7 +199,7 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         let engine = JiraSyncEngine(client: FakeJiraClient(), stateURL: tmp.appendingPathComponent("state.json"),
                                     sink: LibraryJiraTaskSink(library: library), now: { Date(timeIntervalSince1970: 1_700_000_000) })
         let fix = issue("CPAS-1027", "Fix the thing", status: "Open")
-        #expect(await engine.pull(fix, site: credentials.site))
+        #expect(await engine.pull(fix, site: credentials.site) == .written)
         let line = "- [/] CPAS-1027 Fix the thing #jira\n  https://x.atlassian.net/browse/CPAS-1027\n"
         #expect(try String(contentsOf: folder.tasksFile, encoding: .utf8).hasSuffix(line))
 
@@ -212,16 +212,27 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         let doc = await library.loadedDocument(atRelativePath: NotesFolder.tasksFileName)
         try doc.replaceTaskTitle(line: 0, expectedKey: TaskItem.contentKey(for: "CPAS-1027 Fix the thing #jira"), with: "CPAS-1027 Fix the thing properly #jira")
         await library.save()
-        #expect(await engine.pull(fix, site: credentials.site))
+        #expect(await engine.pull(fix, site: credentials.site) == .lifted)
         let text = try String(contentsOf: folder.tasksFile, encoding: .utf8)
         #expect(text.hasSuffix("- [/] CPAS-1027 Fix the thing properly #jira\n  https://x.atlassian.net/browse/CPAS-1027\n"))
         #expect(text.components(separatedBy: "CPAS-1027 Fix").count == 2)
         // Already in Today: nothing to write.
-        #expect(await engine.pull(fix, site: credentials.site) == false)
+        #expect(await engine.pull(fix, site: credentials.site) == .unchanged)
         // A ticked task is left alone by the park and by a sync's completion alike.
         doc.setTaskStatus(.completed, forKey: TaskItem.contentKey(for: "CPAS-1027 Fix the thing properly #jira"))
         await library.save()
         #expect(await engine.park(fix) == false)
+
+        // Undoing a sun that wrote a line: the line, its link and the ledger entry go; another task stays.
+        let other = issue("CPAS-1050", "Encrypt the volume", status: "Open")
+        _ = await library.addStandaloneTask("Unrelated #work")
+        #expect(await engine.pull(other, site: credentials.site) == .written)
+        #expect(await engine.unpull(other))
+        let after = try String(contentsOf: folder.tasksFile, encoding: .utf8)
+        #expect(!after.contains("CPAS-1050") && after.contains("- [ ] Unrelated #work\n") && after.contains("CPAS-1027 Fix the thing properly"))
+        let state = await engine.state
+        #expect(state.ledger["CPAS-1050"] == nil && state.ledger["CPAS-1027"] != nil)
+        #expect(await engine.unpull(other) == false)
     }
 
     @Test func statusChangeCreateAndCommentWriteThrough() async throws {

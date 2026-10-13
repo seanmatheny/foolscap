@@ -367,6 +367,25 @@ public final class NoteDocument: Identifiable {
         return true
     }
 
+    /// Delete the task line with this content key (else the open one whose title
+    /// starts with `titlePrefix`) together with the note lines indented under it.
+    /// Returns whether a line went.
+    public func removeTaskLine(forKey key: String, orTitlePrefix titlePrefix: String? = nil) -> Bool {
+        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        let tasks = map.lines.compactMap { line in TaskLineParser.parse(line.text).map { (line: line, task: $0) } }
+        guard let found = tasks.first(where: { TaskItem.contentKey(for: $0.task.title) == key })
+            ?? titlePrefix.flatMap({ prefix in tasks.first { $0.task.status.isOpen && $0.task.title.hasPrefix(prefix) } })
+        else { return false }
+        var end = found.line.index
+        while end + 1 < map.lines.count, TaskLineParser.isContinuation(map.lines[end + 1].text) { end += 1 }
+        let start = found.line.range.location
+        let last = map.lines[end].range
+        // Through the newline after the last line, when there is one.
+        let stop = min(textStorage.length, last.location + last.length + 1)
+        textStorage.replaceCharacters(in: NSRange(location: start, length: stop - start), with: "")
+        return true
+    }
+
     /// True when some task line in the document has this content key.
     public func containsTask(withKey key: String) -> Bool {
         let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap

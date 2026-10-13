@@ -288,12 +288,23 @@ public final class JiraSection: NotebookSection {
 
     // MARK: Issues
 
-    /// The sun button: the issue joins Today as a task in Tasks.md.
+    /// The sun button: the issue joins Today as a task in Tasks.md. ⌘Z takes the
+    /// line out again if the sun wrote it, or sends it back to To do if it lifted one.
     public func pull(_ issue: JiraIssue) {
         guard let site = credentials?.site ?? URL(string: self.site) else { return }
         let engine = engineForSync()
+        // Registered now, so an undo in flight sees it as the redo; what to reverse is known once the write lands.
+        let outcome = PullOutcome()
+        TaskUndo.manager?.registerUndo(withTarget: self) { section in
+            switch outcome.value {
+            case .written: section.unpull(issue)
+            case .lifted: section.park(issue)
+            case .unchanged, nil: break
+            }
+        }
+        TaskUndo.manager?.setActionName("Pull \(issue.key) into Today")
         Task { [weak self] in
-            _ = await engine.pull(issue, site: site)
+            outcome.value = await engine.pull(issue, site: site)
             guard let self else { return }
             self.state = await engine.state
             await self.library.rescan()
@@ -301,14 +312,31 @@ public final class JiraSection: NotebookSection {
     }
 
     /// The sun again on a pulled issue: its task leaves Today for To do, as the
-    /// moon on the daily page does. A third click pulls it back.
+    /// moon on the daily page does. A third click, or ⌘Z, pulls it back.
     public func park(_ issue: JiraIssue) {
         let engine = engineForSync()
+        TaskUndo.manager?.registerUndo(withTarget: self) { $0.pull(issue) }
+        TaskUndo.manager?.setActionName("Send \(issue.key) back to To do")
         Task { [weak self] in
             guard await engine.park(issue), let self else { return }
             await self.library.rescan()
         }
     }
+
+    /// Undoing a sun that wrote the task line: the line and the ledger entry go.
+    private func unpull(_ issue: JiraIssue) {
+        let engine = engineForSync()
+        TaskUndo.manager?.registerUndo(withTarget: self) { $0.pull(issue) }
+        Task { [weak self] in
+            _ = await engine.unpull(issue)
+            guard let self else { return }
+            self.state = await engine.state
+            await self.library.rescan()
+        }
+    }
+
+    /// What a sun click did, filled in once its write has landed.
+    private final class PullOutcome: @unchecked Sendable { var value: JiraTaskAdd? }
 
     /// Whether the issue's task is in Today now: pulled, not closed by Jira, and
     /// still marked `[/]` (by content key, else by a title starting "KEY ").

@@ -53,7 +53,6 @@ struct TodayTasksPanel: View {
                             .frame(width: 12)
                         Text("Today")
                             .font(.system(size: 17 * scale, weight: .bold, design: .serif))
-                            .highlighted(theme.highlighter[.today])
                         Text("\(open)").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
                     }
                     .frame(height: pitch)
@@ -62,6 +61,18 @@ struct TodayTasksPanel: View {
                     rows(tasks, allTags: allTags)
                 }
                 .foregroundStyle(theme.ink.color)
+                // Ringed in the theme's Today colour, a faint wash inside a dashed line.
+                // The ring is drawn around the rows, not laid out: the rows keep to the ruling.
+                .background {
+                    let tint = theme.highlighter[.today] ?? theme.accent
+                    RoundedRectangle(cornerRadius: pitch * 0.75, style: .continuous)
+                        .fill(tint.color.opacity(theme.isDark ? 0.10 : 0.14))
+                        .overlay(RoundedRectangle(cornerRadius: pitch * 0.75, style: .continuous)
+                            .strokeBorder(tint.color.opacity(theme.isDark ? 0.55 : 0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                        .padding(.horizontal, -12)
+                        .padding(.vertical, -3)
+                        .allowsHitTesting(false)
+                }
             }
         }
         .onChange(of: ids, initial: true) { _, ids in shown.formUnion(ids) }

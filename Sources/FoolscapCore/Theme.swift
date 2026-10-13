@@ -176,6 +176,16 @@ public struct NotebookTheme: Codable, Identifiable, Hashable, Sendable {
     public var linePitch: Double { (type.body.size * type.lineHeightMultiple * 1.35).rounded() }
 
     /// The same theme with all type sizes multiplied (text size preference).
+    /// The same theme set in other faces (the Settings type preference; an empty
+    /// or nil name keeps the theme's own).
+    public func withType(body: String? = nil, heading: String? = nil, mono: String? = nil) -> NotebookTheme {
+        var t = self
+        if let body, !body.isEmpty { t.type.body.family = body }
+        if let heading, !heading.isEmpty { t.type.heading.family = heading }
+        if let mono, !mono.isEmpty { t.type.mono.family = mono }
+        return t
+    }
+
     public func scaled(by factor: Double) -> NotebookTheme {
         guard factor != 1 else { return self }
         var t = self

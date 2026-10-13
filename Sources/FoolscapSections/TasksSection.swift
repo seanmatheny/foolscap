@@ -546,7 +546,8 @@ struct TaskRow: View {
             .strikethrough(task.status == .completed, color: theme.dimInk.color)
             .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
             .lineLimit(1)
-            .highlighted(theme.highlighter[task.status])
+            // Today's rows are not stroked: the daily page rings the list instead.
+            .highlighted(task.status == .today ? nil : theme.highlighter[task.status])
     }
 
     private var symbol: String {

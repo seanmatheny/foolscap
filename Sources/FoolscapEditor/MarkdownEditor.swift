@@ -36,6 +36,9 @@ public struct MarkdownEditor: NSViewRepresentable {
         let textView = MarkdownTextView(document: document, palette: palette, features: features)
         textView.knownTags = tags
         textView.delegate = context.coordinator
+        // The caret starts after the last line (a daily note's blank line under its
+        // Today list), ready to type; the opening heading keeps its `#` hidden.
+        if revealLine == nil { textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0)) }
 
         let scroll = NSScrollView()
         scroll.drawsBackground = false

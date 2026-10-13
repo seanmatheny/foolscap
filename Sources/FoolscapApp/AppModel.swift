@@ -35,6 +35,10 @@ final class AppModel {
     private(set) var elasticBand = false
     private(set) var tabEdge: TabEdge = .left
     private(set) var paperTexture: PaperTexture = .none
+    /// Font families chosen in Settings over the theme's own ("" keeps the theme's).
+    private(set) var bodyFont = ""
+    private(set) var headingFont = ""
+    private(set) var monoFont = ""
     private(set) var library: NotebookLibrary?
     private(set) var backup: BackupManager?
     private(set) var startupError: String?
@@ -69,7 +73,8 @@ final class AppModel {
     private(set) var secretsSection: SecretsSection?
 
     var theme: NotebookTheme {
-        (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).scaled(by: textScale).onPaper(paperTexture).ruled(ruling, marginRule: marginRule)
+        (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).withType(body: bodyFont, heading: headingFont, mono: monoFont)
+            .scaled(by: textScale).onPaper(paperTexture).ruled(ruling, marginRule: marginRule)
     }
     var tabs: [NotebookTabItem] { sections.map { NotebookTabItem(id: $0.id, appearance: $0.tab) } }
     var notesFolderPath: String { library?.folder.root.path ?? "" }
@@ -214,6 +219,17 @@ final class AppModel {
                 window.setFrame(frame, display: true, animate: false)
             }
         }
+        // `--dump=file.png` writes a CPU render of the main window 5 s after launch
+        // (`cacheDisplay`, so textures and blend modes come out flat): text and layout
+        // can be checked while the screen is locked and `screencapture` refuses.
+        if let path = flagValue("--dump") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                guard let view = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey })?.contentView,
+                      let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            }
+        }
         if args.contains("--fullscreen") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { NSApp.windows.first { $0.isVisible }?.toggleFullScreen(nil) }
         }
@@ -318,6 +334,12 @@ final class AppModel {
         if e != tabEdge { tabEdge = e }
         let p = PaperTexture(rawValue: defaults.string(forKey: PreferenceKeys.paperTexture) ?? "") ?? .none
         if p != paperTexture { paperTexture = p }
+        let body = defaults.string(forKey: PreferenceKeys.bodyFont) ?? ""
+        if body != bodyFont { bodyFont = body }
+        let heading = defaults.string(forKey: PreferenceKeys.headingFont) ?? ""
+        if heading != headingFont { headingFont = heading }
+        let mono = defaults.string(forKey: PreferenceKeys.monoFont) ?? ""
+        if mono != monoFont { monoFont = mono }
     }
 
     /// A restore replaced the files, the index and the settings underneath the

@@ -179,6 +179,16 @@ public final class NotebookLibrary {
         return changed
     }
 
+    /// Delete the task in Tasks.md with this content key (else the open one whose
+    /// title starts with `titlePrefix`) and its notes: undoing a Jira sun that
+    /// wrote it. Returns whether a line went.
+    public func removeStandaloneTask(key: String, titlePrefix: String? = nil) async -> Bool {
+        let doc = await loadedDocument(atRelativePath: NotesFolder.tasksFileName)
+        guard doc.removeTaskLine(forKey: key, orTitlePrefix: titlePrefix) else { return false }
+        await save()
+        return true
+    }
+
     /// One-off, for the Today panel's change from the `#today` tag to the `[/]`
     /// status: every open task tagged #today gets the mark and loses the tag.
     /// Completed ones are history and keep it. Idempotent; returns the number

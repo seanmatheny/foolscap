@@ -139,6 +139,20 @@ public final class TaskAggregator {
 
     public func move(_ task: TaskItem, to status: TaskStatus) { move([task], to: status) }
 
+    /// ⌘Z after a move puts each task back where it was (its id outlives the
+    /// mark, so the row is found again), and that move registers the redo.
+    private func registerUndo(for moved: [TaskItem], movedTo status: TaskStatus) {
+        guard let undo = TaskUndo.manager else { return }
+        let before = moved.map { ($0.id, $0.status) }
+        undo.registerUndo(withTarget: self) { aggregator in
+            for (previous, ids) in Dictionary(grouping: before, by: \.1).mapValues({ $0.map(\.0) }) {
+                let items = aggregator.tasks.filter { ids.contains($0.id) }
+                aggregator.move(items, to: previous)
+            }
+        }
+        undo.setActionName(TaskUndo.actionName(for: status, from: moved.count == 1 ? moved[0].status : nil))
+    }
+
     /// Several tasks at once (a selection or a multi-task drag). The writes run one
     /// after another, since tasks from the same note edit the same document.
     public func move(_ items: [TaskItem], to status: TaskStatus) {
@@ -148,6 +162,7 @@ public final class TaskAggregator {
             return (task, provider)
         }
         guard !moves.isEmpty else { return }
+        registerUndo(for: moves.map(\.0), movedTo: status)
         // Optimistic: update the list now, the files catch up.
         for (task, _) in moves {
             if let i = tasks.firstIndex(where: { $0.id == task.id }) { tasks[i].status = status }

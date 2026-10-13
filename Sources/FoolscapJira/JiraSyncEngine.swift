@@ -9,15 +9,27 @@ public struct JiraSyncReport: Equatable, Sendable {
     public init() {}
 }
 
+/// What the sun did to Tasks.md.
+public enum JiraTaskAdd: Equatable, Sendable {
+    /// A new `- [/]` line was written.
+    case written
+    /// A line already there was marked `[/]` again.
+    case lifted
+    /// The task was in Today already.
+    case unchanged
+}
+
 /// Where a pulled issue's task goes, and how it is ticked when Jira closes the issue.
 public protocol JiraTaskSink: Sendable {
     /// `- [/] title` with a note line under it; a task with that content key
     /// (or, its title edited, an open one starting "KEY ") in Tasks.md already
-    /// is lifted into Today instead. Returns whether a line was written or rewritten.
-    func add(title: String, notes: String) async -> Bool
+    /// is lifted into Today instead.
+    func add(title: String, notes: String) async -> JiraTaskAdd
     /// The sun again: the task for `key` goes back to To do (found like
     /// `complete` does). Returns whether a mark was rewritten.
     func park(key: String, contentKey: String) async -> Bool
+    /// Undoing a sun that wrote a line: that line and its notes go. Returns whether one went.
+    func remove(key: String, contentKey: String) async -> Bool
     /// Tick the open task for `key`: by content key, else by a title starting
     /// "KEY " (the user may have edited the rest). Returns whether a mark was written.
     func complete(key: String, contentKey: String) async -> Bool
@@ -27,16 +39,20 @@ public struct LibraryJiraTaskSink: JiraTaskSink {
     let library: NotebookLibrary
     public init(library: NotebookLibrary) { self.library = library }
 
-    public func add(title: String, notes: String) async -> Bool {
+    public func add(title: String, notes: String) async -> JiraTaskAdd {
         let issueKey = String(title.prefix { $0 != " " })
         if let lifted = await library.setStandaloneTaskStatus(.today, key: TaskItem.contentKey(for: title), titlePrefix: issueKey + " ") {
-            return lifted
+            return lifted ? .lifted : .unchanged
         }
-        return await library.addStandaloneTask(title, status: .today, notes: notes, skipIfPresent: true)
+        return await library.addStandaloneTask(title, status: .today, notes: notes, skipIfPresent: true) ? .written : .unchanged
     }
 
     public func park(key: String, contentKey: String) async -> Bool {
         await library.setStandaloneTaskStatus(.notStarted, key: contentKey, titlePrefix: key + " ") == true
+    }
+
+    public func remove(key: String, contentKey: String) async -> Bool {
+        await library.removeStandaloneTask(key: contentKey, titlePrefix: key + " ")
     }
 
     public func complete(key: String, contentKey: String) async -> Bool {
@@ -114,9 +130,8 @@ public actor JiraSyncEngine {
     }
 
     /// The sun button: the issue becomes a Today task in Tasks.md with a link
-    /// to it in its notes (a task sent back to To do is lifted again). Returns
-    /// whether a line was written (not when the task is in Today already).
-    public func pull(_ issue: JiraIssue, site: URL) async -> Bool {
+    /// to it in its notes (a task sent back to To do is lifted again).
+    public func pull(_ issue: JiraIssue, site: URL) async -> JiraTaskAdd {
         let title = Self.taskTitle(for: issue)
         let added = await sink.add(title: title, notes: issue.url(site: site).absoluteString)
         state.ledger[issue.key] = JiraState.Pulled(contentKey: TaskItem.contentKey(for: title), title: title, pulledAt: now())
@@ -129,6 +144,16 @@ public actor JiraSyncEngine {
     public func park(_ issue: JiraIssue) async -> Bool {
         guard let pulled = state.ledger[issue.key] else { return false }
         return await sink.park(key: issue.key, contentKey: pulled.contentKey)
+    }
+
+    /// Undoing a sun that wrote the task: the line goes and the ledger forgets
+    /// the issue, as if the sun had never been clicked.
+    public func unpull(_ issue: JiraIssue) async -> Bool {
+        guard let pulled = state.ledger[issue.key] else { return false }
+        let removed = await sink.remove(key: issue.key, contentKey: pulled.contentKey)
+        state.ledger[issue.key] = nil
+        try? state.save(to: stateURL)
+        return removed
     }
 
     /// "KEY summary #jira": one line, and no `#` from the summary (it would read as a tag).
