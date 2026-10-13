@@ -8,7 +8,7 @@ struct TodayView: View {
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: HighlightsSection
     let items: [HighlightItem]
-    /// Whether a card's book can be opened (not on the flyleaf).
+    /// Whether a card's book can be opened.
     var showsBooks: Bool
     /// The flyleaf sets its title in the middle of the page; the quotes keep
     /// their left rule in a column beneath it.
@@ -48,6 +48,7 @@ struct QuoteCard: View {
     var showsBook: Bool
     @State private var hovering = false
     @State private var overCover = false
+    @Environment(\.turnLooseLeaf) private var turnLooseLeaf
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
@@ -57,14 +58,22 @@ struct QuoteCard: View {
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .contextMenu { HighlightMenu(section: section, item: item, showsBook: showsBook) }
+        .contextMenu { HighlightMenu(section: section, item: item, showsBook: showsBook, openBook: openBook) }
+    }
+
+    /// From the flyleaf the notebook turns to the Highlights tab as well; turning to another
+    /// tab takes the leaf with it, so the leaf is only turned by hand when the tab is already open.
+    private func openBook() {
+        section.open(book: item.path, highlight: item.id)
+        guard let turnLooseLeaf else { return }
+        if section.turnToTab?() != true { turnLooseLeaf() }
     }
 
     /// The book's cover beside its quote, as on the shelf; it opens the book where the attribution does.
     @ViewBuilder private var cover: some View {
         let url = section.coverURL(for: item.path)
         if showsBook {
-            Button { section.open(book: item.path, highlight: item.id) } label: {
+            Button { openBook() } label: {
                 ShelfCover(url: url, title: item.bookTitle, author: item.bookAuthor, width: 54 * scale, lifted: overCover)
             }
             .buttonStyle(.plain)
@@ -117,7 +126,7 @@ struct QuoteCard: View {
         let text = "— " + item.bookTitle + (item.bookAuthor.isEmpty ? "" : ", " + item.bookAuthor)
         return Group {
             if showsBook {
-                Button { section.open(book: item.path, highlight: item.id) } label: {
+                Button { openBook() } label: {
                     Text(text).underline(hovering)
                 }
                 .buttonStyle(.plain)
@@ -174,6 +183,8 @@ struct HighlightMenu: View {
     @Bindable var section: HighlightsSection
     let item: HighlightItem
     var showsBook: Bool
+    /// How the card this menu belongs to opens its book, when not simply in place.
+    var openBook: (() -> Void)?
 
     var body: some View {
         Button(item.isFavourite ? "Remove Heart" : "Heart") { section.toggleFavourite(item) }
@@ -193,7 +204,11 @@ struct HighlightMenu: View {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(item.text, forType: .string)
         }
-        if showsBook { Button("Open in Book") { section.open(book: item.path, highlight: item.id) } }
+        if showsBook {
+            Button("Open in Book") {
+                if let openBook { openBook() } else { section.open(book: item.path, highlight: item.id) }
+            }
+        }
     }
 }
 
@@ -219,7 +234,7 @@ struct FlyleafView: View {
                         .allowsHitTesting(false)
                     VStack(alignment: .center, spacing: 0) {
                         Spacer().frame(height: pitch * 1.5)
-                        TodayView(section: section, items: section.picks, showsBooks: false, centered: true)
+                        TodayView(section: section, items: section.picks, showsBooks: true, centered: true)
                         Spacer().frame(height: pitch * 1.5)
                         Text("Click to turn the page")
                             .font(.system(size: 11.5, design: .serif)).italic()

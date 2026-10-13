@@ -97,6 +97,8 @@ public final class HighlightsSection: NotebookSection {
     public private(set) var picks: [HighlightItem] = []
     /// A highlight to scroll to once its book page is shown (from search or a card).
     public var pendingHighlightID: String?
+    /// Turns the notebook to this tab; false when it is already the open one. Set by the app.
+    @ObservationIgnored public var turnToTab: (() -> Bool)?
     public let status = HighlightsImportStatus()
     let library: NotebookLibrary
 

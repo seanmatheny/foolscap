@@ -371,6 +371,11 @@ final class AppModel {
                 .map { URL(fileURLWithPath: String($0.dropFirst("--kindle-data=".count))) }
             let highlights = HighlightsSection(library: library,
                                                extractor: NativeKindleExtractor(dataDirectory: kindleData ?? KindleLibrary.defaultDataDirectory))
+            highlights.turnToTab = { [weak self] in
+                guard let self, self.selectedSectionID != HighlightsSection.sectionID else { return false }
+                self.selectedSectionID = HighlightsSection.sectionID
+                return true
+            }
             sections.append(highlights)
             highlightsSection = highlights
             library.indexesHighlights = true

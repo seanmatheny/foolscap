@@ -1,6 +1,16 @@
 import SwiftUI
 import FoolscapCore
 
+private struct TurnLooseLeafKey: EnvironmentKey { static let defaultValue: (@MainActor @Sendable () -> Void)? = nil }
+
+public extension EnvironmentValues {
+    /// Set for what lies on the flyleaf: turns the leaf away, as a click on its paper does.
+    var turnLooseLeaf: (@MainActor @Sendable () -> Void)? {
+        get { self[TurnLooseLeafKey.self] }
+        set { self[TurnLooseLeafKey.self] = newValue }
+    }
+}
+
 /// A loose page lying on the notebook: the flyleaf shown after the cover
 /// opens. A click (or ↩, ⎋) turns it over around the spine, revealing the
 /// notebook underneath, which has been there all along.
@@ -27,7 +37,7 @@ public struct PageTurnOverlay<Content: View>: View {
             // The hinge is the spine: on the right when the tabs are on the left.
             let spineOnRight = tabsLeft
             ZStack {
-                PageView { content() }
+                PageView { content().environment(\.turnLooseLeaf) { turn(spineOnRight: spineOnRight, from: nil) } }
                     .overlay { PageSnapshotHost(anchor: anchor) }
                     // Only the page takes the click: the leather beside it, the index
                     // tabs and the strip above stay the notebook's.
