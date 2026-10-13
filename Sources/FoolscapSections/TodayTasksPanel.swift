@@ -7,13 +7,14 @@ import FoolscapUI
 public enum TodayTasks {
     /// The tasks that head today's page: those in the Today status, highest
     /// priority first, leaving out the ones written on today's own note (they
-    /// are on the page already). A task moved on while its id is in `keep`
-    /// (ticked done on this visit) stays, so a tick does not whip the row away;
-    /// those sit last.
+    /// are on the page already). A task ticked done while its id is in `keep`
+    /// (shown on this visit) stays, struck through and last, so a tick does not
+    /// whip the row away; the moon (back to To do) or Someday takes it off the
+    /// page at once.
     public static func select(from tasks: [TaskItem], today: DayKey, keep: Set<String> = []) -> [TaskItem] {
         tasks.enumerated()
             .filter { $0.element.source.day != today.string
-                && ($0.element.status == .today || keep.contains($0.element.id)) }
+                && ($0.element.status == .today || ($0.element.status == .completed && keep.contains($0.element.id))) }
             .map { (offset: $0.offset, task: $0.element, priority: $0.element.priority, done: $0.element.status != .today) }
             .sorted { a, b in
                 if a.done != b.done { return !a.done }
@@ -31,6 +32,7 @@ struct TodayTasksPanel: View {
     @Bindable var section: DailyNotesSection
     let aggregator: TaskAggregator
     /// Ids seen on this visit: a task ticked done stays, struck through, until the page is rebuilt.
+    /// (One sent back to To do with the moon leaves at once.)
     @State private var shown: Set<String> = []
     private var pitch: CGFloat { theme.linePitch }
     private var scale: CGFloat { theme.type.body.size / 15 }

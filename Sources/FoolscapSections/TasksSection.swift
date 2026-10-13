@@ -598,7 +598,6 @@ struct TaskEditPopover: View {
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.ink.color.opacity(0.15), lineWidth: 0.5))
                 }
                 HStack {
-                    Text(task.source.day == nil ? "Saved into Tasks.md." : "Saved into the daily note.").font(.caption).foregroundStyle(theme.dimInk.color)
                     Spacer()
                     Button("Save") { onSave(title, notes) }
                         .keyboardShortcut(.defaultAction)

@@ -25,8 +25,9 @@ import Foundation
         let picked = TodayTasks.select(from: tasks, today: today)
         // The status decides, not the old #today tag; to do and someday stay off the page.
         #expect(picked.map(\.title) == ["!! Urgent", "Yesterday's", "Standalone"])
-        // A ticked task the page has shown stays, struck through, at the end.
-        let kept = TodayTasks.select(from: tasks, today: today, keep: [tasks[4].id])
+        // A ticked task the page has shown stays, struck through, at the end;
+        // one sent back to To do or parked with the moon leaves at once.
+        let kept = TodayTasks.select(from: tasks, today: today, keep: [tasks[4].id, tasks[5].id, tasks[6].id])
         #expect(kept.map(\.title) == ["!! Urgent", "Yesterday's", "Standalone", "Done"])
     }
 

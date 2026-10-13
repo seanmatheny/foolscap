@@ -351,6 +351,22 @@ public final class NoteDocument: Identifiable {
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: text)
     }
 
+    /// Change the mark of the task line with this content key, or, the user
+    /// having edited its title, of the first open task whose title starts with
+    /// `titlePrefix` (a Jira issue's "KEY "). Returns nil when there is no such
+    /// task, else whether the mark changed.
+    @discardableResult
+    public func setTaskStatus(_ status: TaskStatus, forKey key: String, orTitlePrefix titlePrefix: String? = nil) -> Bool? {
+        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        let tasks = map.lines.compactMap { line in TaskLineParser.parse(line.text).map { (line: line, task: $0) } }
+        guard let found = tasks.first(where: { TaskItem.contentKey(for: $0.task.title) == key })
+            ?? titlePrefix.flatMap({ prefix in tasks.first { $0.task.status.isOpen && $0.task.title.hasPrefix(prefix) } })
+        else { return nil }
+        guard found.task.status != status, let replaced = TaskLineParser.replacingStatus(in: found.line.text, with: status) else { return false }
+        textStorage.replaceCharacters(in: found.line.range, with: replaced)
+        return true
+    }
+
     /// True when some task line in the document has this content key.
     public func containsTask(withKey key: String) -> Bool {
         let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap

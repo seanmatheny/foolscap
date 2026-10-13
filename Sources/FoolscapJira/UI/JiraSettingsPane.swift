@@ -73,7 +73,7 @@ struct JiraSettingsPane: View {
                 Text(section.statusText).foregroundStyle(.secondary).lineLimit(2)
             }
         }
-        Text("The sun on an issue adds `- [/] KEY summary #jira` to Tasks.md with a link to the issue, so it sits under today's date. When Jira marks the issue Done, the next sync ticks the task. Ticking the task here does not change Jira; the status menu on the Jira tab does.")
+        Text("The sun on an issue adds `- [/] KEY summary #jira` to Tasks.md with a link to the issue, so it sits under today's date; a second click, or the moon on the task, sends it back to To do. When Jira marks the issue Done, the next sync ticks the task. Ticking the task here does not change Jira; the status menu on the Jira tab does.")
             .font(.caption).foregroundStyle(.secondary)
         TextField("New tasks: project", text: $projectKey, prompt: Text("CPAS"))
         TextField("Epic", text: $epicKey, prompt: Text("CPAS-2, or blank for none"))

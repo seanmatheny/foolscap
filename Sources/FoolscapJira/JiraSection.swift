@@ -79,6 +79,10 @@ public final class JiraSection: NotebookSection {
     /// The moves each issue may make, fetched as its row is hovered; cleared by a sync.
     public private(set) var transitionCache: [String: [JiraTransition]] = [:]
     @ObservationIgnored private var transitionFetches: Set<String> = []
+    /// Titles of the tasks in Today, kept up with the index: the sun shows whether
+    /// an issue's task is there now (the moon elsewhere sends it back to To do).
+    public private(set) var todayTitles: [String] = []
+    @ObservationIgnored private var todayWatcher: Task<Void, Never>?
 
     public init(library: NotebookLibrary, client: any JiraClient = JiraCloudClient(), store: any JiraTokenStore = KeychainTokenStore(),
                 stateURL: URL = JiraPaths.stateURL, defaults: UserDefaults = .standard) {
@@ -174,6 +178,7 @@ public final class JiraSection: NotebookSection {
         guard pathMonitor == nil else { return }
         loadCredentials()
         applySchedule()
+        watchToday()
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
             guard path.status == .satisfied else { return }
@@ -198,6 +203,8 @@ public final class JiraSection: NotebookSection {
         scheduler = nil
         pathMonitor?.cancel()
         pathMonitor = nil
+        todayWatcher?.cancel()
+        todayWatcher = nil
         cancelSync()
         engine = nil
     }
@@ -293,9 +300,42 @@ public final class JiraSection: NotebookSection {
         }
     }
 
-    /// Whether the issue has a task in Today that Jira has not closed yet.
+    /// The sun again on a pulled issue: its task leaves Today for To do, as the
+    /// moon on the daily page does. A third click pulls it back.
+    public func park(_ issue: JiraIssue) {
+        let engine = engineForSync()
+        Task { [weak self] in
+            guard await engine.park(issue), let self else { return }
+            await self.library.rescan()
+        }
+    }
+
+    /// Whether the issue's task is in Today now: pulled, not closed by Jira, and
+    /// still marked `[/]` (by content key, else by a title starting "KEY ").
     public func isPulled(_ issue: JiraIssue) -> Bool {
-        state.ledger[issue.key].map { $0.resolvedAt == nil } ?? false
+        guard let pulled = state.ledger[issue.key], pulled.resolvedAt == nil else { return false }
+        let prefix = issue.key + " "
+        return todayTitles.contains { TaskItem.contentKey(for: $0) == pulled.contentKey || $0.hasPrefix(prefix) }
+    }
+
+    private func watchToday() {
+        todayWatcher?.cancel()
+        todayWatcher = Task { [weak self] in
+            guard let self else { return }
+            await self.reloadToday()
+            for await _ in self.library.changes {
+                guard !Task.isCancelled else { return }
+                await self.reloadToday()
+            }
+        }
+    }
+
+    /// Re-read which tasks are in Today (done for every library change while started).
+    public func reloadToday() async {
+        let index = library.index
+        todayTitles = await Task.detached(priority: .utility) {
+            ((try? index.tasks()) ?? []).filter { $0.status == .today }.map(\.title)
+        }.value
     }
 
     // MARK: Writes

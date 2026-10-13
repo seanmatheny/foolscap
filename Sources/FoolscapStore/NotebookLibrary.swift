@@ -168,6 +168,17 @@ public final class NotebookLibrary {
         return true
     }
 
+    /// Change the mark of the task in Tasks.md with this content key (else the
+    /// open one whose title starts with `titlePrefix`): a Jira issue's task sent
+    /// back to To do from its tab, or lifted into Today again. Returns nil when
+    /// Tasks.md has no such task, else whether a line was rewritten.
+    public func setStandaloneTaskStatus(_ status: TaskStatus, key: String, titlePrefix: String? = nil) async -> Bool? {
+        let doc = await loadedDocument(atRelativePath: NotesFolder.tasksFileName)
+        guard let changed = doc.setTaskStatus(status, forKey: key, orTitlePrefix: titlePrefix) else { return nil }
+        if changed { await save() }
+        return changed
+    }
+
     /// One-off, for the Today panel's change from the `#today` tag to the `[/]`
     /// status: every open task tagged #today gets the mark and loses the tag.
     /// Completed ones are history and keep it. Idempotent; returns the number

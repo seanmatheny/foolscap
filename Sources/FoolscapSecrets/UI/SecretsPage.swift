@@ -6,8 +6,9 @@ import FoolscapEditor
 import FoolscapUI
 
 /// The Secrets tab: the title row (padlock, countdown, search, New), the index
-/// cards for the chosen letter, a faint letter watermark on the spine side and
-/// the thumb index cut into the page beside the big tabs.
+/// cards for the chosen letter, a faint letter watermark in the page's lower
+/// corner on the spine side and the thumb index cut into the page beside the
+/// big tabs.
 struct SecretsPage: View {
     @Environment(\.notebookTheme) private var theme
     @Environment(\.notebookTabEdge) private var tabEdge
@@ -27,19 +28,21 @@ struct SecretsPage: View {
         let left = tabEdge == .left
         GeometryReader { geo in
             ZStack(alignment: left ? .topLeading : .topTrailing) {
+                // The letter is printed on the page's foot, where the cards seldom
+                // reach: under the title row the first card cut it in half.
+                if unlocked, !section.showsAllLetters, let group {
+                    Text(group.label)
+                        .font(.system(size: 110 * scale, weight: .bold, design: .serif))
+                        .foregroundStyle(theme.ink.color.opacity(0.06))
+                        .padding(.bottom, pitch * 0.6)
+                        .padding(.trailing, left ? 60 : 70)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .allowsHitTesting(false)
+                }
                 ScrollView {
                     ZStack(alignment: .topLeading) {
                         RulingView(pitch: pitch, topInset: pitch + PageRuling.ruleOffset(palette), marginX: PageRuling.textLeft)
                             .frame(minHeight: geo.size.height)
-                        if unlocked, !section.showsAllLetters, let group {
-                            Text(group.label)
-                                .font(.system(size: 110 * scale, weight: .bold, design: .serif))
-                                .foregroundStyle(theme.ink.color.opacity(0.06))
-                                .padding(.top, pitch * 2.2)
-                                .padding(.trailing, left ? 60 : 70)
-                                .frame(maxWidth: .infinity, alignment: .topTrailing)
-                                .allowsHitTesting(false)
-                        }
                         VStack(alignment: .leading, spacing: 0) {
                             header
                             content(group: group)

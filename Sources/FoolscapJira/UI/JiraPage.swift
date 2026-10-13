@@ -187,15 +187,16 @@ struct JiraIssueRow: View {
         let pulled = section.isPulled(issue)
         let busy = section.busyKeys.contains(issue.key)
         HStack(alignment: .center, spacing: 8) {
-            Button { section.pull(issue) } label: {
+            // A toggle: filled while the task sits in Today, a click then sends it back to To do.
+            Button { if pulled { section.park(issue) } else { section.pull(issue) } } label: {
                 Image(systemName: pulled ? "sun.max.fill" : "sun.max")
                     .font(.system(size: 13 * scale, weight: .regular))
                     .foregroundStyle(pulled ? theme.accent.color : theme.dimInk.color)
                     .frame(width: 20)
             }
             .buttonStyle(.plain)
-            .disabled(pulled || busy)
-            .help(pulled ? "Already in Today" : "Pull into Today")
+            .disabled(busy)
+            .help(pulled ? "In Today; click to send it back to To do" : "Pull into Today")
             Circle()
                 .fill(TaskPriority(rawValue: issue.taskPriorityLevel)?.color?.color ?? .clear)
                 .frame(width: 8, height: 8)

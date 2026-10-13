@@ -190,6 +190,40 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         #expect(client.keyQueries.last == ["CPAS-1050"])
     }
 
+    @Test func theSunTogglesTheTaskBetweenTodayAndToDo() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-jira-park-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp.appendingPathComponent("Notes"))
+        try folder.ensureLayout()
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
+        let engine = JiraSyncEngine(client: FakeJiraClient(), stateURL: tmp.appendingPathComponent("state.json"),
+                                    sink: LibraryJiraTaskSink(library: library), now: { Date(timeIntervalSince1970: 1_700_000_000) })
+        let fix = issue("CPAS-1027", "Fix the thing", status: "Open")
+        #expect(await engine.pull(fix, site: credentials.site))
+        let line = "- [/] CPAS-1027 Fix the thing #jira\n  https://x.atlassian.net/browse/CPAS-1027\n"
+        #expect(try String(contentsOf: folder.tasksFile, encoding: .utf8).hasSuffix(line))
+
+        // The moon (the sun again): back to To do, the line kept with its link.
+        #expect(await engine.park(fix))
+        #expect(await engine.park(fix) == false)
+        #expect(try String(contentsOf: folder.tasksFile, encoding: .utf8).hasSuffix("- [ ] CPAS-1027 Fix the thing #jira\n  https://x.atlassian.net/browse/CPAS-1027\n"))
+
+        // The sun again lifts that line rather than writing a second one, even with an edited title.
+        let doc = await library.loadedDocument(atRelativePath: NotesFolder.tasksFileName)
+        try doc.replaceTaskTitle(line: 0, expectedKey: TaskItem.contentKey(for: "CPAS-1027 Fix the thing #jira"), with: "CPAS-1027 Fix the thing properly #jira")
+        await library.save()
+        #expect(await engine.pull(fix, site: credentials.site))
+        let text = try String(contentsOf: folder.tasksFile, encoding: .utf8)
+        #expect(text.hasSuffix("- [/] CPAS-1027 Fix the thing properly #jira\n  https://x.atlassian.net/browse/CPAS-1027\n"))
+        #expect(text.components(separatedBy: "CPAS-1027 Fix").count == 2)
+        // Already in Today: nothing to write.
+        #expect(await engine.pull(fix, site: credentials.site) == false)
+        // A ticked task is left alone by the park and by a sync's completion alike.
+        doc.setTaskStatus(.completed, forKey: TaskItem.contentKey(for: "CPAS-1027 Fix the thing properly #jira"))
+        await library.save()
+        #expect(await engine.park(fix) == false)
+    }
+
     @Test func statusChangeCreateAndCommentWriteThrough() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-jira-writes-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -258,7 +292,7 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         #expect(section.pendingKey == "CPAS-3")
     }
 
-    @Test func groupsPutInProgressFirstAndLeaveOutEpics() throws {
+    @Test func groupsPutInProgressFirstAndLeaveOutEpics() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-jira-section-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) }
         var state = JiraState()
@@ -272,13 +306,20 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         ]
         state.ledger["CPAS-3"] = JiraState.Pulled(contentKey: "k", title: "t", pulledAt: Date())
         state.ledger["CPAS-4"] = JiraState.Pulled(contentKey: "k", title: "t", pulledAt: Date(), resolvedAt: Date())
+        state.ledger["CPAS-5"] = JiraState.Pulled(contentKey: TaskItem.contentKey(for: "CPAS-5 Newer low #jira"), title: "t", pulledAt: Date())
         let (section, _) = try makeSection(tmp, client: FakeJiraClient(), store: MemoryTokenStore(), state: state)
+        // CPAS-3's task is in Today (title edited, found by its "KEY " prefix); CPAS-5's was sent back to To do.
+        try "- [/] CPAS-3 Doing it now #jira\n- [ ] CPAS-5 Newer low #jira\n".write(to: tmp.appendingPathComponent("Notes/Tasks.md"), atomically: true, encoding: .utf8)
+        await section.library.rescan(full: true)
+        await section.reloadToday()
         // Awaiting shares Jira's in-progress category but is neither first nor highlighted.
         #expect(section.groups.map(\.name) == ["In Progress", "Awaiting - Internal", "Open"])
         #expect(section.groups.map(\.isActive) == [true, false, false])
         #expect(section.groups[2].issues.map(\.key) == ["CPAS-4", "CPAS-5", "CPAS-2"])
         #expect(section.openCount == 5)
         #expect(section.isPulled(state.issues[3]) && !section.isPulled(state.issues[4]) && !section.isPulled(state.issues[2]))
+        // The sun is hollow again once the task has left Today, though the ledger still holds the issue.
+        #expect(!section.isPulled(state.issues[5]))
     }
 
     @Test func credentialsStatusAndErrors() async throws {
