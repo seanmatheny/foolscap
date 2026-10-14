@@ -145,7 +145,7 @@
   editor's text views share, so one stack holds typing and moves. A sun that wrote a new line is
   undone by removing it (`NotebookLibrary.removeStandaloneTask`), one that lifted a To do task
   by parking it again; the outcome is known only after the write, so the undo closure reads it
-  from a box filled later. `TaskUndo.override` hands tests a manager (there is no window).
+  from a box filled later. `TaskAggregator.undoManager` lets a test hand in a manager (there is no window).
 - The editor's caret starts at the end of the note (`MarkdownEditor.makeNSView`), below the
   Today panel on a daily note, so the opening heading keeps its `#` hidden and typing lands
   under the tasks. The Today panel is ringed (dashed, a faint wash of the Today highlighter

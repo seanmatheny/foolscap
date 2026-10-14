@@ -6,10 +6,8 @@ import SwiftUI
 @MainActor
 public enum TaskUndo {
     public static var manager: UndoManager? {
-        override ?? NSApp?.mainWindow?.undoManager ?? NSApp?.keyWindow?.undoManager
+        NSApp?.mainWindow?.undoManager ?? NSApp?.keyWindow?.undoManager
     }
-    /// Tests, which have no window, hand in a manager of their own.
-    public static var override: UndoManager?
 
     /// The Edit menu's wording for a move into `status`.
     public static func actionName(for status: TaskStatus, from previous: TaskStatus? = nil) -> String {

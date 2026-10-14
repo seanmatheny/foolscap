@@ -11,6 +11,9 @@ public final class TaskAggregator {
     private var providers: [any TaskProvider] = []
     private var listeners: [Task<Void, Never>] = []
     private var reloadTask: Task<Void, Never>?
+    /// Where moves register their undo: the window's manager unless a test, which
+    /// has no window, hands one in.
+    public var undoManager: UndoManager?
 
     public init() {}
 
@@ -142,7 +145,8 @@ public final class TaskAggregator {
     /// ⌘Z after a move puts each task back where it was (its id outlives the
     /// mark, so the row is found again), and that move registers the redo.
     private func registerUndo(for moved: [TaskItem], movedTo status: TaskStatus) {
-        guard let undo = TaskUndo.manager else { return }
+        // A manager that groups by hand (a test's) raises outside a group.
+        guard let undo = undoManager ?? TaskUndo.manager, undo.groupsByEvent || undo.groupingLevel > 0 else { return }
         let before = moved.map { ($0.id, $0.status) }
         undo.registerUndo(withTarget: self) { aggregator in
             for (previous, ids) in Dictionary(grouping: before, by: \.1).mapValues({ $0.map(\.0) }) {

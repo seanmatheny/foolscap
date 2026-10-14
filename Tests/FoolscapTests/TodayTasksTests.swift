@@ -95,8 +95,7 @@ import Foundation
         await aggregator.reload()
         let undo = UndoManager()
         undo.groupsByEvent = false
-        TaskUndo.override = undo
-        defer { TaskUndo.override = nil }
+        aggregator.undoManager = undo
 
         func text() throws -> String { try String(contentsOf: folder.tasksFile, encoding: .utf8) }
         func settle(_ expected: String) async throws {
