@@ -148,8 +148,13 @@
   from a box filled later. `TaskAggregator.undoManager` lets a test hand in a manager (there is no window).
 - The editor's caret starts at the end of the note (`MarkdownEditor.makeNSView`), below the
   Today panel on a daily note, so the opening heading keeps its `#` hidden and typing lands
-  under the tasks. The Today panel is ringed (dashed, a faint wash of the Today highlighter
-  colour) instead of its rows being stroked; Today rows carry no highlighter anywhere.
+  under the tasks.
+- Ringed lanes (`View.ringed` in FoolscapUI/HighlightMark.swift): a dashed line around a faint
+  wash of a colour, drawn as a background with negative padding so the rows inside keep to the
+  ruling. The daily page's Today panel and the Tasks tab's Today lane are ringed in the Today
+  highlighter colour; the Jira tab's In Progress group in the Jira tab colour
+  (`theme.tabColor(at: 4)`) so the two read apart. Their headings carry no highlighter stroke
+  and Today rows none anywhere; To do, Someday and Completed keep the pen stroke on their headings.
 - Themes ship with no ruling and no elastic band; both are Settings options
   (`ruling`, `marginRule`, `elasticBand` defaults) applied on top of the theme in
   `AppModel.theme` via `NotebookTheme.ruled`, with rule colours per theme. Midnight
