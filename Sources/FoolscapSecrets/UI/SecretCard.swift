@@ -186,8 +186,8 @@ struct CopiedBadge: View {
     @Environment(\.notebookTheme) private var theme
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "checkmark").font(theme.type.body.face(10, weight: .bold))
-            Text("Copied · clears in 30 s").font(.system(size: 11))
+            Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
+            Text("Copied · clears in 30 s").font(theme.type.body.face(11))
         }
         .foregroundStyle(theme.page.paperColor.color)
         .padding(.horizontal, 9).padding(.vertical, 2)

@@ -174,8 +174,8 @@ struct SearchCapsule: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").font(theme.type.body.face(11, weight: .semibold))
-                Text("Search notes and #tags").font(.system(size: 12))
+                Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold))
+                Text("Search notes and #tags").font(theme.type.body.face(12))
             }
             .foregroundStyle(theme.ink.color.opacity(hovering ? 0.75 : 0.5))
             .padding(.horizontal, 10).frame(height: 24)

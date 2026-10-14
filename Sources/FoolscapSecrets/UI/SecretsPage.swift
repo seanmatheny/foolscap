@@ -83,14 +83,14 @@ struct SecretsPage: View {
                 if unlocked { section.lockNow() } else if section.vault.hasDeviceWrap { Task { await section.unlockWithDevice() } }
             } label: {
                 Image(systemName: unlocked ? "lock.open.fill" : "lock.fill")
-                    .font(theme.type.body.face(13 * scale, weight: .semibold))
+                    .font(.system(size: 13 * scale, weight: .semibold))
                     .foregroundStyle(unlocked ? theme.accent.color : theme.dimInk.color)
             }
             .buttonStyle(.plain)
             .pointerStyle(.link)
             .help(unlocked ? "Lock (⌃⌘L)" : "Unlock with Touch ID")
             status
-                .font(.system(size: 12.5 * scale))
+                .font(theme.type.body.face(12.5 * scale))
                 .foregroundStyle(theme.dimInk.color)
                 .lineLimit(1)
             Spacer()
