@@ -95,7 +95,7 @@ public struct PaperTab: View {
                 // Icon only, upright; a tab with no icon shows its initial.
                 Group {
                     if let s = appearance.systemImage { Image(systemName: s).font(.system(size: 12, weight: .semibold)) }
-                    else { Text(String(appearance.label.prefix(1))).font(.system(size: 12.5, weight: .semibold, design: .serif)) }
+                    else { Text(String(appearance.label.prefix(1))).font(theme.type.body.face(12.5, weight: .semibold)) }
                 }
                 .foregroundStyle(Color.black.opacity(0.72))
                 .frame(width: 1, height: 1)
@@ -105,7 +105,7 @@ public struct PaperTab: View {
                 // (like a book spine), with the icon kept at the top either way.
                 HStack(spacing: 5) {
                     if !left, let s = appearance.systemImage { Image(systemName: s).font(.system(size: 10, weight: .semibold)) }
-                    Text(appearance.label).font(.system(size: 11.5, weight: .semibold, design: .serif)).lineLimit(1)
+                    Text(appearance.label).font(theme.type.body.face(11.5, weight: .semibold)).lineLimit(1)
                     if left, let s = appearance.systemImage { Image(systemName: s).font(.system(size: 10, weight: .semibold)) }
                 }
                 .fixedSize()

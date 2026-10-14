@@ -46,7 +46,7 @@ struct ScribeTranscriptSheet: View {
                     }
                 } else {
                     Text(transcriptAvailable ? "No handwriting recognised on this page." : "Not read yet — the next sync recognises the handwriting.")
-                        .font(.system(size: 13 * scale, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
+                        .font(theme.type.body.face(13 * scale)).italic().foregroundStyle(theme.dimInk.color)
                         .frame(height: pitch)
                 }
             }

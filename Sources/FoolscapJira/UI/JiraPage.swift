@@ -38,7 +38,7 @@ struct JiraPage: View {
                             Spacer().frame(height: pitch / 2 - Self.fieldGap)
                             if section.state.issues.isEmpty {
                                 Text(section.status.isRunning ? (section.status.phase ?? "Fetching your issues…") : "Nothing assigned to you.")
-                                    .font(.system(size: 14 * scale, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
+                                    .font(theme.type.body.face(14 * scale)).italic().foregroundStyle(theme.dimInk.color)
                                     .frame(height: pitch)
                             } else {
                                 ForEach(section.groups) { group in
@@ -81,16 +81,16 @@ struct JiraPage: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text("Jira").font(theme.type.heading.font).fontWeight(.bold)
-            Text("\(section.openCount)").font(.system(size: 13 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+            Text("\(section.openCount)").font(theme.type.body.face(13 * scale)).foregroundStyle(theme.dimInk.color)
             Spacer()
-            Text(section.statusText).font(.system(size: 12 * scale, design: .serif))
+            Text(section.statusText).font(theme.type.body.face(12 * scale))
                 .foregroundStyle(section.status.lastError == nil ? theme.dimInk.color : .red).lineLimit(1)
             if section.credentials != nil {
                 Button {
                     section.syncNow()
                 } label: {
                     Label(section.status.isRunning ? "Syncing…" : "Sync now", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 11.5, weight: .medium, design: .serif))
+                        .font(theme.type.body.face(11.5, weight: .medium))
                         .padding(.horizontal, 9).padding(.vertical, 3)
                         .background(Capsule().fill(theme.accent.color.opacity(0.14)))
                 }
@@ -106,7 +106,7 @@ struct JiraPage: View {
         HStack(spacing: 8) {
             Image(systemName: "plus").font(.system(size: 12, weight: .semibold)).foregroundStyle(theme.dimInk.color)
             TextField(section.newTaskPrompt, text: $newTaskText)
-                .font(.system(size: 14 * scale, design: .serif))
+                .font(theme.type.body.face(14 * scale))
                 .textFieldStyle(.plain)
                 .focused($newTaskFocused)
                 .onSubmit { submit() }
@@ -133,21 +133,21 @@ struct JiraPage: View {
     private var signIn: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Connect Foolscap to Jira Cloud with your site, your email and an API token, and the issues assigned to you appear here. A sun on an issue adds it to Today.")
-                .font(.system(size: 14 * scale, design: .serif)).opacity(0.75)
+                .font(theme.type.body.face(14 * scale)).opacity(0.75)
                 .frame(maxWidth: 520, alignment: .leading)
             Button {
                 UserDefaults.standard.set("jira", forKey: "settingsTab")
                 NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
             } label: {
                 Text("Open Settings…")
-                    .font(.system(size: 13, weight: .semibold, design: .serif))
+                    .font(theme.type.body.face(13, weight: .semibold))
                     .padding(.horizontal, 14).padding(.vertical, 6)
                     .background(Capsule().fill(theme.accent.color.opacity(0.16)))
                     .overlay(Capsule().stroke(theme.accent.color.opacity(0.35), lineWidth: 0.5))
             }
             .buttonStyle(.plain)
             if let error = section.status.lastError {
-                Text(error).font(.system(size: 13, design: .serif)).foregroundStyle(.red)
+                Text(error).font(theme.type.body.face(13)).foregroundStyle(.red)
             }
         }
         .padding(.top, pitch / 2)
@@ -158,8 +158,8 @@ struct JiraPage: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(group.name)
-                        .font(.system(size: 17 * scale, weight: .bold, design: .serif))
-                    Text("\(group.issues.count)").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                        .font(theme.type.heading.face(17 * scale, weight: .bold))
+                    Text("\(group.issues.count)").font(theme.type.body.face(12 * scale)).foregroundStyle(theme.dimInk.color)
                 }
                 .frame(height: pitch)
                 ForEach(group.issues) { issue in
@@ -206,15 +206,15 @@ struct JiraIssueRow: View {
                 .frame(width: 8, height: 8)
                 .help(issue.priority ?? "")
             Text(issue.key)
-                .font(.system(size: 11.5 * scale, weight: .medium, design: .monospaced))
+                .font(theme.type.mono.face(11.5 * scale, weight: .medium))
                 .foregroundStyle(theme.dimInk.color)
             Text(issue.summary)
-                .font(.system(size: 14.5 * scale, design: .serif))
+                .font(theme.type.body.face(14.5 * scale))
                 .lineLimit(1)
             if let parent = issue.parentSummary {
                 // The epic, as a chip in Jira's purple.
                 Text(parent)
-                    .font(.system(size: 10.5 * scale, weight: .medium, design: .serif))
+                    .font(theme.type.body.face(10.5 * scale, weight: .medium))
                     .foregroundStyle(theme.isDark ? Color(red: 0.80, green: 0.74, blue: 0.95) : Color(red: 0.36, green: 0.24, blue: 0.62))
                     .lineLimit(1)
                     .padding(.horizontal, 7).padding(.vertical, 1.5)
@@ -224,7 +224,7 @@ struct JiraIssueRow: View {
             statusChip(busy: busy)
             Spacer(minLength: 8)
             if let due = issue.dueDate {
-                Text("due \(due)").font(.system(size: 11.5 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                Text("due \(due)").font(theme.type.body.face(11.5 * scale)).foregroundStyle(theme.dimInk.color)
             }
             commentButton(busy: busy)
             Button { section.open(issue) } label: {
@@ -266,7 +266,7 @@ struct JiraIssueRow: View {
             HStack(spacing: 4) {
                 if busy { ProgressView().controlSize(.mini) }
                 Text(issue.statusName)
-                    .font(.system(size: 10.5 * scale, weight: .medium, design: .serif))
+                    .font(theme.type.body.face(10.5 * scale, weight: .medium))
                 Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
             }
             .foregroundStyle(theme.dimInk.color)
@@ -302,7 +302,7 @@ struct JiraIssueRow: View {
             HStack(spacing: 3) {
                 Image(systemName: "bubble.left").font(.system(size: 11.5 * scale))
                 if let n = issue.commentCount, n > 0 {
-                    Text("\(n)").font(.system(size: 10.5 * scale, design: .serif))
+                    Text("\(n)").font(theme.type.body.face(10.5 * scale))
                 }
             }
             .foregroundStyle(theme.dimInk.color)

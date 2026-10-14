@@ -19,7 +19,7 @@ extension NotebookTheme {
             : Color(.sRGB, red: p.r * 0.985, green: p.g * 0.985, blue: p.b * 0.975, opacity: 1)
     }
     func monoFont(_ size: CGFloat) -> Font {
-        type.mono.family.map { .custom($0, size: size) } ?? .system(size: size, design: .monospaced)
+        type.mono.face(size)
     }
 }
 
@@ -55,7 +55,7 @@ struct SecretCardView: View {
                 }
                 ForEach(Array(entry.notes.enumerated()), id: \.offset) { _, note in
                     Text(note)
-                        .font(.system(size: 13 * scale, design: .serif)).italic()
+                        .font(theme.type.body.face(13 * scale)).italic()
                         .foregroundStyle(theme.ink.color.opacity(0.8))
                         .textSelection(.enabled)
                         .frame(minHeight: pitch, alignment: .leading)
@@ -80,7 +80,7 @@ struct SecretCardView: View {
         HStack(spacing: 8) {
             Button { section.toggleCollapsed(entry) } label: {
                 Text(entry.title)
-                    .font(.system(size: (collapsed ? 15.5 : 17) * scale, weight: .bold, design: .serif))
+                    .font(theme.type.heading.face((collapsed ? 15.5 : 17) * scale, weight: .bold))
                     .lineLimit(1)
             }
             .buttonStyle(.plain)
@@ -97,7 +97,7 @@ struct SecretCardView: View {
             Spacer()
             if !collapsed, let changed = entry.changed {
                 Text("changed " + changed.formatted(.dateTime.day().month(.abbreviated)))
-                    .font(.system(size: 11 * scale, design: .serif))
+                    .font(theme.type.body.face(11 * scale))
                     .foregroundStyle(theme.dimInk.color)
             }
             if hovering {
@@ -134,7 +134,7 @@ struct FieldRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(field.label)
-                .font(.system(size: 12.5 * scale, design: .serif))
+                .font(theme.type.body.face(12.5 * scale))
                 .foregroundStyle(theme.dimInk.color)
                 .frame(width: 96, alignment: .leading)
                 .lineLimit(1)
@@ -186,8 +186,8 @@ struct CopiedBadge: View {
     @Environment(\.notebookTheme) private var theme
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
-            Text("Copied · clears in 30 s").font(.system(size: 11, design: .serif))
+            Image(systemName: "checkmark").font(theme.type.body.face(10, weight: .bold))
+            Text("Copied · clears in 30 s").font(.system(size: 11))
         }
         .foregroundStyle(theme.page.paperColor.color)
         .padding(.horizontal, 9).padding(.vertical, 2)
@@ -226,7 +226,7 @@ struct BlockView: View {
                     }
                     if block.lineCount > 3 {
                         Text("\(block.lineCount - 3) more line\(block.lineCount - 3 == 1 ? "" : "s")")
-                            .font(.system(size: 11 * scale, design: .serif)).italic()
+                            .font(theme.type.body.face(11 * scale)).italic()
                             .foregroundStyle(theme.dimInk.color)
                     }
                 }
@@ -236,7 +236,7 @@ struct BlockView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 6) {
                 if let info = block.info {
-                    Text(info).font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(theme.dimInk.color)
+                    Text(info).font(theme.type.mono.face(10, weight: .medium)).foregroundStyle(theme.dimInk.color)
                 }
                 capsule(shown ? "Hide" : "Reveal") { section.toggleRevealed(key) }
                 capsule("Copy") { section.copy(block.body, key: key) }
@@ -252,7 +252,7 @@ struct BlockView: View {
     private func capsule(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 11.5, weight: .semibold, design: .serif))
+                .font(theme.type.body.face(11.5, weight: .semibold))
                 .foregroundStyle(theme.accent.color)
                 .padding(.horizontal, 9).padding(.vertical, 2)
                 .background(Capsule().fill(theme.accent.color.opacity(0.14)))
@@ -278,16 +278,16 @@ struct SecretEntryEditor: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Text(section.editingID == SecretsSection.newEntryID ? "New secret, as text" : "Editing as text")
-                    .font(.system(size: 11 * scale, design: .serif))
+                    .font(theme.type.body.face(11 * scale))
                     .foregroundStyle(theme.dimInk.color)
                 Text("## Title #tags · - label: value · a value in `backticks` is hidden · a ``` block is a long secret")
-                    .font(.system(size: 10.5 * scale, design: .serif))
+                    .font(theme.type.body.face(10.5 * scale))
                     .foregroundStyle(theme.dimInk.color.opacity(0.8))
                     .lineLimit(1)
                 Spacer()
                 Button { section.commitEdit() } label: {
                     Text("Done")
-                        .font(.system(size: 11.5, weight: .semibold, design: .serif))
+                        .font(theme.type.body.face(11.5, weight: .semibold))
                         .foregroundStyle(theme.accent.color)
                         .padding(.horizontal, 10).padding(.vertical, 2)
                         .background(Capsule().fill(theme.accent.color.opacity(0.16)))
@@ -298,7 +298,7 @@ struct SecretEntryEditor: View {
                 .help("Done (⇧⌘↩)")
                 Button("Cancel") { section.cancelEdit() }
                     .buttonStyle(.plain)
-                    .font(.system(size: 11.5, design: .serif))
+                    .font(theme.type.body.face(11.5))
                     .foregroundStyle(theme.dimInk.color)
             }
             .padding(.horizontal, 14)
@@ -309,7 +309,7 @@ struct SecretEntryEditor: View {
                 .padding(.bottom, section.editingID == SecretsSection.newEntryID ? 2 : 6)
             if section.editingID == SecretsSection.newEntryID {
                 Text("Several at once: paste a list with a heading per entry (any level, `## Title`, `# Title`…) and each becomes its own card. Ones already in the vault are skipped.")
-                    .font(.system(size: 10.5 * scale, design: .serif))
+                    .font(theme.type.body.face(10.5 * scale))
                     .foregroundStyle(theme.dimInk.color.opacity(0.8))
                     .padding(.horizontal, 14).padding(.bottom, 6)
             }

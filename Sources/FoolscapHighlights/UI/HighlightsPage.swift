@@ -61,7 +61,7 @@ struct HighlightsPage: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text("Highlights").font(theme.type.heading.font).fontWeight(.bold)
-            Text("\(section.items.count)").font(.system(size: 13 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+            Text("\(section.items.count)").font(theme.type.body.face(13 * scale)).foregroundStyle(theme.dimInk.color)
             Spacer()
             if !section.items.isEmpty {
                 FilterChip(label: "Today", isOn: section.mode == .today && section.searchText.isEmpty) { section.searchText = ""; section.showToday() }
@@ -79,7 +79,7 @@ struct HighlightsPage: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.dimInk.color)
             TextField("Search quotes, books, #tags", text: $section.searchText)
-                .font(.system(size: 13 * scale, design: .serif))
+                .font(theme.type.body.face(13 * scale))
                 .textFieldStyle(.plain)
                 .focused($searchFocused)
                 .completesTags(in: $section.searchText, known: section.knownTags)
@@ -102,19 +102,19 @@ struct HighlightsPage: View {
                     ProgressView().controlSize(.small)
                     Text(section.status.phase ?? "Reading your Kindle highlights…")
                 }
-                .font(.system(size: 15, design: .serif)).foregroundStyle(theme.dimInk.color)
+                .font(theme.type.body.face(15)).foregroundStyle(theme.dimInk.color)
             } else if !section.kindleInstalled {
                 Text("Highlights come from the Kindle app on this Mac. Install Amazon Kindle from the App Store, sign in, and download the books you have highlighted.")
-                    .font(.system(size: 15, design: .serif)).opacity(0.75)
+                    .font(theme.type.body.face(15)).opacity(0.75)
                     .frame(maxWidth: 520, alignment: .leading)
             } else {
                 Text("No highlights yet. Books you have highlighted in the Kindle app and downloaded there are read into one page each.")
-                    .font(.system(size: 15, design: .serif)).opacity(0.75)
+                    .font(theme.type.body.face(15)).opacity(0.75)
                     .frame(maxWidth: 520, alignment: .leading)
                 ImportButton(section: section)
             }
             if let error = section.status.lastError {
-                Text(error).font(.system(size: 13, design: .serif)).foregroundStyle(.red).frame(maxWidth: 520, alignment: .leading)
+                Text(error).font(theme.type.body.face(13)).foregroundStyle(.red).frame(maxWidth: 520, alignment: .leading)
             }
             if section.status.needsFullDiskAccess {
                 FullDiskAccessButton()
@@ -149,28 +149,28 @@ struct SearchResults: View {
         LazyVStack(alignment: .leading, spacing: 0) {
             if !books.isEmpty {
                 Text(books.count == 1 ? "Book" : "Books")
-                    .font(.system(size: 11 * scale, weight: .semibold, design: .serif)).foregroundStyle(theme.dimInk.color)
+                    .font(theme.type.body.face(11 * scale, weight: .semibold)).foregroundStyle(theme.dimInk.color)
                     .padding(.top, 10)
                 BookGrid(section: section, width: width, books: books)
                     .padding(.bottom, results.isEmpty ? 0 : 10)
             }
             if results.isEmpty && books.isEmpty {
                 Text(section.searchQuery.wordText.count < 2 && !section.searchQuery.hasTagFilter ? "Keep typing…" : "Nothing matches.")
-                    .font(.system(size: 14, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
+                    .font(theme.type.body.face(14)).italic().foregroundStyle(theme.dimInk.color)
                     .padding(.top, 6)
             } else if section.searchResultTotal > results.count {
                 Text("The first \(results.count) of \(section.searchResultTotal) matches; add a word or a #tag to narrow it.")
-                    .font(.system(size: 12 * scale, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
+                    .font(theme.type.body.face(12 * scale)).italic().foregroundStyle(theme.dimInk.color)
                     .padding(.top, 6)
             }
             ForEach(groups(results), id: \.path) { group in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Button { section.searchText = ""; section.open(book: group.path) } label: {
-                        Text(group.title).font(.system(size: 15 * scale, weight: .semibold, design: .serif))
+                        Text(group.title).font(theme.type.body.face(15 * scale, weight: .semibold))
                     }
                     .buttonStyle(.plain)
-                    if !group.author.isEmpty { Text(group.author).font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color) }
-                    Text("\(group.items.count)").font(.system(size: 11 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                    if !group.author.isEmpty { Text(group.author).font(theme.type.body.face(12 * scale)).foregroundStyle(theme.dimInk.color) }
+                    Text("\(group.items.count)").font(theme.type.body.face(11 * scale)).foregroundStyle(theme.dimInk.color)
                 }
                 .padding(.top, 14).padding(.bottom, 2)
                 ForEach(group.items) { item in
@@ -203,7 +203,7 @@ struct ImportButton: View {
     var body: some View {
         Button { section.importNow() } label: {
             Text(section.status.isRunning ? "Importing…" : "Import from Kindle")
-                .font(.system(size: 13, weight: .semibold, design: .serif))
+                .font(theme.type.body.face(13, weight: .semibold))
                 .padding(.horizontal, 14).padding(.vertical, 6)
                 .background(Capsule().fill(theme.accent.color.opacity(0.16)))
                 .overlay(Capsule().stroke(theme.accent.color.opacity(0.35), lineWidth: 0.5))
@@ -216,6 +216,7 @@ struct ImportButton: View {
 
 /// Opens System Settings where the Kindle app's data can be unlocked for Foolscap.
 struct FullDiskAccessButton: View {
+    @Environment(\.notebookTheme) private var theme
     var body: some View {
         HStack(spacing: 10) {
             Button("Open Files & Folders Settings…") {
@@ -225,7 +226,7 @@ struct FullDiskAccessButton: View {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") { NSWorkspace.shared.open(url) }
             }
         }
-        .font(.system(size: 12.5, design: .serif))
+        .font(theme.type.body.face(12.5))
     }
 }
 
@@ -234,7 +235,7 @@ struct AccessGrantNote: View {
     @Environment(\.notebookTheme) private var theme
     var body: some View {
         Text("If the switch turns itself off again, the app has been rebuilt since it was granted: macOS ties the permission to the app's signature, and an ad-hoc signature changes with every build. Sign the app with a certificate (see the Makefile) to keep it.")
-            .font(.system(size: 12, design: .serif)).foregroundStyle(theme.dimInk.color)
+            .font(theme.type.body.face(12)).foregroundStyle(theme.dimInk.color)
             .frame(maxWidth: 560, alignment: .leading)
     }
 }
@@ -247,10 +248,10 @@ struct SkippedList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("\(report.skipped.count) book\(report.skipped.count == 1 ? "" : "s") skipped:")
-                .font(.system(size: 12.5, weight: .semibold, design: .serif)).foregroundStyle(theme.dimInk.color)
+                .font(theme.type.body.face(12.5, weight: .semibold)).foregroundStyle(theme.dimInk.color)
             ForEach(report.skipped) { s in
                 Text("\(s.title) — \(s.reason) (\(s.count))")
-                    .font(.system(size: 12, design: .serif)).foregroundStyle(theme.dimInk.color).lineLimit(2)
+                    .font(theme.type.body.face(12)).foregroundStyle(theme.dimInk.color).lineLimit(2)
             }
         }
         .padding(.top, 8)

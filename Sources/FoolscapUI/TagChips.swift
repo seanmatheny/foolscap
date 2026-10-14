@@ -19,7 +19,7 @@ public struct TagChip: View {
         let armed = removable && hovering
         Button(action: onRemove) {
             Text("#" + tag)
-                .font(.system(size: 11 * scale, design: .serif))
+                .font(theme.type.body.face(11 * scale))
                 .strikethrough(armed, color: theme.accent.color)
                 .foregroundStyle(theme.accent.color)
                 .padding(.horizontal, 6).padding(.vertical, 1)
@@ -48,7 +48,7 @@ public struct FilterChip: View {
     public var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 11.5, weight: isOn || isTargeted ? .semibold : .regular, design: .serif))
+                .font(theme.type.body.face(11.5, weight: isOn || isTargeted ? .semibold : .regular))
                 .padding(.horizontal, 9).padding(.vertical, 3)
                 .background(Capsule().fill(isOn || isTargeted ? theme.accent.color.opacity(isTargeted ? 0.32 : 0.2) : theme.ink.color.opacity(0.06)))
                 .overlay(Capsule().stroke(isTargeted ? theme.accent.color : theme.ink.color.opacity(isOn ? 0.25 : 0.1),
@@ -78,7 +78,7 @@ public struct TagPopover: View {
         PaperPopover {
             VStack(alignment: .leading, spacing: 8) {
                 TextField("Tag", text: $newTag)
-                    .font(.system(size: 13, design: .serif))
+                    .font(theme.type.body.face(13))
                     .paperField().frame(width: 200)
                     .focused($focused)
                     .onSubmit { onPick(choices.first ?? newTag) }
@@ -90,12 +90,12 @@ public struct TagPopover: View {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(choices, id: \.self) { tag in
                             Button("#" + tag) { onPick(tag) }
-                                .buttonStyle(.plain).font(.system(size: 12.5, design: .serif))
+                                .buttonStyle(.plain).font(theme.type.body.face(12.5))
                                 .foregroundStyle(theme.accent.color)
                         }
                     }
                 } else if !typed.isEmpty {
-                    Text("New tag #\(typed)").font(.system(size: 11, design: .serif)).foregroundStyle(theme.dimInk.color)
+                    Text("New tag #\(typed)").font(theme.type.body.face(11)).foregroundStyle(theme.dimInk.color)
                 }
             }
         }
@@ -131,7 +131,7 @@ public struct TagCompletionRow: View {
                 HStack(spacing: 6) {
                     ForEach(matches, id: \.self) { tag in
                         Button("#" + tag) { text = TagCompletion.completing(text, partial: partial, with: tag) }
-                            .buttonStyle(.plain).font(.system(size: 11, design: .serif))
+                            .buttonStyle(.plain).font(theme.type.body.face(11))
                             .foregroundStyle(theme.accent.color)
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Capsule().fill(theme.accent.color.opacity(0.12)))

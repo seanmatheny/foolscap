@@ -32,7 +32,7 @@ struct SecretsPage: View {
                 // reach: under the title row the first card cut it in half.
                 if unlocked, !section.showsAllLetters, let group {
                     Text(group.label)
-                        .font(.system(size: 110 * scale, weight: .bold, design: .serif))
+                        .font(theme.type.heading.face(110 * scale, weight: .bold))
                         .foregroundStyle(theme.ink.color.opacity(0.06))
                         .padding(.bottom, pitch * 0.6)
                         .padding(.trailing, left ? 60 : 70)
@@ -83,14 +83,14 @@ struct SecretsPage: View {
                 if unlocked { section.lockNow() } else if section.vault.hasDeviceWrap { Task { await section.unlockWithDevice() } }
             } label: {
                 Image(systemName: unlocked ? "lock.open.fill" : "lock.fill")
-                    .font(.system(size: 13 * scale, weight: .semibold))
+                    .font(theme.type.body.face(13 * scale, weight: .semibold))
                     .foregroundStyle(unlocked ? theme.accent.color : theme.dimInk.color)
             }
             .buttonStyle(.plain)
             .pointerStyle(.link)
             .help(unlocked ? "Lock (⌃⌘L)" : "Unlock with Touch ID")
             status
-                .font(.system(size: 12.5 * scale, design: .serif))
+                .font(.system(size: 12.5 * scale))
                 .foregroundStyle(theme.dimInk.color)
                 .lineLimit(1)
             Spacer()
@@ -98,7 +98,7 @@ struct SecretsPage: View {
                 searchField
                 Button { section.beginAdd() } label: {
                     Label("New", systemImage: "plus")
-                        .font(.system(size: 12.5, weight: .semibold, design: .serif))
+                        .font(theme.type.body.face(12.5, weight: .semibold))
                         .padding(.horizontal, 10).padding(.vertical, 3)
                         .background(Capsule().fill(theme.accent.color.opacity(0.16)))
                         .overlay(Capsule().stroke(theme.accent.color.opacity(0.35), lineWidth: 0.5))
@@ -147,7 +147,7 @@ struct SecretsPage: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.dimInk.color)
             TextField("Search titles, fields, notes", text: $section.searchText)
-                .font(.system(size: 13 * scale, design: .serif))
+                .font(theme.type.body.face(13 * scale))
                 .textFieldStyle(.plain)
                 .focused($searchFocused)
                 .completesTags(in: $section.searchText, known: section.knownTags)
@@ -201,7 +201,7 @@ struct SecretsPage: View {
             ForEach(shown) { under in
                 if showsHeadings, !under.entries.isEmpty {
                     Text(under.letter.description)
-                        .font(.system(size: 15 * scale, weight: .bold, design: .serif))
+                        .font(theme.type.heading.face(15 * scale, weight: .bold))
                         .foregroundStyle(theme.dimInk.color)
                         .frame(height: pitch, alignment: .bottomLeading)
                 }
@@ -215,7 +215,7 @@ struct SecretsPage: View {
             }
             if nothing {
                 Text(emptyMessage(letters: letters))
-                    .font(.system(size: 14 * scale, design: .serif)).italic()
+                    .font(theme.type.body.face(14 * scale)).italic()
                     .foregroundStyle(theme.dimInk.color)
                     .frame(height: pitch)
             }

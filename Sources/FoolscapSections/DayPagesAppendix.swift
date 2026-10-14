@@ -33,8 +33,8 @@ struct DayPagesAppendix: View {
                             .foregroundStyle(theme.dimInk.color)
                             .frame(width: 12)
                         Text("From your Scribe")
-                            .font(.system(size: 17 * scale, weight: .bold, design: .serif))
-                        Text("\(pages.count)").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                            .font(theme.type.heading.face(17 * scale, weight: .bold))
+                        Text("\(pages.count)").font(theme.type.body.face(12 * scale)).foregroundStyle(theme.dimInk.color)
                     }
                     .frame(height: pitch)
                     ForEach(pages) { page in
@@ -66,7 +66,7 @@ struct DayPagesAppendix: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Button { open(page) } label: {
                         Text(page.title + " · " + page.subtitle)
-                            .font(.system(size: 12 * scale, weight: .medium, design: .serif))
+                            .font(theme.type.body.face(12 * scale, weight: .medium))
                             .foregroundStyle(theme.dimInk.color)
                     }
                     .buttonStyle(.plain)

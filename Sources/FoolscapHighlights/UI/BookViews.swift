@@ -47,12 +47,12 @@ struct BookCover: View {
             VStack(spacing: 7) {
                 ShelfCover(url: section.coverURL(for: book.path), title: book.title, author: book.author, width: 96, lifted: hovering)
                 Text(book.title)
-                    .font(.system(size: 11.5 * scale, design: .serif))
+                    .font(theme.type.body.face(11.5 * scale))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("\(book.count - book.hiddenCount)")
-                    .font(.system(size: 10.5 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                    .font(theme.type.body.face(10.5 * scale)).foregroundStyle(theme.dimInk.color)
             }
             .frame(width: BookGrid.cellWidth)
             .contentShape(Rectangle())
@@ -152,12 +152,12 @@ struct PlaceholderCover: View {
             VStack(spacing: 6) {
                 Rectangle().fill(theme.accent.color.opacity(0.6)).frame(width: width * 0.3, height: 1.5)
                 Text(title)
-                    .font(.system(size: width / 9.5, weight: .semibold, design: .serif))
+                    .font(theme.type.body.face(width / 9.5, weight: .semibold))
                     .multilineTextAlignment(.center)
                     .lineLimit(5)
                 if !author.isEmpty {
                     Text(author)
-                        .font(.system(size: width / 12, design: .serif)).italic()
+                        .font(theme.type.body.face(width / 12)).italic()
                         .foregroundStyle(theme.dimInk.color)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
@@ -257,7 +257,7 @@ struct BookPage: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { section.showBooks() } label: {
                 Label("All books", systemImage: "chevron.left")
-                    .font(.system(size: 13 * scale, weight: .semibold, design: .serif))
+                    .font(theme.type.body.face(13 * scale, weight: .semibold))
                     .foregroundStyle(theme.accent.color)
                     .padding(.horizontal, 10).padding(.vertical, 4)
                     .background(Capsule().fill(theme.accent.color.opacity(0.12)))
@@ -269,13 +269,13 @@ struct BookPage: View {
                 CoverThumbnail(url: section.coverURL(for: path), title: book?.title ?? "", author: book?.author ?? "", width: 72)
                     .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(book?.title ?? path).font(.system(size: 20 * scale, weight: .bold, design: .serif))
+                    Text(book?.title ?? path).font(theme.type.heading.face(20 * scale, weight: .bold))
                     if let author = book?.author, !author.isEmpty {
-                        Text(author).font(.system(size: 14 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                        Text(author).font(theme.type.body.face(14 * scale)).foregroundStyle(theme.dimInk.color)
                     }
                     let hidden = items.filter(\.isHidden).count
                     Text("\(items.count) highlight\(items.count == 1 ? "" : "s")" + (hidden > 0 ? ", \(hidden) hidden" : ""))
-                        .font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                        .font(theme.type.body.face(12 * scale)).foregroundStyle(theme.dimInk.color)
                 }
                 .padding(.top, 4)
             }
@@ -326,26 +326,26 @@ struct HighlightRow: View {
         VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array(item.paragraphs.enumerated()), id: \.offset) { _, paragraph in
                     Text(paragraph)
-                        .font(.system(size: 15 * scale, design: .serif))
+                        .font(theme.type.body.face(15 * scale))
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 }
                 if let note = item.note {
-                    Text(note).font(.system(size: 12.5 * scale, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
+                    Text(note).font(theme.type.body.face(12.5 * scale)).italic().foregroundStyle(theme.dimInk.color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(alignment: .center, spacing: 8) {
                     if let added = item.meta.added {
                         Text(added.formatted(date: .abbreviated, time: .omitted))
-                            .font(.system(size: 11 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                            .font(theme.type.body.face(11 * scale)).foregroundStyle(theme.dimInk.color)
                     }
                     ForEach(item.tags, id: \.self) { tag in
                         TagChip(tag: tag, scale: scale) { section.removeTag(tag, from: item) }
                     }
                     if item.isHidden {
                         Text("hidden")
-                            .font(.system(size: 10.5 * scale, design: .serif)).italic()
+                            .font(theme.type.body.face(10.5 * scale)).italic()
                             .foregroundStyle(theme.dimInk.color)
                             .padding(.horizontal, 6).padding(.vertical, 1)
                             .overlay(Capsule().stroke(theme.dimInk.color.opacity(0.4), lineWidth: 0.5))

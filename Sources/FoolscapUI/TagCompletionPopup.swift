@@ -94,7 +94,7 @@ struct TagCompletionList: View {
             ForEach(Array(model.tags.enumerated()), id: \.element) { i, tag in
                 let selected = i == model.selection
                 Text("#" + tag)
-                    .font(.system(size: 13, weight: selected ? .semibold : .regular, design: .serif))
+                    .font(theme.type.body.face(13, weight: selected ? .semibold : .regular))
                     .foregroundStyle(selected ? theme.ink.color : theme.accent.color)
                     .lineLimit(1)
                     .padding(.horizontal, 10)

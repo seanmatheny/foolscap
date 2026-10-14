@@ -141,8 +141,8 @@ struct ScribePageZoom: View {
     private var captionBar: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(caption(page + 1))
-                .font(.system(size: 10, weight: .semibold, design: .serif)).tracking(1)
-            Text(title).font(.system(size: 11.5, design: .serif)).lineLimit(1)
+                .font(theme.type.body.face(10, weight: .semibold)).tracking(1)
+            Text(title).font(theme.type.body.face(11.5)).lineLimit(1)
             Spacer()
             Button { dismiss() } label: {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).frame(width: 22, height: 22)
@@ -158,13 +158,13 @@ struct ScribePageZoom: View {
         HStack(spacing: 6) {
             control("chevron.left", help: "Previous page (←)") { step(-1) }.disabled(page <= 0)
             Text("\(page + 1) / \(max(pageCount, page + 1))")
-                .font(.system(size: 11.5, weight: .medium, design: .serif)).monospacedDigit()
+                .font(theme.type.body.face(11.5, weight: .medium)).monospacedDigit()
                 .frame(minWidth: 52)
             control("chevron.right", help: "Next page (→)") { step(1) }.disabled(page + 1 >= pageCount)
             Rectangle().fill(.white.opacity(0.25)).frame(width: 0.5, height: 14).padding(.horizontal, 4)
             control("minus.magnifyingglass", help: "Smaller (-)") { setZoom(zoom / 1.5) }.disabled(zoom <= ScribeZoomLayout.minZoom)
             Text("\(Int((zoom * 100).rounded()))%")
-                .font(.system(size: 11.5, weight: .medium, design: .serif)).monospacedDigit()
+                .font(theme.type.body.face(11.5, weight: .medium)).monospacedDigit()
                 .frame(minWidth: 44)
             control("plus.magnifyingglass", help: "Larger (=)") { setZoom(zoom * 1.5) }.disabled(zoom >= ScribeZoomLayout.maxZoom)
         }

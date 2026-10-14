@@ -27,7 +27,7 @@ struct ScribePage: View {
                                 .id(notebook.id)
                                 .padding(.leading, 18)
                         } else {
-                            Text("Choose a notebook").font(.system(size: 15, design: .serif)).foregroundStyle(theme.dimInk.color)
+                            Text("Choose a notebook").font(theme.type.body.face(15)).foregroundStyle(theme.dimInk.color)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     }
@@ -47,23 +47,23 @@ struct ScribePage: View {
                     ProgressView().controlSize(.small)
                     Text(section.status.phase ?? "Fetching your notebooks…")
                 }
-                .font(.system(size: 15, design: .serif)).foregroundStyle(theme.dimInk.color)
+                .font(theme.type.body.face(15)).foregroundStyle(theme.dimInk.color)
             } else if section.status.needsSignIn || !section.account.isSignedIn {
                 Text("Sign in to Amazon once and your handwritten notebooks will appear here, with their text recognised and any TODO lines added to the Tasks tab.")
-                    .font(.system(size: 15, design: .serif)).opacity(0.75)
+                    .font(theme.type.body.face(15)).opacity(0.75)
                     .frame(maxWidth: 520, alignment: .leading)
                 actionButton(section.account.isSigningIn ? "Waiting for sign-in…" : "Sign in to Amazon…") { section.signIn() }
                     .disabled(section.account.isSigningIn)
                 Text("Use your password (and the one-time code if Amazon asks): passkeys only work in real browsers, not inside an app. Foolscap keeps the session afterwards.")
-                    .font(.system(size: 12.5, design: .serif)).foregroundStyle(theme.dimInk.color)
+                    .font(theme.type.body.face(12.5)).foregroundStyle(theme.dimInk.color)
                     .frame(maxWidth: 520, alignment: .leading)
-                if let error = section.account.signInError { Text(error).font(.system(size: 13, design: .serif)).foregroundStyle(.red) }
+                if let error = section.account.signInError { Text(error).font(theme.type.body.face(13)).foregroundStyle(.red) }
             } else {
-                Text("No notebooks yet.").font(.system(size: 15, design: .serif)).opacity(0.75)
+                Text("No notebooks yet.").font(theme.type.body.face(15)).opacity(0.75)
                 actionButton("Sync now") { section.syncNow() }
             }
             if let error = section.status.lastError {
-                Text(error).font(.system(size: 13, design: .serif)).foregroundStyle(.red).frame(maxWidth: 520, alignment: .leading)
+                Text(error).font(theme.type.body.face(13)).foregroundStyle(.red).frame(maxWidth: 520, alignment: .leading)
             }
             Spacer()
         }
@@ -74,7 +74,7 @@ struct ScribePage: View {
     private func actionButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 13, weight: .semibold, design: .serif))
+                .font(theme.type.body.face(13, weight: .semibold))
                 .padding(.horizontal, 14).padding(.vertical, 6)
                 .background(Capsule().fill(theme.accent.color.opacity(0.16)))
                 .overlay(Capsule().stroke(theme.accent.color.opacity(0.35), lineWidth: 0.5))

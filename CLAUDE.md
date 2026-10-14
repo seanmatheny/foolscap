@@ -140,6 +140,9 @@
 - Settings ▸ Notebook ▸ Type picks font families over the theme's own (`bodyFont`,
   `headingFont`, `monoFont` defaults, "" = the theme's; `NotebookTheme.withType`, applied in
   `AppModel.theme` before scaling); `-bodyFont Georgia` in the argument domain previews one.
+  SwiftUI text takes its face from the theme, `theme.type.body|heading|mono.face(size, weight:)`
+  (Core), never `.system(design: .serif)`, or Settings ▸ Type does not reach it; only the
+  cover wordmark keeps a fixed face.
 - Task state changes undo with ⌘Z: `TaskAggregator.move` and the Jira sun (`JiraSection.pull`,
   `park`, `unpull`) register with `TaskUndo.manager`, the main window's undo manager, which the
   editor's text views share, so one stack holds typing and moves. A sun that wrote a new line is

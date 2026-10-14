@@ -138,7 +138,7 @@ struct DailyNotesPage: View {
             if let document {
                 if document.isDownloading {
                     Text("Downloading from iCloud…")
-                        .font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
+                        .font(theme.type.body.face(13)).foregroundStyle(theme.dimInk.color)
                         .padding(.top, 60).padding(.leading, 64)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -174,8 +174,8 @@ struct SearchCapsule: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold))
-                Text("Search notes and #tags").font(.system(size: 12, design: .serif))
+                Image(systemName: "magnifyingglass").font(theme.type.body.face(11, weight: .semibold))
+                Text("Search notes and #tags").font(.system(size: 12))
             }
             .foregroundStyle(theme.ink.color.opacity(hovering ? 0.75 : 0.5))
             .padding(.horizontal, 10).frame(height: 24)
@@ -199,7 +199,7 @@ struct DayNavigator: View {
             navButton("chevron.left", help: "Previous day (⌘[)") { section.go(days: -1) }
             Button { showCalendar.toggle() } label: {
                 Text(section.selectedDay.shortTitle)
-                    .font(.system(size: 12, weight: .medium, design: .serif))
+                    .font(theme.type.body.face(12, weight: .medium))
                     .padding(.horizontal, 8).frame(height: 24)
             }
             .buttonStyle(.plain)
@@ -210,7 +210,7 @@ struct DayNavigator: View {
             if section.selectedDay != .today {
                 Button("Today") { section.goToday() }
                     .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .semibold, design: .serif))
+                    .font(theme.type.body.face(11, weight: .semibold))
                     .padding(.horizontal, 8).frame(height: 24)
                     .background(Capsule().fill(theme.accent.color.opacity(0.14)))
                     .padding(.leading, 4)
@@ -263,7 +263,7 @@ struct ConflictBanner: View {
             Button("Take theirs") { try? document.resolveConflicts(.takeTheirs) }
             Button("Keep both") { try? document.resolveConflicts(.keepBoth) }
         }
-        .font(.system(size: 12, design: .serif))
+        .font(theme.type.body.face(12))
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(Capsule().fill(theme.accent.color.opacity(0.18)))
         .foregroundStyle(theme.ink.color)
@@ -280,7 +280,7 @@ struct ExternalChangeBanner: View {
             Button("Keep mine") { document.keepLocalVersion() }
             Button("Take theirs") { document.takeExternalVersion() }
         }
-        .font(.system(size: 12, design: .serif))
+        .font(theme.type.body.face(12))
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(Capsule().fill(theme.accent.color.opacity(0.18)))
         .foregroundStyle(theme.ink.color)

@@ -41,11 +41,11 @@ struct ScribeContentsColumn: View {
                     .rotationEffect(.degrees(row.isExpanded ? 90 : 0))
                     .frame(width: 10)
                 Text(row.item.name.uppercased())
-                    .font(.system(size: 10, weight: .semibold, design: .serif))
+                    .font(theme.type.body.face(10, weight: .semibold))
                     .tracking(0.8)
                     .lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 4)
-                Text("\(row.notebookCount)").font(.system(size: 10, design: .serif))
+                Text("\(row.notebookCount)").font(theme.type.body.face(10))
             }
             .foregroundStyle(theme.dimInk.color)
             .padding(.leading, 10 + Self.indent * CGFloat(row.depth)).padding(.trailing, 14)
@@ -66,11 +66,11 @@ struct ScribeContentsColumn: View {
                     .font(.system(size: 10))
                     .foregroundStyle(selected ? theme.accent.color : theme.dimInk.color)
                 Text(notebook.name)
-                    .font(.system(size: 13, weight: selected ? .semibold : .regular, design: .serif))
+                    .font(theme.type.body.face(13, weight: selected ? .semibold : .regular))
                     .lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 4)
                 if let pages = notebook.totalPages {
-                    Text("\(pages)").font(.system(size: 10.5, design: .serif)).foregroundStyle(theme.dimInk.color)
+                    Text("\(pages)").font(theme.type.body.face(10.5)).foregroundStyle(theme.dimInk.color)
                 }
             }
             .padding(.leading, 10 + Self.indent * CGFloat(row.depth)).padding(.trailing, 10)
@@ -122,7 +122,7 @@ struct SyncStatusLine: View {
                 Text(error).lineLimit(2).foregroundStyle(.red.opacity(0.8))
             }
         }
-        .font(.system(size: 11, design: .serif))
+        .font(theme.type.body.face(11))
         .foregroundStyle(theme.dimInk.color)
     }
 

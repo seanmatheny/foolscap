@@ -52,8 +52,8 @@ struct TodayTasksPanel: View {
                             .foregroundStyle(theme.dimInk.color)
                             .frame(width: 12)
                         Text("Today")
-                            .font(.system(size: 17 * scale, weight: .bold, design: .serif))
-                        Text("\(open)").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                            .font(theme.type.heading.face(17 * scale, weight: .bold))
+                        Text("\(open)").font(theme.type.body.face(12 * scale)).foregroundStyle(theme.dimInk.color)
                     }
                     .frame(height: pitch)
                     // Every row, however many: a list that scrolled inside the

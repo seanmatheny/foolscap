@@ -53,7 +53,7 @@ struct FolderTab: View {
         // The label sizes the tab; the paper is a background so the tiled texture
         // cannot widen it.
         Text(name)
-            .font(.system(size: 11.5, weight: .semibold, design: .serif))
+            .font(theme.type.body.face(11.5, weight: .semibold))
             .lineLimit(1)
             .foregroundStyle(Color.black.opacity(0.72))
             .padding(.horizontal, 16)

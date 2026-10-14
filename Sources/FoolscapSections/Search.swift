@@ -144,7 +144,7 @@ public struct SearchPalette: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(theme.dimInk.color)
                 TextField("Search notes and tasks", text: $coordinator.query)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 17, design: .serif))
+                    .font(theme.type.body.face(17))
                     .focused($focused)
                     .onSubmit { coordinator.activateSelection() }
                     .onKeyPress(.downArrow) { move(1); return .handled }
@@ -180,7 +180,7 @@ public struct SearchPalette: View {
                 }
             } else if coordinator.query.count >= 2, SearchQuery(coordinator.query).pendingTag == nil {
                 Divider().overlay(theme.ink.color.opacity(0.15))
-                Text("No matches").font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
+                Text("No matches").font(theme.type.body.face(13)).foregroundStyle(theme.dimInk.color)
                     .frame(height: 40)
             }
         }
@@ -214,13 +214,13 @@ struct TagSuggestionList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(tags.isEmpty ? "No tags yet. Type #tag in a note to create one." : "Filter by tag")
-                .font(.system(size: 11, design: .serif)).foregroundStyle(theme.dimInk.color)
+                .font(theme.type.body.face(11)).foregroundStyle(theme.dimInk.color)
             if !tags.isEmpty {
                 FlowLayout(spacing: 6) {
                     ForEach(tags, id: \.self) { tag in
                         Button("#" + tag) { pick(tag) }
                             .buttonStyle(.plain)
-                            .font(.system(size: 12, weight: .medium, design: .serif))
+                            .font(theme.type.body.face(12, weight: .medium))
                             .foregroundStyle(theme.accent.color)
                             .padding(.horizontal, 8).padding(.vertical, 3)
                             .background(Capsule().fill(theme.accent.color.opacity(0.12)))
@@ -240,8 +240,8 @@ struct SearchHitRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(hit.title).font(.system(size: 13, weight: .semibold, design: .serif))
-            Text(snippet).font(.system(size: 12.5, design: .serif)).lineLimit(2).foregroundStyle(theme.ink.color.opacity(0.8))
+            Text(hit.title).font(theme.type.body.face(13, weight: .semibold))
+            Text(snippet).font(theme.type.body.face(12.5)).lineLimit(2).foregroundStyle(theme.ink.color.opacity(0.8))
         }
         .padding(.horizontal, 14).padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -256,7 +256,7 @@ struct SearchHitRow: View {
         var run = ""
         func flush() {
             var a = AttributedString(run)
-            if bold { a.font = .system(size: 12.5, weight: .bold, design: .serif); a.backgroundColor = theme.highlighter[.today]?.color }
+            if bold { a.font = theme.type.body.face(12.5, weight: .bold); a.backgroundColor = theme.highlighter[.today]?.color }
             out += a; run = ""
         }
         let collapsed = hit.snippet.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)

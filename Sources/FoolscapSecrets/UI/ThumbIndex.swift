@@ -121,7 +121,7 @@ private struct ThumbCut: View {
                 .clipShape(shape)
                 if !theme.flat { shape.stroke(Color.black.opacity(isSelected ? 0.3 : 0.22), lineWidth: 0.5) }
                 Text(group.label)
-                    .font(.system(size: group.letters.count > 1 ? 9.5 : (isSelected ? 13 : 11.5), weight: .semibold, design: .serif))
+                    .font(theme.type.body.face(group.letters.count > 1 ? 9.5 : (isSelected ? 13 : 11.5), weight: .semibold))
                     .foregroundStyle(Color.black.opacity(0.72))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)

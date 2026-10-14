@@ -132,3 +132,20 @@ public extension EnvironmentValues {
 public extension RGBA {
     var color: Color { Color(.sRGB, red: r, green: g, blue: b, opacity: a) }
 }
+
+public extension FontSpec {
+    /// This face at another size and weight, for SwiftUI pages: chrome set this way
+    /// follows the theme and Settings ▸ Notebook ▸ Type, where `.system(design:)` would not.
+    func face(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        guard let family else {
+            let d: Font.Design = switch design {
+            case .serif: .serif
+            case .sans: .default
+            case .mono: .monospaced
+            case .rounded: .rounded
+            }
+            return .system(size: size, weight: weight, design: d)
+        }
+        return .custom(family, fixedSize: size).weight(weight)
+    }
+}

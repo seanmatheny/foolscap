@@ -23,17 +23,17 @@ struct LockedView: View {
                 .padding(.bottom, 6)
             Text("Secrets are locked").font(theme.type.heading.font).fontWeight(.bold)
             Text("Nothing on this page can be read until you unlock it. It locks itself again after \(section.lockMinutes) minute\(section.lockMinutes == 1 ? "" : "s") without a keystroke, when the Mac sleeps or the screen locks.")
-                .font(.system(size: 13.5 * scale, design: .serif))
+                .font(theme.type.body.face(13.5 * scale))
                 .foregroundStyle(theme.dimInk.color)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 470)
             if case .failed(let why) = section.vault.state {
-                Text(why).font(.system(size: 13 * scale, design: .serif)).foregroundStyle(.red).multilineTextAlignment(.center)
+                Text(why).font(theme.type.body.face(13 * scale)).foregroundStyle(.red).multilineTextAlignment(.center)
             }
             if hasDevice {
                 Button { Task { await section.unlockWithDevice() } } label: {
                     Label("Unlock with Touch ID", systemImage: "touchid")
-                        .font(.system(size: 13.5, weight: .semibold, design: .serif))
+                        .font(theme.type.body.face(13.5, weight: .semibold))
                         .foregroundStyle(theme.accent.color)
                         .padding(.horizontal, 16).padding(.vertical, 7)
                         .background(Capsule().fill(theme.accent.color.opacity(0.16)))
@@ -47,7 +47,7 @@ struct LockedView: View {
                 if unlocking { ProgressView().controlSize(.small) }
                 Button("Use the recovery passphrase") { showPassphrase.toggle(); passphraseFocused = showPassphrase }
                     .buttonStyle(.plain)
-                    .font(.system(size: 12 * scale, design: .serif))
+                    .font(theme.type.body.face(12 * scale))
                     .foregroundStyle(theme.dimInk.color)
                     .underline()
             }
@@ -55,13 +55,13 @@ struct LockedView: View {
                 HStack(spacing: 8) {
                     SecureField("Recovery passphrase", text: $passphrase)
                         .paperField()
-                        .font(.system(size: 13 * scale, design: .serif))
+                        .font(theme.type.body.face(13 * scale))
                         .frame(width: 260)
                         .focused($passphraseFocused)
                         .onSubmit(submit)
                     Button("Unlock") { submit() }
                         .buttonStyle(.plain)
-                        .font(.system(size: 12.5, weight: .semibold, design: .serif))
+                        .font(theme.type.body.face(12.5, weight: .semibold))
                         .foregroundStyle(theme.accent.color)
                         .padding(.horizontal, 12).padding(.vertical, 5)
                         .background(Capsule().fill(theme.accent.color.opacity(0.14)))
@@ -70,14 +70,14 @@ struct LockedView: View {
                 .colorScheme(theme.isDark ? .dark : .light)
                 if !hasDevice {
                     Text(section.vault.deviceStore.map { "\($0.displayName) is not set up for this vault on this Mac. Once it is open, Settings ▸ Secrets can enrol it." } ?? "")
-                        .font(.system(size: 12 * scale, design: .serif))
+                        .font(theme.type.body.face(12 * scale))
                         .foregroundStyle(theme.dimInk.color)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 470)
                 }
             }
             if let error = section.vault.lastError {
-                Text(error).font(.system(size: 13 * scale, design: .serif)).foregroundStyle(.red).multilineTextAlignment(.center)
+                Text(error).font(theme.type.body.face(13 * scale)).foregroundStyle(.red).multilineTextAlignment(.center)
             }
         }
         .frame(maxWidth: .infinity)
@@ -108,9 +108,9 @@ struct SetupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Keep passwords, keys and codes here, filed A–Z like an address book.")
-                .font(.system(size: 15 * scale, design: .serif)).opacity(0.8)
+                .font(theme.type.body.face(15 * scale)).opacity(0.8)
             Text("The vault is one AES-256 encrypted file inside your notebook folder, so it travels with your backups. Day to day it opens with Touch ID or your login password. The recovery passphrase you choose now is the other way in, and the only way on another Mac: keep it somewhere safe. Nothing in the vault is indexed or searchable from the other tabs.")
-                .font(.system(size: 13.5 * scale, design: .serif))
+                .font(theme.type.body.face(13.5 * scale))
                 .foregroundStyle(theme.dimInk.color)
                 .fixedSize(horizontal: false, vertical: true)
             SecureField("Recovery passphrase", text: $passphrase)
@@ -122,7 +122,7 @@ struct SetupView: View {
             HStack(spacing: 12) {
                 Button { create() } label: {
                     Text("Create vault")
-                        .font(.system(size: 13, weight: .semibold, design: .serif))
+                        .font(theme.type.body.face(13, weight: .semibold))
                         .foregroundStyle(theme.accent.color)
                         .padding(.horizontal, 14).padding(.vertical, 6)
                         .background(Capsule().fill(theme.accent.color.opacity(0.16)))
@@ -132,13 +132,13 @@ struct SetupView: View {
                 .disabled(!ready)
                 .opacity(ready ? 1 : 0.5)
                 if !passphrase.isEmpty && passphrase.count < 8 {
-                    Text("At least 8 characters.").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                    Text("At least 8 characters.").font(theme.type.body.face(12 * scale)).foregroundStyle(theme.dimInk.color)
                 } else if !confirmation.isEmpty && passphrase != confirmation {
-                    Text("The two do not match yet.").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                    Text("The two do not match yet.").font(theme.type.body.face(12 * scale)).foregroundStyle(theme.dimInk.color)
                 }
             }
             if let error {
-                Text(error).font(.system(size: 13 * scale, design: .serif)).foregroundStyle(.red)
+                Text(error).font(theme.type.body.face(13 * scale)).foregroundStyle(.red)
             }
         }
         .colorScheme(theme.isDark ? .dark : .light)

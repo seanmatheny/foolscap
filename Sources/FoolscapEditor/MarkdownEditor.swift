@@ -82,8 +82,9 @@ public struct MarkdownEditor: NSViewRepresentable {
         if themeChanged {
             let palette = EditorPalette(theme: theme)
             textView.palette.theme = theme
-            if palette.body != textView.palette.body || palette.ink != textView.palette.ink || palette.ruling != textView.palette.ruling
-                || palette.showMarginRule != textView.palette.showMarginRule {
+            if palette.body != textView.palette.body || palette.headings != textView.palette.headings
+                || palette.mono != textView.palette.mono || palette.ink != textView.palette.ink
+                || palette.ruling != textView.palette.ruling || palette.showMarginRule != textView.palette.showMarginRule {
                 textView.palette = palette
                 textView.applyPalette()
                 textView.restyleAll()

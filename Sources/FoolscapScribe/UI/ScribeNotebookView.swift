@@ -65,7 +65,7 @@ struct ScribeNotebookView: View {
                         .id(Self.topID)
                     if isPlaceholder {
                         Text("Downloading from iCloud…")
-                            .font(.system(size: 13, design: .serif)).foregroundStyle(theme.dimInk.color)
+                            .font(theme.type.body.face(13)).foregroundStyle(theme.dimInk.color)
                             .padding(.top, pitch)
                     }
                     let columns = Self.columns(for: geo.size.width)
@@ -178,7 +178,7 @@ struct ScribeNotebookView: View {
                     .disabled(parsed == nil)
                 headerButton("Open PDF", symbol: "arrow.up.forward.square") { NSWorkspace.shared.open(pdfURL) }
             }
-            Text(subtitle).font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+            Text(subtitle).font(theme.type.body.face(12 * scale)).foregroundStyle(theme.dimInk.color)
         }
         .frame(minHeight: pitch * 1.5)
     }
@@ -195,7 +195,7 @@ struct ScribeNotebookView: View {
     private func headerButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: symbol)
-                .font(.system(size: 11.5, weight: .medium, design: .serif))
+                .font(theme.type.body.face(11.5, weight: .medium))
                 .padding(.horizontal, 9).padding(.vertical, 3)
                 .background(Capsule().fill(theme.accent.color.opacity(0.14)))
         }
@@ -208,7 +208,7 @@ struct ScribeNotebookView: View {
         let aspect = size.height / max(1, size.width)
         return VStack(alignment: .leading, spacing: pitch / 2) {
             Text(caption(number: number, day: page?.day))
-                .font(.system(size: 10 * scale, weight: .semibold, design: .serif)).tracking(1)
+                .font(theme.type.body.face(10 * scale, weight: .semibold)).tracking(1)
                 .foregroundStyle(theme.dimInk.color)
                 .padding(.top, pitch)
             if let columns {

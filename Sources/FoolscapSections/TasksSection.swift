@@ -138,7 +138,7 @@ struct TasksPage: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             Text("Tasks").font(theme.type.heading.font).fontWeight(.bold)
-            Text("\(section.aggregator.tasks.count)").font(.system(size: 13 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+            Text("\(section.aggregator.tasks.count)").font(theme.type.body.face(13 * scale)).foregroundStyle(theme.dimInk.color)
             Spacer()
             if let err = section.aggregator.error { Text(err).font(.caption).foregroundStyle(.red) }
         }
@@ -151,7 +151,7 @@ struct TasksPage: View {
         HStack(spacing: 8) {
             Image(systemName: "plus").font(.system(size: 12, weight: .semibold)).foregroundStyle(theme.dimInk.color)
             TextField(newTaskPrompt, text: $newTaskText)
-                .font(.system(size: 14 * scale, design: .serif))
+                .font(theme.type.body.face(14 * scale))
                 .textFieldStyle(.plain)
                 .focused($newTaskFocused)
                 .onSubmit { submit() }
@@ -315,10 +315,10 @@ struct TaskSectionView: View {
                         .foregroundStyle(theme.dimInk.color)
                 }
                 Text(status.title)
-                    .font(.system(size: 17 * scale, weight: .bold, design: .serif))
+                    .font(theme.type.heading.face(17 * scale, weight: .bold))
                     // Today is ringed as a lane instead, like the daily page's list.
                     .highlighted(status == .today ? nil : theme.highlighter[status])
-                Text("\(tasks.count)").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                Text("\(tasks.count)").font(theme.type.body.face(12 * scale)).foregroundStyle(theme.dimInk.color)
             }
             .frame(height: pitch)
             .contentShape(Rectangle())
@@ -326,7 +326,7 @@ struct TaskSectionView: View {
             if !folded {
                 if tasks.isEmpty {
                     Text(targeted ? "Drop here" : emptyText)
-                        .font(.system(size: 13, design: .serif)).italic()
+                        .font(theme.type.body.face(13)).italic()
                         .foregroundStyle(theme.dimInk.color)
                         .frame(height: pitch)
                         .padding(.leading, 28)
@@ -342,7 +342,7 @@ struct TaskSectionView: View {
                             onRemoveTag: { onRemoveTag(task, $0) },
                             onSetPriority: { onSetPriority(task, $0) })
                         .draggable(TaskDrag(tasks: group)) {
-                            Text(group.count > 1 ? "\(group.count) tasks" : task.displayTitle).font(.system(size: 14, design: .serif))
+                            Text(group.count > 1 ? "\(group.count) tasks" : task.displayTitle).font(theme.type.body.face(14))
                                 .padding(6).background(theme.page.paperColor.color).cornerRadius(4)
                         }
                 }
@@ -351,13 +351,13 @@ struct TaskSectionView: View {
                         withAnimation { showAll.toggle() }
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 12, design: .serif))
+                    .font(theme.type.body.face(12))
                     .foregroundStyle(theme.accent.color)
                     .frame(height: pitch)
                     .padding(.leading, 28)
                 }
             } else if targeted {
-                Text("Drop here").font(.system(size: 13, design: .serif)).italic()
+                Text("Drop here").font(theme.type.body.face(13)).italic()
                     .foregroundStyle(theme.dimInk.color).frame(height: pitch).padding(.leading, 28)
             }
             }
@@ -501,14 +501,14 @@ struct TaskRow: View {
             if let day = task.source.day.flatMap(DayKey.init) {
                 Button(action: onOpen) {
                     Text(day.shortTitle)
-                        .font(.system(size: 11 * scale, design: .serif))
+                        .font(theme.type.body.face(11 * scale))
                         .foregroundStyle(theme.dimInk.color)
                         .underline(hovering)
                 }
                 .buttonStyle(.plain)
                 .help("Open in the daily note")
             } else if task.isReadOnly {
-                Text(task.source.path).font(.system(size: 11 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                Text(task.source.path).font(theme.type.body.face(11 * scale)).foregroundStyle(theme.dimInk.color)
             }
         }
         .frame(height: pitch)
@@ -548,7 +548,7 @@ struct TaskRow: View {
 
     private var title: some View {
         Text(task.displayTitle)
-            .font(.system(size: 14.5 * scale, design: .serif))
+            .font(theme.type.body.face(14.5 * scale))
             .strikethrough(task.status == .completed, color: theme.dimInk.color)
             .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
             .lineLimit(1)
@@ -586,9 +586,9 @@ struct TaskEditPopover: View {
     var body: some View {
         PaperPopover {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Edit Task").font(.system(size: 15, weight: .bold, design: .serif))
+                Text("Edit Task").font(theme.type.heading.face(15, weight: .bold))
                 TextField("Task text, with #tags", text: $title)
-                    .font(.system(size: 14, design: .serif))
+                    .font(theme.type.body.face(14))
                     .paperField()
                     .focused($titleFocused)
                     .onSubmit { onSave(title, notes) }
@@ -597,7 +597,7 @@ struct TaskEditPopover: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Notes and links").font(.caption).foregroundStyle(theme.dimInk.color)
                     TextEditor(text: $notes)
-                        .font(.system(size: 13, design: .serif))
+                        .font(theme.type.body.face(13))
                         .scrollContentBackground(.hidden)
                         .padding(4)
                         .frame(height: 76)

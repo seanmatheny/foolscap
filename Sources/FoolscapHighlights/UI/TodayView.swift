@@ -18,11 +18,11 @@ struct TodayView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 34) {
             Text(Self.dateLine(Date()))
-                .font(.system(size: 20 * scale, weight: .bold, design: .serif))
+                .font(theme.type.heading.face(20 * scale, weight: .bold))
                 .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
             if items.isEmpty {
                 Text("Nothing to show today. Un-hide a few highlights, or import more.")
-                    .font(.system(size: 15, design: .serif)).italic().foregroundStyle(theme.dimInk.color)
+                    .font(theme.type.body.face(15)).italic().foregroundStyle(theme.dimInk.color)
             }
             ForEach(items) { item in
                 QuoteCard(section: section, item: item, showsBook: showsBooks)
@@ -92,14 +92,14 @@ struct QuoteCard: View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(item.paragraphs.enumerated()), id: \.offset) { _, paragraph in
                 Text(paragraph)
-                    .font(.system(size: 19 * scale, design: .serif))
+                    .font(theme.type.body.face(19 * scale))
                     .lineSpacing(5)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
             if let note = item.note {
                 Text(note)
-                    .font(.system(size: 13.5 * scale, design: .serif)).italic()
+                    .font(theme.type.body.face(13.5 * scale)).italic()
                     .foregroundStyle(theme.dimInk.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -135,7 +135,7 @@ struct QuoteCard: View {
                 Text(text)
             }
         }
-        .font(.system(size: 14 * scale, design: .serif))
+        .font(theme.type.body.face(14 * scale))
         .italic()
         .foregroundStyle(theme.accent.color)
     }
@@ -237,7 +237,7 @@ struct FlyleafView: View {
                         TodayView(section: section, items: section.picks, showsBooks: true, centered: true)
                         Spacer().frame(height: pitch * 1.5)
                         Text("Click to turn the page")
-                            .font(.system(size: 11.5, design: .serif)).italic()
+                            .font(theme.type.body.face(11.5)).italic()
                             .foregroundStyle(theme.dimInk.color.opacity(0.8))
                         Spacer(minLength: pitch)
                     }
