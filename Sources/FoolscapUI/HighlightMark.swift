@@ -30,4 +30,18 @@ public extension View {
             if let color, color.a > 0 { HighlightMark(color: color) }
         }
     }
+
+    /// Ring a list the way the daily page rings its Today tasks: a dashed line
+    /// around a faint wash of `tint`. The ring is drawn around the view, not laid
+    /// out, so rows inside keep to the ruling; `pitch` sets how round it is.
+    func ringed(_ tint: RGBA, pitch: CGFloat, isDark: Bool) -> some View {
+        background {
+            let shape = RoundedRectangle(cornerRadius: pitch * 0.75, style: .continuous)
+            shape.fill(tint.color.opacity(isDark ? 0.10 : 0.14))
+                .overlay(shape.strokeBorder(tint.color.opacity(isDark ? 0.55 : 0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                .padding(.horizontal, -12)
+                .padding(.vertical, -3)
+                .allowsHitTesting(false)
+        }
+    }
 }

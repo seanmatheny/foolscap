@@ -301,6 +301,8 @@ struct TaskSectionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // The heading and its rows; the Today lane is ringed like the daily page's list.
+            VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .bold))
@@ -314,7 +316,8 @@ struct TaskSectionView: View {
                 }
                 Text(status.title)
                     .font(.system(size: 17 * scale, weight: .bold, design: .serif))
-                    .highlighted(theme.highlighter[status])
+                    // Today is ringed as a lane instead, like the daily page's list.
+                    .highlighted(status == .today ? nil : theme.highlighter[status])
                 Text("\(tasks.count)").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
             }
             .frame(height: pitch)
@@ -357,6 +360,9 @@ struct TaskSectionView: View {
                 Text("Drop here").font(.system(size: 13, design: .serif)).italic()
                     .foregroundStyle(theme.dimInk.color).frame(height: pitch).padding(.leading, 28)
             }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .ringed(status == .today ? (theme.highlighter[.today] ?? theme.accent) : RGBA(0, 0, 0, 0), pitch: pitch, isDark: theme.isDark)
             Spacer().frame(height: pitch)
         }
         // Every status box spans the column, so their drop outlines line up whatever they hold.

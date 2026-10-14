@@ -155,17 +155,21 @@ struct JiraPage: View {
 
     private func groupView(_ group: JiraSection.Group) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(group.name)
-                    .font(.system(size: 17 * scale, weight: .bold, design: .serif))
-                    .highlighted(group.isActive ? theme.highlighter[.today] : nil)
-                Text("\(group.issues.count)").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(group.name)
+                        .font(.system(size: 17 * scale, weight: .bold, design: .serif))
+                    Text("\(group.issues.count)").font(.system(size: 12 * scale, design: .serif)).foregroundStyle(theme.dimInk.color)
+                }
+                .frame(height: pitch)
+                ForEach(group.issues) { issue in
+                    JiraIssueRow(section: section, issue: issue, pitch: pitch, flashed: flashKey == issue.key)
+                        .id(issue.key)
+                }
             }
-            .frame(height: pitch)
-            ForEach(group.issues) { issue in
-                JiraIssueRow(section: section, issue: issue, pitch: pitch, flashed: flashKey == issue.key)
-                    .id(issue.key)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // In Progress is ringed like the Today lanes, in the Jira tab's own colour so the two read apart.
+            .ringed(group.isActive ? theme.tabColor(at: 4) : RGBA(0, 0, 0, 0), pitch: pitch, isDark: theme.isDark)
             Spacer().frame(height: pitch)
         }
     }
