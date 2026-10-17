@@ -313,15 +313,15 @@ struct JiraIssueRow: View {
         .help("Add a comment in Jira")
         .popover(isPresented: $commenting, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Comment on \(issue.key)").font(.system(size: 12, weight: .semibold))
+                Text("Comment on \(issue.key)").font(theme.type.body.face(12, weight: .semibold))
                 TextEditor(text: $draft)
-                    .font(.system(size: 13))
+                    .font(theme.type.body.face(13))
                     .frame(width: 360, height: 90)
                     .scrollContentBackground(.hidden)
                     .padding(4)
                     .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.05)))
                 HStack {
-                    Text("⌘↩ posts").font(.caption).foregroundStyle(.secondary)
+                    Text("⌘↩ posts").font(theme.type.body.face(11)).foregroundStyle(.secondary)
                     Spacer()
                     Button("Cancel") { commenting = false; draft = "" }.keyboardShortcut(.cancelAction)
                     Button("Post") { post() }

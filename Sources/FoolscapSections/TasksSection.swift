@@ -140,7 +140,7 @@ struct TasksPage: View {
             Text("Tasks").font(theme.type.heading.font).fontWeight(.bold)
             Text("\(section.aggregator.tasks.count)").font(theme.type.body.face(13 * scale)).foregroundStyle(theme.dimInk.color)
             Spacer()
-            if let err = section.aggregator.error { Text(err).font(.caption).foregroundStyle(.red) }
+            if let err = section.aggregator.error { Text(err).font(theme.type.body.face(11 * scale)).foregroundStyle(.red) }
         }
         .frame(height: pitch * 1.5 - Self.fieldGap)
     }
@@ -595,7 +595,7 @@ struct TaskEditPopover: View {
                     .completesTags(in: $title, known: allTags)
                 TagCompletionRow(text: $title, known: allTags)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Notes and links").font(.caption).foregroundStyle(theme.dimInk.color)
+                    Text("Notes and links").font(theme.type.body.face(11)).foregroundStyle(theme.dimInk.color)
                     TextEditor(text: $notes)
                         .font(theme.type.body.face(13))
                         .scrollContentBackground(.hidden)
