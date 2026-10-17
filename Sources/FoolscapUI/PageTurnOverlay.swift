@@ -38,7 +38,7 @@ public struct PageTurnOverlay<Content: View>: View {
             let spineOnRight = tabsLeft
             ZStack {
                 PageView { content().environment(\.turnLooseLeaf) { turn(spineOnRight: spineOnRight, from: nil) } }
-                    .overlay { PageSnapshotHost(anchor: anchor) }
+                    .background { PageSnapshotHost(anchor: anchor) }
                     // Only the page takes the click: the leather beside it, the index
                     // tabs and the strip above stay the notebook's.
                     .contentShape(Rectangle())

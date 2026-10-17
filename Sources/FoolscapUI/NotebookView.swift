@@ -111,7 +111,7 @@ public struct NotebookView<Page: View>: View {
                                 .shadow(color: .black.opacity(0.25), radius: 3, x: tabsLeft ? -2 : 2, y: 0)
                         }
                     }
-                    .overlay { PageSnapshotHost(anchor: anchor) }
+                    .background { PageSnapshotHost(anchor: anchor) }
                     // Index tabs are glued to the page edge, behind it, sticking out sideways.
                     .background(alignment: tabsLeft ? .topLeading : .topTrailing) {
                         IndexTabsView(tabs: tabs, selection: $selection) { id, edge in
