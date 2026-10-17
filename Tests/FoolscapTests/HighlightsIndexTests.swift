@@ -10,7 +10,7 @@ import Foundation
         #kindle
 
         > Call me Ishmael.
-        > — pos 100 · 12 Mar 2026 · #sea ♥
+        > — pos 100 · loc 2 · 12 Mar 2026 · #sea ♥
 
         > It is a way I have of driving off the spleen.
         > *Note:* mood
@@ -26,6 +26,7 @@ import Foundation
         #expect(items[0].bookTitle == "Moby Dick" && items[0].bookAuthor == "Herman Melville")
         #expect(items[0].text == "Call me Ishmael." && items[0].tags == ["sea"] && items[0].isFavourite && !items[0].isHidden)
         #expect(items[0].meta.added == HighlightMarkdown.dateFormatter.date(from: "12 Mar 2026"))
+        #expect(items[0].meta.location == 2 && items[1].meta.location == nil)
         #expect(items[1].note == "mood" && items[1].isHidden && items[1].tags == ["sea", "mood"])
         #expect(items[1].id == "Highlights/Moby Dick.md#L7" && items[1].metaLine == 9)
         #expect(items[0].contentKey == HighlightItem.contentKey(for: ["Call me Ishmael."]))

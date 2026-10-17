@@ -340,6 +340,7 @@ struct HighlightRow: View {
                         Text(added.formatted(date: .abbreviated, time: .omitted))
                             .font(theme.type.body.face(11 * scale)).foregroundStyle(theme.dimInk.color)
                     }
+                    LocationLabel(section: section, item: item, size: 11 * scale)
                     ForEach(item.tags, id: \.self) { tag in
                         TagChip(tag: tag, scale: scale) { section.removeTag(tag, from: item) }
                     }

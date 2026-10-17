@@ -81,7 +81,13 @@ public actor HighlightsImporter {
             let pending = annotations.filter { needsWork($0, book: book) }
             let wantsCover = !(state.books[book.id]?.coverDone ?? false)
             let vanished = self.vanished(from: annotations, book: book)
-            if pending.isEmpty && vanished.isEmpty && !wantsCover { settled.insert(book.id); continue }
+            if pending.isEmpty && vanished.isEmpty && !wantsCover {
+                if var record = state.books[book.id] {
+                    record.maxPosition = book.maxPosition; record.maxLocation = book.maxLocation
+                    state.books[book.id] = record
+                }
+                settled.insert(book.id); continue
+            }
             work.append((book, pending, vanished, wantsCover))
         }
         let kfxBooks = work.map(\.book).filter { $0.format == .kfx }
@@ -108,6 +114,7 @@ public actor HighlightsImporter {
             try? state.save(to: stateURL)
         }
         try await pruneHidden(settled, report: &report)
+        try await fillLocations(settled, report: &report)
         state.lastRun = now()
         try? state.save(to: stateURL)
         await library.save()
@@ -144,6 +151,8 @@ public actor HighlightsImporter {
         } else {
             record = HighlightsState.Book(path: newPath(for: book), title: book.title, author: book.author, coverDone: false)
         }
+        record.maxPosition = book.maxPosition
+        record.maxLocation = book.maxLocation
         let path = record.path
         var blocks: [HighlightMarkdown.NewBlock] = []
         var extractedIDs = Set<String>()
@@ -171,7 +180,7 @@ public actor HighlightsImporter {
                 report.highlightsAdded += 1
             }
             blocks.append(HighlightMarkdown.NewBlock(paragraphs: h.paragraphs, note: h.note,
-                                                    meta: HighlightMeta(position: h.position, added: h.created),
+                                                    meta: HighlightMeta(position: h.position, location: record.location(of: h.position), added: h.created),
                                                     replacingKey: replacing ?? contentKey))
             state.annotations[key] = HighlightsState.Annotation(contentKey: contentKey, modified: h.modified, empty: false,
                                                                 start: ranges[h.annotationID]?.lowerBound, end: ranges[h.annotationID]?.upperBound)
@@ -239,6 +248,27 @@ public actor HighlightsImporter {
                 }
             }
             record.hiddenPruned = true
+            state.books[id] = record
+        }
+    }
+
+    /// Blocks written before 2026-10-18 carry no location. Once per book, as soon
+    /// as the Kindle has given its scale, every block without one gets it; a book
+    /// the Kindle has not sized yet is left for a later pass.
+    private func fillLocations(_ bookIDs: Set<String>, report: inout ImportReport) async throws {
+        for id in bookIDs.sorted() {
+            guard var record = state.books[id], record.locationsFilled != true,
+                  let maxPosition = record.maxPosition, let maxLocation = record.maxLocation, maxPosition > 0, maxLocation > 0 else { continue }
+            try Task.checkCancellation()
+            let path = record.path
+            let doc = await library.loadedDocument(atRelativePath: path)
+            let current = await MainActor.run { doc.text }
+            let updated = HighlightMarkdown.addingLocations(to: current, path: path, maxPosition: maxPosition, maxLocation: maxLocation)
+            if updated != current {
+                await MainActor.run { doc.replaceWholeText(updated) }
+                report.booksWritten += 1
+            }
+            record.locationsFilled = true
             state.books[id] = record
         }
     }

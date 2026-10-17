@@ -27,7 +27,7 @@ public enum KindleLibrary {
         do {
             rows = try db.read { db in
                 try Row.fetchAll(db, sql: """
-                    SELECT ZBOOKID, ZDISPLAYTITLE, ZPATH, ZMIMETYPE, ZRAWMAXPOSITION, ZRAWISDICTIONARY, ZRAWBOOKSTATE, ZSYNCMETADATAATTRIBUTES
+                    SELECT ZBOOKID, ZDISPLAYTITLE, ZPATH, ZMIMETYPE, ZRAWMAXPOSITION, ZRAWMAXLOCATION, ZRAWISDICTIONARY, ZRAWBOOKSTATE, ZSYNCMETADATAATTRIBUTES
                     FROM ZBOOK WHERE ZDISPLAYTITLE IS NOT NULL AND ZPATH IS NOT NULL
                     """)
             }
@@ -42,7 +42,7 @@ public enum KindleLibrary {
             let state: Int = row["ZRAWBOOKSTATE"] ?? 0
             return KindleBook(id: bookID(rawID), title: title, author: author,
                               format: KindleFormat(mimeType: row["ZMIMETYPE"] ?? ""), fileURL: fileURL,
-                              maxPosition: row["ZRAWMAXPOSITION"],
+                              maxPosition: row["ZRAWMAXPOSITION"], maxLocation: row["ZRAWMAXLOCATION"],
                               isDictionary: (row["ZRAWISDICTIONARY"] ?? 0) != 0,
                               isDownloaded: state == 3 && FileManager.default.fileExists(atPath: fileURL.path))
         }

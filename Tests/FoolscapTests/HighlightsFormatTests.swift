@@ -46,6 +46,27 @@ import Foundation
         #expect(second.text == "Plain one.")
     }
 
+    @Test func locationsRoundTripAndScaleFromThePosition() {
+        let meta = HighlightMeta(position: 492355, location: 3283, added: Self.day, tags: ["war"])
+        #expect(HighlightMarkdown.renderMeta(meta) == "> — pos 492355 · loc 3283 · 12 Mar 2026 · #war")
+        #expect(HighlightParser.parseMeta("— pos 492355 · loc 3283 · 12 Mar 2026 · #war") == meta)
+        #expect(HighlightParser.parseMeta("— pos 492355 · 12 Mar 2026")?.location == nil)
+        // MOBI: 150 positions to a location, counted from 1; KFX: the book's own ratio.
+        #expect(KindleLocations.location(position: 0, maxPosition: 488453, maxLocation: 3257) == 1)
+        #expect(KindleLocations.location(position: 300, maxPosition: 488453, maxLocation: 3257) == 3)
+        #expect(KindleLocations.location(position: 488453, maxPosition: 488453, maxLocation: 3257) == 3257)
+        #expect(KindleLocations.location(position: 547190, maxPosition: 1094381, maxLocation: 12591) == 6296)
+        #expect(KindleLocations.location(position: 10, maxPosition: nil, maxLocation: 3257) == nil)
+        #expect(KindleLocations.location(position: 10, maxPosition: 0, maxLocation: 0) == nil)
+        // Backfill touches only the blocks without one.
+        let text = book([(["Old."], nil, HighlightMeta(position: 300, added: Self.day, tags: ["x"], isFavourite: true)),
+                         (["New."], nil, HighlightMeta(position: 600, location: 99))])
+        let filled = HighlightMarkdown.addingLocations(to: text, path: "p", maxPosition: 488453, maxLocation: 3257)
+        let items = HighlightParser.parse(filled, path: "p").items
+        #expect(items.map(\.meta.location) == [3, 99] && items[0].meta.tags == ["x"] && items[0].isFavourite)
+        #expect(HighlightMarkdown.addingLocations(to: filled, path: "p", maxPosition: 488453, maxLocation: 3257) == filled)
+    }
+
     @Test func escapingKeepsQuoteTextLiteral() {
         let quote = "#1 with #tag, — a leading dash, and *Note:* stars, back\\slash"
         let dashy = "— Winston Churchill"

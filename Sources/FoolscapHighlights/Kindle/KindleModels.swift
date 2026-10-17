@@ -26,13 +26,15 @@ public struct KindleBook: Identifiable, Equatable, Sendable {
     public var fileURL: URL
     /// The app's own idea of the last position: must equal what the file decodes to.
     public var maxPosition: Int?
+    /// The last location beside it, which scales positions to locations.
+    public var maxLocation: Int?
     public var isDictionary: Bool
     public var isDownloaded: Bool
 
     public init(id: String, title: String, author: String, format: KindleFormat, fileURL: URL,
-                maxPosition: Int?, isDictionary: Bool = false, isDownloaded: Bool = true) {
+                maxPosition: Int?, maxLocation: Int? = nil, isDictionary: Bool = false, isDownloaded: Bool = true) {
         self.id = id; self.title = title; self.author = author; self.format = format; self.fileURL = fileURL
-        self.maxPosition = maxPosition; self.isDictionary = isDictionary; self.isDownloaded = isDownloaded
+        self.maxPosition = maxPosition; self.maxLocation = maxLocation; self.isDictionary = isDictionary; self.isDownloaded = isDownloaded
     }
 }
 

@@ -152,16 +152,16 @@ final class FakeSyncMetadataAttributes: NSObject, NSCoding {
         try books.write { db in
             try db.execute(sql: """
                 CREATE TABLE ZBOOK (ZBOOKID TEXT, ZDISPLAYTITLE TEXT, ZPATH TEXT, ZMIMETYPE TEXT, ZRAWMAXPOSITION INTEGER,
-                                    ZRAWISDICTIONARY INTEGER, ZRAWBOOKSTATE INTEGER, ZSYNCMETADATAATTRIBUTES BLOB)
+                                    ZRAWMAXLOCATION INTEGER, ZRAWISDICTIONARY INTEGER, ZRAWBOOKSTATE INTEGER, ZSYNCMETADATAATTRIBUTES BLOB)
                 """)
             let archive = try Self.archive(title: "Moby Dick", authors: ["author": "Herman Melville"])
-            try db.execute(sql: "INSERT INTO ZBOOK VALUES (?,?,?,?,?,?,?,?)",
+            try db.execute(sql: "INSERT INTO ZBOOK VALUES (?,?,?,?,?,?,?,?,?)",
                            arguments: ["A:B1-0", "Moby Dick -- Herman Melville -- 2020 -- Anna's Archive", "Library/eBooks/B1/book.azw",
-                                       "application/x-mobipocket-ebook", 1000, 0, 3, archive])
-            try db.execute(sql: "INSERT INTO ZBOOK VALUES (?,?,?,?,?,?,?,?)",
-                           arguments: ["A:B2-0", "Cloud Only -- Someone", "Library/eBooks/B2/x", "application/x-kfx-ebook", 5, 0, 0, nil])
-            try db.execute(sql: "INSERT INTO ZBOOK VALUES (?,?,?,?,?,?,?,?)",
-                           arguments: ["A:D1-0", "Dictionary", "Library/eBooks/D1/x.azw", "application/x-mobipocket-ebook", 5, 1, 3, Data([0, 1])])
+                                       "application/x-mobipocket-ebook", 1000, 7, 0, 3, archive])
+            try db.execute(sql: "INSERT INTO ZBOOK VALUES (?,?,?,?,?,?,?,?,?)",
+                           arguments: ["A:B2-0", "Cloud Only -- Someone", "Library/eBooks/B2/x", "application/x-kfx-ebook", 5, nil, 0, 0, nil])
+            try db.execute(sql: "INSERT INTO ZBOOK VALUES (?,?,?,?,?,?,?,?,?)",
+                           arguments: ["A:D1-0", "Dictionary", "Library/eBooks/D1/x.azw", "application/x-mobipocket-ebook", 5, 1, 1, 3, Data([0, 1])])
         }
         try books.close()
 
@@ -212,7 +212,8 @@ final class FakeSyncMetadataAttributes: NSObject, NSCoding {
         #expect(books.map(\.id) == ["B1", "B2", "D1"])
         let moby = books[0]
         #expect(moby.title == "Moby Dick" && moby.author == "Herman Melville")
-        #expect(moby.format == .mobi && moby.isDownloaded && moby.maxPosition == 1000 && !moby.isDictionary)
+        #expect(moby.format == .mobi && moby.isDownloaded && moby.maxPosition == 1000 && moby.maxLocation == 7 && !moby.isDictionary)
+        #expect(books[1].maxLocation == nil)
         #expect(moby.fileURL.path.hasSuffix("Library/eBooks/B1/book.azw"))
         #expect(books[1].title == "Cloud Only" && books[1].author == "" && !books[1].isDownloaded && books[1].format == .kfx)
         #expect(books[2].isDictionary)

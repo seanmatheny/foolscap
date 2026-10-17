@@ -115,6 +115,11 @@ public final class SearchIndex: Sendable {
             // "In Progress" became "Today"; the mark in the files ([/]) did not change.
             try db.execute(sql: "UPDATE tasks SET status = 'today' WHERE status = 'inProgress'")
         }
+        migrator.registerMigration("v6-highlight-location") { db in
+            try db.alter(table: "highlights") { t in t.add(column: "location", .integer) }
+            // Book files already indexed are re-read on the next scan, so their locations land.
+            try db.execute(sql: "UPDATE notes SET hash = '' WHERE path LIKE 'Highlights/%'")
+        }
         try migrator.migrate(db)
     }
 
@@ -186,10 +191,10 @@ public final class SearchIndex: Sendable {
                                arguments: [path, highlights.title, highlights.author])
                 for h in highlights.items {
                     try db.execute(sql: """
-                        INSERT INTO highlights (id, path, line, meta_line, text, note, position, added, favourite, hidden, content_key)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                        INSERT INTO highlights (id, path, line, meta_line, text, note, position, location, added, favourite, hidden, content_key)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                         """, arguments: [h.id, h.path, h.line, h.metaLine, h.paragraphs.joined(separator: "\n\n"), h.note, h.meta.position,
-                                         h.meta.added?.timeIntervalSince1970, h.meta.isFavourite, h.meta.isHidden, h.contentKey])
+                                         h.meta.location, h.meta.added?.timeIntervalSince1970, h.meta.isFavourite, h.meta.isHidden, h.contentKey])
                     for tag in h.meta.tags {
                         try db.execute(sql: "INSERT INTO highlight_tags (highlight_id, tag) VALUES (?,?)", arguments: [h.id, tag])
                     }
@@ -275,7 +280,7 @@ public final class SearchIndex: Sendable {
                 return HighlightItem(path: r["path"], line: r["line"], metaLine: r["meta_line"],
                                      bookTitle: r["book_title"] ?? "", bookAuthor: r["book_author"] ?? "",
                                      paragraphs: text.components(separatedBy: "\n\n"), note: r["note"],
-                                     meta: HighlightMeta(position: r["position"], added: added.map { Date(timeIntervalSince1970: $0) },
+                                     meta: HighlightMeta(position: r["position"], location: r["location"], added: added.map { Date(timeIntervalSince1970: $0) },
                                                          tags: tags[r["id"]] ?? [], isFavourite: r["favourite"], isHidden: r["hidden"]))
             }
         }

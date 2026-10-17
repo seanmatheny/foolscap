@@ -94,6 +94,9 @@ public final class HighlightsSection: NotebookSection {
     public private(set) var books: [SearchIndex.HighlightBookRecord] = []
     /// Book path → its cover file, found once per reload (not stat-ed per cell).
     public private(set) var coverURLs: [String: URL] = [:]
+    /// Book path → the Kindle's id for it, from the importer's ledger: what a
+    /// `kindle://` link names. Books this Mac never imported have none.
+    public private(set) var kindleBookIDs: [String: String] = [:]
     /// Today's three.
     public private(set) var picks: [HighlightItem] = []
     /// A highlight to scroll to once its book page is shown (from search or a card).
@@ -180,8 +183,9 @@ public final class HighlightsSection: NotebookSection {
         }
         scheduleReload()
         applySchedule()
-        let lastRun = HighlightsState.load(from: stateURL).lastRun
-        if HighlightsImportSchedule.startupImportDue(schedule, lastRun: lastRun) {
+        let state = HighlightsState.load(from: stateURL)
+        kindleBookIDs = Self.bookIDs(in: state)
+        if HighlightsImportSchedule.startupImportDue(schedule, lastRun: state.lastRun) {
             startupTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(5))
                 guard !Task.isCancelled else { return }
@@ -269,6 +273,8 @@ public final class HighlightsSection: NotebookSection {
                 status.lastReport = report
                 status.lastRun = Date()
                 status.needsFullDiskAccess = false
+                let ledger = await importer.state
+                self?.kindleBookIDs = Self.bookIDs(in: ledger)
             } catch is CancellationError {
             } catch let failure as ExtractionFailure {
                 status.lastError = failure.message
@@ -355,6 +361,20 @@ public final class HighlightsSection: NotebookSection {
 
     /// The cover beside the book file, when there is one.
     public func coverURL(for path: String) -> URL? { coverURLs[path] }
+
+    nonisolated private static func bookIDs(in state: HighlightsState) -> [String: String] {
+        Dictionary(state.books.map { ($0.value.path, $0.key) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// A link that opens the book in the Kindle app at the highlight, when the
+    /// highlight has a location and the ledger knows the book.
+    public func kindleURL(for item: HighlightItem) -> URL? {
+        guard let id = kindleBookIDs[item.path], let location = item.meta.location,
+              var parts = URLComponents(string: "kindle://book") else { return nil }
+        parts.queryItems = [URLQueryItem(name: "action", value: "open"), URLQueryItem(name: "asin", value: id),
+                            URLQueryItem(name: "location", value: String(location))]
+        return parts.url
+    }
 
     /// The tags in use across highlights, most used first.
     public var highlightTags: [String] {

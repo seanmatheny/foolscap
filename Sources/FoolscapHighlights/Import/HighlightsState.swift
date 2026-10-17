@@ -1,4 +1,5 @@
 import Foundation
+import FoolscapCore
 import FoolscapStore
 
 /// What the importer remembers between passes: which Kindle book became
@@ -16,8 +17,22 @@ public struct HighlightsState: Codable, Equatable, Sendable {
         /// Blocks left hidden by deletions before 2026-10-18 have been removed
         /// (`HighlightsImporter.pruneHidden`). Optional so older ledgers still decode.
         public var hiddenPruned: Bool?
-        public init(path: String, title: String, author: String, coverDone: Bool, hiddenPruned: Bool? = nil) {
+        /// The Kindle's last position and location for the book, which scale one to the
+        /// other (`KindleLocations`); refreshed every pass the Kindle lists the book.
+        public var maxPosition: Int?
+        public var maxLocation: Int?
+        /// Blocks written before locations were kept have had theirs added
+        /// (`HighlightsImporter.fillLocations`).
+        public var locationsFilled: Bool?
+        public init(path: String, title: String, author: String, coverDone: Bool, hiddenPruned: Bool? = nil,
+                    maxPosition: Int? = nil, maxLocation: Int? = nil, locationsFilled: Bool? = nil) {
             self.path = path; self.title = title; self.author = author; self.coverDone = coverDone; self.hiddenPruned = hiddenPruned
+            self.maxPosition = maxPosition; self.maxLocation = maxLocation; self.locationsFilled = locationsFilled
+        }
+
+        /// The location of a position in this book, when its scale is known.
+        public func location(of position: Int) -> Int? {
+            KindleLocations.location(position: position, maxPosition: maxPosition, maxLocation: maxLocation)
         }
     }
 

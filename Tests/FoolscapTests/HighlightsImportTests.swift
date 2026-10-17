@@ -40,9 +40,10 @@ final class FakeExtractor: KindleExtracting, @unchecked Sendable {
 }
 
 @Suite @MainActor struct HighlightsImporterTests {
-    static func book(_ id: String, _ title: String, format: KindleFormat = .kfx, downloaded: Bool = true) -> KindleBook {
+    static func book(_ id: String, _ title: String, format: KindleFormat = .kfx, downloaded: Bool = true,
+                     maxPosition: Int? = nil, maxLocation: Int? = nil) -> KindleBook {
         KindleBook(id: id, title: title, author: "Author \(id)", format: format, fileURL: URL(fileURLWithPath: "/tmp/\(id)"),
-                   maxPosition: nil, isDictionary: false, isDownloaded: downloaded)
+                   maxPosition: maxPosition, maxLocation: maxLocation, isDictionary: false, isDownloaded: downloaded)
     }
     static func annotation(_ start: Int, note: String? = nil, modified: Double = 1) -> KindleAnnotation {
         KindleAnnotation(id: "kindle.highlight-\(start)", kind: .highlight, start: start, end: start + 10,
@@ -195,6 +196,35 @@ final class FakeExtractor: KindleExtracting, @unchecked Sendable {
         #expect(HighlightsState.load(from: env.stateURL).books["B1"]?.hiddenPruned == true)
         let again = try await upgraded.run { _ in }
         #expect(again.highlightsRemoved == 0 && again.booksWritten == 0)
+    }
+
+    /// New blocks carry the location once the Kindle has sized the book; blocks from
+    /// before are given theirs once, and a book without a scale waits for one.
+    @Test func locationsAreWrittenAndBackfilledOnce() async throws {
+        let env = try Self.env()
+        defer { try? FileManager.default.removeItem(at: env.tmp) }
+        let x = env.extractor
+        x.books = [Self.book("B1", "Moby Dick")]
+        x.annotations = ["B1": [Self.annotation(300)]]
+        x.texts = ["B1": [300: ["Call me Ishmael."], 600: ["Later."]]]
+        _ = try await env.importer.run { _ in }
+        #expect(HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p").items.map(\.meta.location) == [nil])
+        let unsized = try await env.importer.run { _ in }
+        #expect(unsized.booksWritten == 0)
+        // The Kindle now reports the scale: the old block is filled in, nothing else changes.
+        x.books = [Self.book("B1", "Moby Dick", maxPosition: 488453, maxLocation: 3257)]
+        let sized = try await env.importer.run { _ in }
+        #expect(sized.booksWritten == 1 && sized.highlightsAdded == 0)
+        let filled = HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p").items
+        #expect(filled.map(\.meta.location) == [3] && filled.map(\.meta.position) == [300])
+        let state = HighlightsState.load(from: env.stateURL)
+        #expect(state.books["B1"]?.locationsFilled == true && state.books["B1"]?.maxLocation == 3257)
+        // A new highlight arrives with its location.
+        x.annotations = ["B1": [Self.annotation(300), Self.annotation(600)]]
+        _ = try await env.importer.run { _ in }
+        #expect(HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p").items.map(\.meta.location) == [3, 5])
+        let quiet = try await env.importer.run { _ in }
+        #expect(quiet.booksWritten == 0)
     }
 
     @Test func titleCollisionsEmptiesAndAccessErrors() async throws {

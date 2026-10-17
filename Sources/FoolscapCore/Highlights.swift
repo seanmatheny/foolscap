@@ -7,6 +7,9 @@ public struct HighlightMeta: Hashable, Sendable {
     /// The Kindle's start position (a byte offset for MOBI, a pid for KFX):
     /// keeps a book's highlights in reading order.
     public var position: Int
+    /// The Kindle's location, the number its apps show ("Location 3283"):
+    /// `KindleLocations.location` from the position, once the book's scale is known.
+    public var location: Int?
     public var added: Date?
     public var tags: [String]
     /// ♥: shown more often among the day's highlights.
@@ -14,8 +17,8 @@ public struct HighlightMeta: Hashable, Sendable {
     /// Never shown among the day's highlights.
     public var isHidden: Bool
 
-    public init(position: Int, added: Date? = nil, tags: [String] = [], isFavourite: Bool = false, isHidden: Bool = false) {
-        self.position = position; self.added = added; self.tags = tags
+    public init(position: Int, location: Int? = nil, added: Date? = nil, tags: [String] = [], isFavourite: Bool = false, isHidden: Bool = false) {
+        self.position = position; self.location = location; self.added = added; self.tags = tags
         self.isFavourite = isFavourite; self.isHidden = isHidden
     }
 }
@@ -151,13 +154,14 @@ public enum HighlightParser {
         return t == HighlightMarkdown.metaMark || t.hasPrefix(HighlightMarkdown.metaMark + " ")
     }
 
-    /// "— pos 1234 · 12 Mar 2026 · #tag ♥ hidden" → meta. Fields are separated
-    /// by " · "; flags are tolerated inside any field.
+    /// "— pos 1234 · loc 9 · 12 Mar 2026 · #tag ♥ hidden" → meta. Fields are separated
+    /// by " · "; `loc` is optional; flags are tolerated inside any field.
     public static func parseMeta(_ content: String) -> HighlightMeta? {
         var t = content.trimmingCharacters(in: .whitespaces)
         guard t.hasPrefix(HighlightMarkdown.metaMark) else { return nil }
         t = String(t.dropFirst(HighlightMarkdown.metaMark.count))
         var position: Int?
+        var location: Int?
         var added: Date?
         var tags: [String] = []
         var favourite = false, hidden = false
@@ -175,12 +179,14 @@ public enum HighlightParser {
             if rest[0] == "pos", rest.count >= 2, let n = Int(rest[1]) {
                 position = n
                 if rest.count > 2, let d = HighlightMarkdown.dateFormatter.date(from: rest[2...].joined(separator: " ")) { added = d }
+            } else if rest[0] == "loc", rest.count >= 2, let n = Int(rest[1]) {
+                location = n
             } else if let d = HighlightMarkdown.dateFormatter.date(from: rest.joined(separator: " ")) {
                 added = d
             }
         }
         guard let position else { return nil }
-        return HighlightMeta(position: position, added: added, tags: tags, isFavourite: favourite, isHidden: hidden)
+        return HighlightMeta(position: position, location: location, added: added, tags: tags, isFavourite: favourite, isHidden: hidden)
     }
 }
 
@@ -220,6 +226,7 @@ public enum HighlightMarkdown {
 
     public static func renderMeta(_ meta: HighlightMeta) -> String {
         var fields = ["pos \(meta.position)"]
+        if let location = meta.location { fields.append("loc \(location)") }
         if let added = meta.added { fields.append(dateFormatter.string(from: added)) }
         var flags = meta.tags.map { "#" + $0 }
         if meta.isFavourite { flags.append(favouriteMark) }
@@ -249,6 +256,21 @@ public enum HighlightMarkdown {
         public init(paragraphs: [String], note: String? = nil, meta: HighlightMeta, replacingKey: String? = nil) {
             self.paragraphs = paragraphs; self.note = note; self.meta = meta; self.replacingKey = replacingKey
         }
+    }
+
+    /// Give every block without a location one, from the book's scale; nothing
+    /// else on the line changes.
+    public static func addingLocations(to text: String, path: String, maxPosition: Int, maxLocation: Int) -> String {
+        var lines = text.components(separatedBy: "\n")
+        var changed = false
+        for item in HighlightParser.parse(text, path: path).items where item.meta.location == nil && item.metaLine < lines.count {
+            guard let location = KindleLocations.location(position: item.meta.position, maxPosition: maxPosition, maxLocation: maxLocation) else { continue }
+            var meta = item.meta
+            meta.location = location
+            lines[item.metaLine] = renderMeta(meta)
+            changed = true
+        }
+        return changed ? lines.joined(separator: "\n") : text
     }
 
     /// Drop the blocks with these content keys (highlights deleted on the Kindle),
@@ -316,5 +338,18 @@ public enum HighlightMarkdown {
         var out = header + segments.flatMap(\.lines)
         while out.last == "" { out.removeLast() }
         return out.joined(separator: "\n") + "\n"
+    }
+}
+
+/// Kindle locations from raw positions. The Kindle app records a book's last
+/// position and last location side by side (`ZRAWMAXPOSITION`, `ZRAWMAXLOCATION`);
+/// locations run evenly over positions, 150 to one for MOBI and a figure of the
+/// book's own for KFX, so a highlight's location is its share of the whole.
+public enum KindleLocations {
+    /// 1-based, as the apps count; nil when the book's scale is unknown.
+    public static func location(position: Int, maxPosition: Int?, maxLocation: Int?) -> Int? {
+        guard let maxPosition, let maxLocation, maxPosition > 0, maxLocation > 0 else { return nil }
+        let share = Double(max(0, position)) * Double(maxLocation) / Double(maxPosition)
+        return min(maxLocation, Int(share.rounded(.down)) + 1)
     }
 }

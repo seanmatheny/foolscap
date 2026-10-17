@@ -105,6 +105,7 @@ struct QuoteCard: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 attribution
+                LocationLabel(section: section, item: item, size: 12.5 * scale)
                 Spacer()
                 HighlightControls(section: section, item: item, visible: hovering, size: 13 * scale)
             }
@@ -207,6 +208,34 @@ struct HighlightMenu: View {
         if showsBook {
             Button("Open in Book") {
                 if let openBook { openBook() } else { section.open(book: item.path, highlight: item.id) }
+            }
+        }
+        if let url = section.kindleURL(for: item) {
+            Button("Open in Kindle") { NSWorkspace.shared.open(url) }
+        }
+    }
+}
+
+/// "Location 3283" in the small dim face, when the highlight has one; a link
+/// into the Kindle app when the book can be named to it.
+struct LocationLabel: View {
+    @Environment(\.notebookTheme) private var theme
+    @Bindable var section: HighlightsSection
+    let item: HighlightItem
+    let size: CGFloat
+    @State private var hovering = false
+
+    var body: some View {
+        if let location = item.meta.location {
+            // Plain digits, as the Kindle prints them ("Location 1205").
+            let text = Text(verbatim: "Location \(String(location))").font(theme.type.body.face(size)).foregroundStyle(theme.dimInk.color)
+            if let url = section.kindleURL(for: item) {
+                Button { NSWorkspace.shared.open(url) } label: { text.underline(hovering) }
+                    .buttonStyle(.plain)
+                    .onHover { hovering = $0 }
+                    .help("Open in Kindle at this location")
+            } else {
+                text
             }
         }
     }

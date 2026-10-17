@@ -373,11 +373,20 @@
   default off; `AppModel.setHighlightsEnabled` inserts the section before Scribe and
   flips `NotebookLibrary.indexesHighlights`). One markdown file per book at
   `Highlights/<Title>.md` (cover beside it as `.jpg`); each highlight is a blockquote
-  whose last line is the meta line `> — pos N · d MMM yyyy · #tags ♥ hidden`
-  (`HighlightParser`/`HighlightMarkdown` in Core). Identity is `path#line` plus a
+  whose last line is the meta line `> — pos N · loc N · d MMM yyyy · #tags ♥ hidden`
+  (`HighlightParser`/`HighlightMarkdown` in Core). `pos` is the Kindle's raw position (a
+  MOBI byte offset or a KFX pid); `loc` is the Kindle location its apps show, from
+  `KindleLocations.location` with the book's `ZRAWMAXPOSITION`/`ZRAWMAXLOCATION` (150 to one
+  for MOBI, each KFX book's own ratio), kept in the ledger's `Book.maxPosition/maxLocation`
+  and backfilled once per book (`fillLocations`, `Book.locationsFilled`). Cards show
+  "Location N"; with the book in the ledger it is a link, and the context menu's Open in
+  Kindle, to `kindle://book?action=open&asin=<Kindle book id>&location=N`
+  (`HighlightsSection.kindleURL`). The Kindle app (7.67) registers the scheme, but on
+  2026-10-18 the link only brought up the library for Sean's books, which are all personal
+  documents (32-hex ids, not store ASINs); untested on a store book, none being downloaded. Identity is `path#line` plus a
   content hash of the quote text; tags/♥/hidden edits go through
   `NoteDocument.replaceHighlightMeta` + `library.save()` like task edits. The index
-  keeps `highlights`/`highlight_tags`/`highlight_books` (migration `v4-highlights`);
+  keeps `highlights`/`highlight_tags`/`highlight_books` (migration `v4-highlights`; `v6-highlight-location` added the `location` column and blanks book-file hashes for a re-read);
   Daily search uses `PathScope.notUnderAny` to leave out `Scribe/` and `Highlights/`.
 - Highlights search (`HighlightsSection.searchText`) runs off the main actor 120 ms after the
   last keystroke into `searchResults` (capped at `searchResultLimit`, `searchResultTotal` says how
