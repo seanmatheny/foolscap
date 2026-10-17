@@ -22,6 +22,17 @@ enum KindleApp {
         return try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
     }
 
+    /// Quit a Kindle this import opened. One stuck on a dialog ignores the request
+    /// and would stay resident with its sync engine, so after a grace period it is killed.
+    static func quit(_ app: NSRunningApplication, grace: Duration = .seconds(5)) {
+        guard !app.isTerminated else { return }
+        app.terminate()
+        Task {
+            try? await Task.sleep(for: grace)
+            if !app.isTerminated { app.forceTerminate() }
+        }
+    }
+
     /// The files a fresh Kindle writes as it syncs: its library and Whispersync
     /// state on every launch (within ~15 s), the annotation database only when
     /// highlights changed. Watching all three ends the wait as soon as the sync

@@ -253,7 +253,7 @@ public final class HighlightsSection: NotebookSection {
             && KindleApp.isInstalled && KindleApp.running == nil
         importTask = Task { [weak self] in
             var launched: NSRunningApplication?
-            defer { launched?.terminate() }
+            defer { if let launched { KindleApp.quit(launched) } }
             do {
                 if launchesKindle {
                     status.phase = "Opening Kindle to fetch new highlights…"
@@ -308,18 +308,27 @@ public final class HighlightsSection: NotebookSection {
         self.items = items
         refreshSearch()
         var seen = Set<String>()
-        self.books = books.filter { seen.insert($0.path).inserted }
+        let shelf = books.filter { seen.insert($0.path).inserted }
+        // Every save in the notebook lands here: the covers are stat-ed and warmed only
+        // when the shelf changed, or for books still without one (the importer can
+        // write a cover on a pass that adds no highlight).
+        let shelfChanged = shelf != self.books
+        self.books = shelf
         let folder = library.folder
-        let paths = self.books.map(\.path)
-        coverURLs = await Task.detached(priority: .userInitiated) {
-            var found: [String: URL] = [:]
-            for path in paths {
-                let url = folder.url(forRelativePath: HighlightsImporter.coverPath(for: path))
-                if FileManager.default.fileExists(atPath: url.path) { found[path] = url }
-            }
-            return found
-        }.value
-        CoverCache.shared.warm(Array(coverURLs.values), maxPixels: CoverThumbnail.shelfPixels)
+        let known = coverURLs
+        let paths = shelf.map(\.path).filter { shelfChanged || known[$0] == nil }
+        if !paths.isEmpty {
+            let found = await Task.detached(priority: .userInitiated) {
+                var found: [String: URL] = [:]
+                for path in paths {
+                    let url = folder.url(forRelativePath: HighlightsImporter.coverPath(for: path))
+                    if FileManager.default.fileExists(atPath: url.path) { found[path] = url }
+                }
+                return found
+            }.value
+            coverURLs = shelfChanged ? found : known.merging(found) { _, new in new }
+            CoverCache.shared.warm(Array(found.values), maxPixels: CoverThumbnail.shelfPixels)
+        }
         refreshPicks()
     }
 

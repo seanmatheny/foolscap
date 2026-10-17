@@ -20,7 +20,16 @@ public final class NoteDocument: Identifiable {
     public var externalChangePending = false
     /// iCloud conflict versions waiting for a decision.
     public private(set) var conflictVersions: [NSFileVersion] = []
-    public var blockMap: BlockMap = BlockMap(lines: [])
+    /// Line structure of the text, scanned on first use after an edit: the editor's
+    /// styler keeps its own map, so scanning here on every keystroke as well doubled
+    /// the work (a `String` per line each time).
+    public var blockMap: BlockMap {
+        if let map = scannedMap { return map }
+        let map = BlockMap.scan(textStorage.string)
+        scannedMap = map
+        return map
+    }
+    @ObservationIgnored private var scannedMap: BlockMap?
     /// Bumped on every edit so views can observe cheaply.
     public private(set) var editCount = 0
     /// The text a new file starts with; saving is skipped while the text still equals it.
@@ -50,7 +59,7 @@ public final class NoteDocument: Identifiable {
     private func didEdit() {
         isDirty = true
         editCount += 1
-        blockMap = BlockMap.scan(textStorage.string)
+        scannedMap = nil
     }
 
     // MARK: Loading and saving
@@ -108,7 +117,7 @@ public final class NoteDocument: Identifiable {
         textStorage.beginEditing()
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: text)
         textStorage.endEditing()
-        blockMap = BlockMap.scan(text)
+        scannedMap = nil
         isDirty = false
         editCount += 1
     }
@@ -278,7 +287,7 @@ public final class NoteDocument: Identifiable {
     /// Replace the indented note lines under a task (nil/empty removes them).
     public func replaceTaskNotes(line: Int, expectedKey: String, with notes: String?) throws {
         let target = try locateTask(line: line, expectedKey: expectedKey)
-        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        let map = blockMap
         var end = target.index
         while end + 1 < map.lines.count, TaskLineParser.isContinuation(map.lines[end + 1].text) { end += 1 }
         let indent = String(repeating: " ", count: max(2, (TaskLineParser.parse(target.text)?.indent ?? 0) + 2))
@@ -312,7 +321,7 @@ public final class NoteDocument: Identifiable {
             guard candidates.count == 1 else { throw TaskWriteError.moved }
             item = candidates[0]
         }
-        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        let map = blockMap
         guard item.metaLine < map.lines.count else { throw TaskWriteError.moved }
         var meta = item.meta
         change(&meta)
@@ -327,7 +336,7 @@ public final class NoteDocument: Identifiable {
     }
 
     private func locateTask(line: Int, expectedKey: String) throws -> ScannedLine {
-        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        let map = blockMap
         func matches(_ l: ScannedLine) -> Bool {
             guard let p = TaskLineParser.parse(l.text) else { return false }
             return TaskItem.contentKey(for: p.title) == expectedKey
@@ -357,7 +366,7 @@ public final class NoteDocument: Identifiable {
     /// task, else whether the mark changed.
     @discardableResult
     public func setTaskStatus(_ status: TaskStatus, forKey key: String, orTitlePrefix titlePrefix: String? = nil) -> Bool? {
-        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        let map = blockMap
         let tasks = map.lines.compactMap { line in TaskLineParser.parse(line.text).map { (line: line, task: $0) } }
         guard let found = tasks.first(where: { TaskItem.contentKey(for: $0.task.title) == key })
             ?? titlePrefix.flatMap({ prefix in tasks.first { $0.task.status.isOpen && $0.task.title.hasPrefix(prefix) } })
@@ -371,7 +380,7 @@ public final class NoteDocument: Identifiable {
     /// starts with `titlePrefix`) together with the note lines indented under it.
     /// Returns whether a line went.
     public func removeTaskLine(forKey key: String, orTitlePrefix titlePrefix: String? = nil) -> Bool {
-        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        let map = blockMap
         let tasks = map.lines.compactMap { line in TaskLineParser.parse(line.text).map { (line: line, task: $0) } }
         guard let found = tasks.first(where: { TaskItem.contentKey(for: $0.task.title) == key })
             ?? titlePrefix.flatMap({ prefix in tasks.first { $0.task.status.isOpen && $0.task.title.hasPrefix(prefix) } })
@@ -388,7 +397,7 @@ public final class NoteDocument: Identifiable {
 
     /// True when some task line in the document has this content key.
     public func containsTask(withKey key: String) -> Bool {
-        let map = blockMap.lines.isEmpty ? BlockMap.scan(textStorage.string) : blockMap
+        let map = blockMap
         return map.lines.contains { line in
             guard let p = TaskLineParser.parse(line.text) else { return false }
             return TaskItem.contentKey(for: p.title) == key

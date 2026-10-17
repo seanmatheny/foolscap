@@ -49,6 +49,10 @@ public struct NotebookWindowChrome: NSViewRepresentable {
         private var configured = false
         var coverColor: NSColor = .black
         private var proxy: DelegateProxy?
+        // Removed in deinit; nonisolated(unsafe) because deinit is not on the main actor.
+        nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+
+        deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
 
         public override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -70,15 +74,15 @@ public struct NotebookWindowChrome: NSViewRepresentable {
             DispatchQueue.main.async { window.invalidateShadow() }
             // Native full screen: menu bar and Dock slide away like any other app.
             installProxy(on: window)
-            NotificationCenter.default.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+            observers.append(NotificationCenter.default.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, let window = self.window else { return }
                     self.installProxy(on: window)
                     window.isOpaque = true
                     window.backgroundColor = self.coverColor
                 }
-            }
-            NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+            })
+            observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, let window = self.window else { return }
                     WindowState.shared.isFullScreen = true
@@ -89,8 +93,8 @@ public struct NotebookWindowChrome: NSViewRepresentable {
                     }
                     FullScreenMenuBar.shared.begin(window: window)
                 }
-            }
-            NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+            })
+            observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let window = self?.window else { return }
                     FullScreenMenuBar.shared.end()
@@ -100,7 +104,7 @@ public struct NotebookWindowChrome: NSViewRepresentable {
                     window.backgroundColor = .clear
                     window.invalidateShadow()
                 }
-            }
+            })
         }
 
         private func installProxy(on window: NSWindow) {

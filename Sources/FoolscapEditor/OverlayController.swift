@@ -12,15 +12,28 @@ import FoolscapStore
 final class OverlayController {
     unowned let textView: MarkdownTextView
     private var overlays: [Key: Overlay] = [:]
-    /// Decoded thumbnails by image path, shared by every editor (a day switch makes a
-    /// new one) and bounded: each is up to 1800 px, and the image views hold the ones
-    /// in the open note anyway, so the cache only needs to cover a return to a note.
-    private static let sharedImageCache: NSCache<NSString, NSImage> = {
-        let cache = NSCache<NSString, NSImage>()
+    /// Decoded pictures by image path, shared by every editor (a day switch makes a
+    /// new one) and bounded. Each is decoded at the size it is shown (the column's
+    /// width or 320 pt tall, times the backing scale), not at 1800 px, and decoded
+    /// again larger only when a picture is dragged wider or printed; the image views
+    /// hold the ones in the open note anyway, so the cache only needs to cover a
+    /// return to a note.
+    private static let sharedImageCache: NSCache<NSString, DecodedImage> = {
+        let cache = NSCache<NSString, DecodedImage>()
         cache.totalCostLimit = 96 << 20
         return cache
     }()
-    private var imageCache: NSCache<NSString, NSImage> { Self.sharedImageCache }
+    private var imageCache: NSCache<NSString, DecodedImage> { Self.sharedImageCache }
+    /// A decoded picture, sized in points as the markdown lays it out, and the
+    /// longest side in pixels it covers (the size asked for, when the file is smaller).
+    private final class DecodedImage {
+        let image: NSImage
+        let pixels: CGFloat
+        init(image: NSImage, pixels: CGFloat) { self.image = image; self.pixels = pixels }
+    }
+    /// The longest side, in pixels, each picture is wanted at; a decode in flight
+    /// that was asked for less is followed by another.
+    private var wantedPixels: [String: CGFloat] = [:]
     /// Display sizes read from image headers, so space is reserved before decoding.
     private var imageSizes: [String: NSSize] = [:]
     private var decoding: Set<String> = []
@@ -133,9 +146,10 @@ final class OverlayController {
     private func makeOverlay(key: Key, line: ScannedLine) -> Overlay? {
         switch line.kind {
         case .imageLine(let alt, let path):
-            let image = imageCache.object(forKey: path as NSString)
-            guard let size = image?.size ?? imageSize(path) else { return nil }
-            let iv = ResizableImageView(image: image, size: size, path: path)
+            let decoded = imageCache.object(forKey: path as NSString)
+            guard let size = decoded?.image.size ?? imageSize(path) else { return nil }
+            let iv = ResizableImageView(image: decoded?.image, size: size, path: path)
+            iv.decodedPixels = decoded?.pixels ?? 0
             iv.selectionColor = textView.palette.accent
             iv.onResize = { [weak self] width in self?.commitWidth(width, key: key) }
             iv.onReveal = { [weak self] in self?.revealLine(forKey: key) }
@@ -145,9 +159,10 @@ final class OverlayController {
                 self?.textView.window?.makeFirstResponder(self?.textView)
                 self?.select(iv)
             }
-            if image == nil { decode(path) }
-            return Overlay(key: key, view: iv, lineIndex: line.index, naturalSize: size, isImage: true,
-                           requestedWidth: BlockMap.imageAlt(alt).width.map { CGFloat($0) })
+            let overlay = Overlay(key: key, view: iv, lineIndex: line.index, naturalSize: size, isImage: true,
+                                  requestedWidth: BlockMap.imageAlt(alt).width.map { CGFloat($0) })
+            decodeIfNeeded(overlay)
+            return overlay
         case .urlLine(let urlString):
             guard textView.features.contains(.linkPreviews), let url = URL(string: urlString) else { return nil }
             let card = LinkCardView(url: url)
@@ -239,21 +254,42 @@ final class OverlayController {
         return size
     }
 
-    /// Decode the thumbnail off the main thread, then fill in every overlay showing it.
-    private func decode(_ path: String) {
+    /// The longest side, in pixels, the overlay shows its picture at.
+    private func pixelsShown(_ overlay: Overlay) -> CGFloat {
+        let size = overlay.displaySize(availableWidth: availableWidth())
+        let scale = textView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        return min(Self.maxThumbnailPixels, (max(size.width, size.height) * scale).rounded(.up))
+    }
+
+    /// Decode the picture at the size the overlay shows it, unless the bitmap it has
+    /// already covers that (so a window made wider, or a picture dragged wider, gets
+    /// a sharper decode; a return to the same size costs nothing).
+    private func decodeIfNeeded(_ overlay: Overlay) {
+        // Before the first layout the column has no width: wait for `reposition()`.
+        guard let iv = overlay.view as? ResizableImageView, textView.bounds.width > 0 else { return }
+        let wanted = pixelsShown(overlay)
+        guard iv.decodedPixels < wanted else { return }
+        decode(iv.path, pixels: max(wanted, wantedPixels[iv.path] ?? 0))
+    }
+
+    /// Decode the picture off the main thread, then fill in every overlay showing it.
+    private func decode(_ path: String, pixels: CGFloat) {
+        wantedPixels[path] = pixels
         guard decoding.insert(path).inserted else { return }
         let url = fileURL(path)
         Task.detached(priority: .userInitiated) { [weak self] in
-            let thumbnail = Self.thumbnail(url)
+            let thumbnail = Self.thumbnail(url, maxPixels: pixels)
             await self?.decoded(path, thumbnail, refresh: true)
         }
     }
 
-    /// Printing draws straight away: decode whatever is still pending, synchronously.
+    /// Printing draws straight away and at the printer's resolution: every picture
+    /// not yet decoded at full size is, synchronously.
     func finishDecodingNow() {
         for overlay in overlays.values {
-            guard let iv = overlay.view as? ResizableImageView, iv.imageView.image == nil else { continue }
-            decoded(iv.path, Self.thumbnail(fileURL(iv.path)), refresh: false)
+            guard let iv = overlay.view as? ResizableImageView, iv.decodedPixels < Self.maxThumbnailPixels else { continue }
+            wantedPixels[iv.path] = Self.maxThumbnailPixels
+            decoded(iv.path, Self.thumbnail(fileURL(iv.path), maxPixels: Self.maxThumbnailPixels), refresh: false)
         }
     }
 
@@ -264,53 +300,72 @@ final class OverlayController {
             // Unreadable after all: drop the reserved space until the retry interval passes.
             failures[path] = Date()
             imageSizes[path] = nil
+            wantedPixels[path] = nil
             for overlay in waiting { overlay.view.removeFromSuperview(); overlays[overlay.key] = nil }
             if refresh, !waiting.isEmpty { textView.refreshOverlays() }
             return
         }
+        // Sized in points as the header said: the bitmap behind may be smaller than that.
         let image = NSImage(cgImage: thumbnail.image, size: thumbnail.size)
-        imageCache.setObject(image, forKey: path as NSString, cost: thumbnail.image.width * thumbnail.image.height * 4)
-        imageSizes[path] = image.size
+        // A file smaller than asked for is as sharp as it gets: count the request as covered.
+        let pixels = max(CGFloat(max(thumbnail.image.width, thumbnail.image.height)), thumbnail.requested)
+        if (imageCache.object(forKey: path as NSString)?.pixels ?? 0) <= pixels {
+            imageCache.setObject(DecodedImage(image: image, pixels: pixels), forKey: path as NSString,
+                                 cost: thumbnail.image.width * thumbnail.image.height * 4)
+        }
+        imageSizes[path] = thumbnail.size
         var resized = false
         for overlay in waiting {
-            guard let iv = overlay.view as? ResizableImageView, iv.imageView.image == nil else { continue }
+            guard let iv = overlay.view as? ResizableImageView, iv.decodedPixels <= pixels else { continue }
             iv.imageView.image = image
-            if overlay.naturalSize != image.size { overlay.naturalSize = image.size; resized = true }
+            iv.decodedPixels = pixels
+            if overlay.naturalSize != thumbnail.size { overlay.naturalSize = thumbnail.size; resized = true }
         }
         if refresh, resized { textView.refreshOverlays() }
+        // A larger size was asked for while this one was being decoded.
+        if let wanted = wantedPixels[path], wanted > pixels { decode(path, pixels: wanted) }
     }
 
-    /// A decoded thumbnail, handed from the decoding task to the main actor once.
+    /// A decoded picture, handed from the decoding task to the main actor once.
     private struct Thumbnail: @unchecked Sendable {
         let image: CGImage
+        /// Natural size in points, from the header, whatever size the bitmap came out at.
         let size: NSSize
+        /// The longest side asked for, in pixels.
+        let requested: CGFloat
     }
 
-    private nonisolated static func thumbnail(_ url: URL) -> Thumbnail? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let opts: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
-                                     kCGImageSourceThumbnailMaxPixelSize: maxThumbnailPixels,
-                                     kCGImageSourceCreateThumbnailWithTransform: true]
-        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary) else { return nil }
-        // Points: treat the thumbnail as 2x so screenshots do not look enormous.
-        let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-        let pixelWidth = (props?[kCGImagePropertyPixelWidth] as? CGFloat) ?? CGFloat(cg.width)
-        let scale: CGFloat = pixelWidth > 1400 ? 2 : 1
-        return Thumbnail(image: cg, size: NSSize(width: CGFloat(cg.width) / scale, height: CGFloat(cg.height) / scale))
-    }
-
-    private nonisolated static let maxThumbnailPixels: CGFloat = 1800
-
-    /// The size `thumbnail(_:)` will produce, worked out from the header alone.
-    /// ImageIO's rounding may differ by a pixel; the decoded size replaces it.
-    private nonisolated static func headerSize(_ url: URL) -> NSSize? {
+    /// The picture decoded with `maxPixels` on its longest side.
+    private nonisolated static func thumbnail(_ url: URL, maxPixels: CGFloat) -> Thumbnail? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let pixelWidth = props[kCGImagePropertyPixelWidth] as? CGFloat,
+              let natural = naturalSize(props) else { return nil }
+        let requested = min(maxPixels, maxThumbnailPixels)
+        let opts: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                     kCGImageSourceThumbnailMaxPixelSize: requested,
+                                     kCGImageSourceCreateThumbnailWithTransform: true]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary) else { return nil }
+        return Thumbnail(image: cg, size: natural, requested: requested)
+    }
+
+    /// The most a picture is ever decoded at: printing, or one dragged out wide.
+    private nonisolated static let maxThumbnailPixels: CGFloat = 1800
+
+    /// The picture's natural size in points, from the header alone (no decoding).
+    private nonisolated static func headerSize(_ url: URL) -> NSSize? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return nil }
+        return naturalSize(props)
+    }
+
+    /// Points: a picture is laid out as if decoded at `maxThumbnailPixels`, and one
+    /// wider than 1400 px is treated as 2x so screenshots do not look enormous.
+    private nonisolated static func naturalSize(_ props: [CFString: Any]) -> NSSize? {
+        guard let pixelWidth = props[kCGImagePropertyPixelWidth] as? CGFloat,
               let pixelHeight = props[kCGImagePropertyPixelHeight] as? CGFloat,
               pixelWidth > 0, pixelHeight > 0 else { return nil }
         var w = pixelWidth, h = pixelHeight
-        // EXIF orientations 5-8 are quarter turns: the thumbnail comes out transposed.
+        // EXIF orientations 5-8 are quarter turns: the picture comes out transposed.
         if let orientation = props[kCGImagePropertyOrientation] as? Int, orientation >= 5 { swap(&w, &h) }
         let longest = max(w, h)
         if longest > maxThumbnailPixels {
@@ -336,6 +391,7 @@ final class OverlayController {
             overlay.view.isHidden = false
             let size = overlay.displaySize(availableWidth: width)
             if textView.styler.overlayHeights[overlay.lineIndex] != reserved(for: size.height) { stale = true }
+            if overlay.isImage { decodeIfNeeded(overlay) }
             let x = textView.textContainerInset.width
             // Directly under the text line, inside the paragraph spacing reserved for it.
             overlay.view.frame = NSRect(x: x, y: bottom + 4, width: size.width, height: size.height)
@@ -470,8 +526,10 @@ final class ResizableImageView: NSView {
         }
     }
     var selectionColor: NSColor = .controlAccentColor
+    /// The longest side, in pixels, the bitmap shown covers; 0 while decoding.
+    var decodedPixels: CGFloat = 0
 
-    /// `image` may be nil while the thumbnail is decoded; `size` reserves its frame.
+    /// `image` may be nil while the picture is decoded; `size` reserves its frame.
     init(image: NSImage?, size: NSSize, path: String) {
         self.path = path
         super.init(frame: NSRect(origin: .zero, size: size))

@@ -224,11 +224,16 @@ public final class NotebookLibrary {
         didSet { if oldValue != indexesHighlights { Task { await rescan() } } }
     }
 
-    /// Drop documents that are saved and not the given ones, to bound memory and
-    /// the work each folder change does.
-    public func releaseDocuments(except keep: Set<String>) {
-        for (path, doc) in documents where !keep.contains(path) && !doc.isDirty && doc.isLoaded {
-            documents[path] = nil
+    /// Drop documents that are saved, loaded and held by nothing but this table, to
+    /// bound memory and the work each folder change does. One an editor shows, or one
+    /// a write-back is still editing, has another reference and stays; so runs after
+    /// every save too, and a document opened for a task tick or a highlights import
+    /// does not stay resident until the next day switch.
+    public func releaseDocuments(except keep: Set<String> = []) {
+        for path in Array(documents.keys) where !keep.contains(path) {
+            // No local reference to the document here, or it would never be unique.
+            let saved = documents[path].map { !$0.isDirty && $0.isLoaded } ?? false
+            if saved, isKnownUniquelyReferenced(&documents[path]) { documents[path] = nil }
         }
     }
 
@@ -286,7 +291,12 @@ public final class NotebookLibrary {
                 lastError = "Could not save \(doc.path): \(error)"
             }
         }
-        if wrote { Task { await refreshDays() }; notifyChanged() }
+        if wrote {
+            Task { await refreshDays() }
+            notifyChanged()
+            // Once this pass's own references are gone, the written documents nobody holds go.
+            Task { @MainActor [weak self] in self?.releaseDocuments() }
+        }
     }
 
     // MARK: Scanning

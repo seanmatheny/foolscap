@@ -74,6 +74,15 @@
 - Overlays (images, link cards) are subviews positioned in `layout()`; the styler
   reserves space with paragraph spacing. Custom drawing (ruling, code backdrops)
   needs `needsDisplay = true` after overlay changes.
+- Note pictures are decoded at the size they are shown (column width or 320 pt tall ×
+  backing scale), never at the 1800 px the layout assumes; `OverlayController.naturalSize`
+  (from the header) places them, `decodeIfNeeded` re-decodes larger when a picture is dragged
+  or the window widens, printing decodes at full size. The shared cache holds `DecodedImage`
+  (image + pixels covered).
+- `NotebookLibrary.releaseDocuments` runs after every save and drops only saved documents the
+  table alone references (`isKnownUniquelyReferenced`): hold the `NoteDocument` across an edit
+  and its save, never re-fetch it between the two. `NoteDocument.blockMap` is scanned on demand
+  after an edit; the editor's styler has the live map.
 - Plug-in sections must depend only on FoolscapCore, so the theme environment
   key and `RGBA.color` live in Core (Sections.swift), not in FoolscapUI.
 - Markdown syntax hiding: `MarkdownStyler` keeps syntax visible (dimmed) only on

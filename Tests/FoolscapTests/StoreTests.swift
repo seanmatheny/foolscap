@@ -202,3 +202,34 @@ import Foundation
         #expect(try library.index.allNoteRecords().isEmpty)
     }
 }
+
+@Suite @MainActor struct LibraryDocumentsTests {
+    /// A saved document goes when the library's table is the only thing holding it;
+    /// one a view or a write-back still references stays, however often saves run.
+    @Test func releasesOnlyDocumentsNobodyHolds() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp)
+        try folder.ensureLayout()
+        try "# Monday\n- [ ] One\n".write(to: folder.url(for: DayKey("2026-10-13")!), atomically: true, encoding: .utf8)
+        try "# Tuesday\n- [ ] Two\n".write(to: folder.url(for: DayKey("2026-10-14")!), atomically: true, encoding: .utf8)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
+        var held: NoteDocument? = await library.loadedDocument(atRelativePath: "Daily/2026-10-13.md")
+        _ = await library.loadedDocument(atRelativePath: "Daily/2026-10-14.md")
+        #expect(library.documents.count == 2)
+
+        library.releaseDocuments()
+        #expect(Set(library.documents.keys) == ["Daily/2026-10-13.md"], "the one still referenced stays")
+
+        held?.appendTask("Three")
+        library.releaseDocuments()
+        #expect(library.documents.count == 1, "a dirty document is never dropped")
+        await library.save()
+        #expect(library.documents.count == 1, "still held after the save")
+        #expect(try String(contentsOf: folder.url(for: DayKey("2026-10-13")!), encoding: .utf8).contains("Three"))
+
+        held = nil
+        library.releaseDocuments()
+        #expect(library.documents.isEmpty, "unique once the last outside reference is gone")
+    }
+}
