@@ -146,20 +146,55 @@ final class FakeExtractor: KindleExtracting, @unchecked Sendable {
         let p3 = HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p")
         #expect(p3.items.map(\.text) == ["Ishmael, some years ago.", "Later."])
         #expect(p3.items[0].meta.tags == ["sea"] && p3.items[0].isFavourite && p3.items[0].meta.position == 95)
-        // A highlight deleted on the Kindle stays in the file, hidden from the day's draw.
+        // A highlight deleted on the Kindle leaves the file, tags and all.
         x.annotations = ["B1": [Self.annotation(300)]]
         let deleted = try await env.importer.run { _ in }
-        #expect(deleted.highlightsHidden == 1 && deleted.booksWritten == 1)
+        #expect(deleted.highlightsRemoved == 1 && deleted.booksWritten == 1)
         let p4 = HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p")
-        #expect(p4.items.count == 2 && p4.items[0].isHidden && p4.items[0].meta.tags == ["sea"] && !p4.items[1].isHidden)
-        // Nothing further to do once it is hidden.
+        #expect(p4.items.map(\.text) == ["Later."] && !p4.items[0].isHidden)
+        let afterDeletion = try env.text("Highlights/Moby Dick.md")
+        #expect(afterDeletion.components(separatedBy: "\n\n").count == 2 && afterDeletion.hasSuffix("\n") && !afterDeletion.hasSuffix("\n\n"))
+        // Nothing further to do once it is gone.
         let quiet = try await env.importer.run { _ in }
-        #expect(quiet.highlightsHidden == 0 && quiet.booksWritten == 0)
+        #expect(quiet.highlightsRemoved == 0 && quiet.booksWritten == 0)
         // A lost ledger does not duplicate what the file already holds.
         try? FileManager.default.removeItem(at: env.stateURL)
         let fresh = HighlightsImporter(extractor: x, library: env.library, stateURL: env.stateURL)
-        _ = try await fresh.run { _ in }
-        #expect(HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p").items.map(\.text) == ["Ishmael, some years ago.", "Later."])
+        let rebuilt = try await fresh.run { _ in }
+        let rebuiltItems = HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p").items
+        #expect(rebuilt.booksWritten == 0 && rebuiltItems.map(\.text) == ["Later."])
+    }
+
+    /// Blocks an earlier version left hidden when the Kindle deleted them (their
+    /// ledger entries dropped) are removed once; a block the reader hid stays.
+    @Test func oldHiddenDeletionsArePrunedOnce() async throws {
+        let env = try Self.env()
+        defer { try? FileManager.default.removeItem(at: env.tmp) }
+        let x = env.extractor
+        x.books = [Self.book("B1", "Moby Dick")]
+        x.annotations = ["B1": [Self.annotation(100), Self.annotation(150), Self.annotation(200)]]
+        x.texts = ["B1": [100: ["Call me Ishmael."], 150: ["Gone from the Kindle."], 200: ["Later."]]]
+        _ = try await env.importer.run { _ in }
+        // As the old importer left things: the reader hid the first; the Kindle deleted the
+        // second, so its block was marked hidden and its ledger entry dropped.
+        let doc = await env.library.loadedDocument(atRelativePath: "Highlights/Moby Dick.md")
+        let keyOf = { (text: String) in HighlightItem.contentKey(for: [text]) }
+        try doc.replaceHighlightMeta(line: 4, expectedKey: keyOf("Call me Ishmael.")) { $0.tags = ["sea"]; $0.isHidden = true }
+        try doc.replaceHighlightMeta(line: 7, expectedKey: keyOf("Gone from the Kindle.")) { $0.isHidden = true }
+        await env.library.save()
+        var state = HighlightsState.load(from: env.stateURL)
+        state.annotations["B1/kindle.highlight-150"] = nil
+        state.books["B1"]?.hiddenPruned = nil
+        try state.save(to: env.stateURL)
+        x.annotations = ["B1": [Self.annotation(100), Self.annotation(200)]]
+        let upgraded = HighlightsImporter(extractor: x, library: env.library, stateURL: env.stateURL)
+        let pruned = try await upgraded.run { _ in }
+        #expect(pruned.highlightsRemoved == 1 && pruned.booksWritten == 1)
+        let p = HighlightParser.parse(try env.text("Highlights/Moby Dick.md"), path: "p")
+        #expect(p.items.map(\.text) == ["Call me Ishmael.", "Later."] && p.items[0].isHidden && p.items[0].meta.tags == ["sea"])
+        #expect(HighlightsState.load(from: env.stateURL).books["B1"]?.hiddenPruned == true)
+        let again = try await upgraded.run { _ in }
+        #expect(again.highlightsRemoved == 0 && again.booksWritten == 0)
     }
 
     @Test func titleCollisionsEmptiesAndAccessErrors() async throws {

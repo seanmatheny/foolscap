@@ -16,8 +16,8 @@ public struct ImportReport: Equatable, Sendable {
     public var booksWritten = 0
     public var highlightsAdded = 0
     public var highlightsUpdated = 0
-    /// Deleted on the Kindle: marked hidden in the file, never removed.
-    public var highlightsHidden = 0
+    /// Deleted on the Kindle: their blocks removed from the file.
+    public var highlightsRemoved = 0
     public var coversWritten = 0
     public var empties = 0
     public var skipped: [SkippedBook] = []
@@ -30,7 +30,7 @@ public struct ImportReport: Equatable, Sendable {
         var parts: [String] = []
         if highlightsAdded > 0 { parts.append("\(highlightsAdded) added") }
         if highlightsUpdated > 0 { parts.append("\(highlightsUpdated) updated") }
-        if highlightsHidden > 0 { parts.append("\(highlightsHidden) hidden (deleted on the Kindle)") }
+        if highlightsRemoved > 0 { parts.append("\(highlightsRemoved) removed (deleted on the Kindle)") }
         if parts.isEmpty { parts.append("nothing new") }
         if !skipped.isEmpty { parts.append("\(skipped.count) book\(skipped.count == 1 ? "" : "s") skipped") }
         return parts.joined(separator: ", ")
@@ -38,8 +38,9 @@ public struct ImportReport: Equatable, Sendable {
 }
 
 /// One pass over the Kindle app's annotations: every highlight not yet in
-/// its book file is decoded and appended; the ledger keeps a highlight from
-/// ever arriving twice, however it was edited, tagged or hidden since.
+/// its book file is decoded and appended, and one the Kindle no longer has
+/// is removed; the ledger keeps a highlight from ever arriving twice,
+/// however it was edited, tagged or hidden since.
 public actor HighlightsImporter {
     private let extractor: any KindleExtracting
     private let library: NotebookLibrary
@@ -65,6 +66,8 @@ public actor HighlightsImporter {
         report.booksSeen = books.count
 
         var work: [(book: KindleBook, pending: [KindleAnnotation], vanished: [String: HighlightsState.Annotation], wantsCover: Bool)] = []
+        // Books the ledger fully covers once this pass is done: up to date now, or written below.
+        var settled = Set<String>()
         for book in books {
             let annotations = listing.annotations[book.id] ?? []
             if !book.isDownloaded {
@@ -78,7 +81,7 @@ public actor HighlightsImporter {
             let pending = annotations.filter { needsWork($0, book: book) }
             let wantsCover = !(state.books[book.id]?.coverDone ?? false)
             let vanished = self.vanished(from: annotations, book: book)
-            if pending.isEmpty && vanished.isEmpty && !wantsCover { continue }
+            if pending.isEmpty && vanished.isEmpty && !wantsCover { settled.insert(book.id); continue }
             work.append((book, pending, vanished, wantsCover))
         }
         let kfxBooks = work.map(\.book).filter { $0.format == .kfx }
@@ -101,8 +104,10 @@ public actor HighlightsImporter {
             }
             report.empties += extracted.emptyCount
             try await write(extracted, pending: pending, vanished: vanished, report: &report)
+            settled.insert(book.id)
             try? state.save(to: stateURL)
         }
+        try await pruneHidden(settled, report: &report)
         state.lastRun = now()
         try? state.save(to: stateURL)
         await library.save()
@@ -171,24 +176,25 @@ public actor HighlightsImporter {
             state.annotations[key] = HighlightsState.Annotation(contentKey: contentKey, modified: h.modified, empty: false,
                                                                 start: ranges[h.annotationID]?.lowerBound, end: ranges[h.annotationID]?.upperBound)
         }
-        // What the Kindle deleted outright is hidden from the day's draw, not removed.
-        let hiddenKeys = Set(vanished.values.map(\.contentKey))
+        // What the Kindle deleted outright leaves the file, unless the same words
+        // are being written again under a new id (a passage re-highlighted).
+        let removedKeys = Set(vanished.values.map(\.contentKey)).subtracting(blocks.map { HighlightItem.contentKey(for: $0.paragraphs) })
         for key in vanished.keys { state.annotations[key] = nil }
         // Ranges without text are remembered too, so they are not retried every pass.
         for a in pending where !extractedIDs.contains(a.id) {
             let key = HighlightsState.key(book: book.id, annotation: a.id)
             if state.annotations[key] == nil { state.annotations[key] = HighlightsState.Annotation(contentKey: "", modified: a.modified, empty: true) }
         }
-        if !blocks.isEmpty || !hiddenKeys.isEmpty {
+        if !blocks.isEmpty || !removedKeys.isEmpty {
             let doc = await library.loadedDocument(atRelativePath: path)
             let header = HighlightMarkdown.renderHeader(title: book.title, author: book.author)
             let current = await MainActor.run { doc.text }
             let base = current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? header : current
             var updated = HighlightMarkdown.inserting(blocks, into: base, path: path)
-            if !hiddenKeys.isEmpty {
-                let before = HighlightParser.parse(updated, path: path).items.filter { hiddenKeys.contains($0.contentKey) && !$0.isHidden }.count
-                updated = HighlightMarkdown.hiding(hiddenKeys, in: updated, path: path)
-                report.highlightsHidden += before
+            if !removedKeys.isEmpty {
+                let before = HighlightParser.parse(updated, path: path).items.filter { removedKeys.contains($0.contentKey) }.count
+                updated = HighlightMarkdown.removing(removedKeys, in: updated, path: path)
+                report.highlightsRemoved += before
             }
             if updated != current {
                 await MainActor.run { doc.replaceWholeText(updated) }
@@ -206,6 +212,35 @@ public actor HighlightsImporter {
             record.coverDone = true
         }
         state.books[book.id] = record
+    }
+
+    /// Until 2026-10-18 a highlight deleted on the Kindle was kept in its file
+    /// marked hidden; its ledger entry was dropped, so such a block is a hidden
+    /// one no ledger entry names. Once per book, after a pass that left the
+    /// ledger complete for it, those blocks go the way deletions now do. A
+    /// highlight the reader hid in Foolscap is still on the Kindle, so its
+    /// entry remains and the block stays.
+    private func pruneHidden(_ bookIDs: Set<String>, report: inout ImportReport) async throws {
+        for id in bookIDs.sorted() {
+            guard var record = state.books[id], record.hiddenPruned != true else { continue }
+            try Task.checkCancellation()
+            let prefix = id + "/"
+            let ledgered = Set(state.annotations.filter { $0.key.hasPrefix(prefix) }.values.map(\.contentKey))
+            let path = record.path
+            let doc = await library.loadedDocument(atRelativePath: path)
+            let current = await MainActor.run { doc.text }
+            let orphans = Set(HighlightParser.parse(current, path: path).items.filter { $0.isHidden && !ledgered.contains($0.contentKey) }.map(\.contentKey))
+            if !orphans.isEmpty {
+                let updated = HighlightMarkdown.removing(orphans, in: current, path: path)
+                if updated != current {
+                    await MainActor.run { doc.replaceWholeText(updated) }
+                    report.highlightsRemoved += orphans.count
+                    report.booksWritten += 1
+                }
+            }
+            record.hiddenPruned = true
+            state.books[id] = record
+        }
     }
 
     public static func coverPath(for bookPath: String) -> String {

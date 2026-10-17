@@ -251,16 +251,22 @@ public enum HighlightMarkdown {
         }
     }
 
-    /// Mark the blocks with these content keys hidden (a highlight deleted on the Kindle).
-    public static func hiding(_ keys: Set<String>, in text: String, path: String) -> String {
+    /// Drop the blocks with these content keys (highlights deleted on the Kindle),
+    /// each with the blank lines after it, so the rest stay one blank line apart.
+    public static func removing(_ keys: Set<String>, in text: String, path: String) -> String {
         guard !keys.isEmpty else { return text }
-        var lines = text.components(separatedBy: "\n")
-        for item in HighlightParser.parse(text, path: path).items where keys.contains(item.contentKey) && !item.meta.isHidden {
-            var meta = item.meta
-            meta.isHidden = true
-            if item.metaLine < lines.count { lines[item.metaLine] = renderMeta(meta) }
+        let lines = text.components(separatedBy: "\n")
+        var dropped = IndexSet()
+        for block in HighlightParser.parse(text, path: path).blocks {
+            guard let item = block.item, keys.contains(item.contentKey) else { continue }
+            var end = block.lastLine
+            while end + 1 < lines.count, lines[end + 1].trimmingCharacters(in: .whitespaces).isEmpty { end += 1 }
+            dropped.insert(integersIn: block.firstLine...end)
         }
-        return lines.joined(separator: "\n")
+        guard !dropped.isEmpty else { return text }
+        var out = lines.enumerated().filter { !dropped.contains($0.offset) }.map(\.element)
+        while out.last == "" { out.removeLast() }
+        return out.joined(separator: "\n") + "\n"
     }
 
     /// Splice new blocks into a book file: replacements in place, the rest in

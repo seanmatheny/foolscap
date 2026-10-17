@@ -394,8 +394,10 @@
   Application Support/Foolscap/Highlights/state.json (annotation id → content key,
   modified time, range): a newer `last_modified` rewrites the block in place, a new
   annotation overlapping a vanished one's range takes over its block (the Kindle renames
-  a highlight whose start moved), a plain deletion marks the block hidden; files never
-  lose a block. The day's picks (seeded by the date, favourites ×3, hidden never,
+  a highlight whose start moved), a plain deletion removes the block, tags and all (until
+  2026-10-18 it was marked hidden instead; `pruneHidden` removes those leftovers once per
+  book, `Book.hiddenPruned`, telling them from reader-hidden blocks by their missing ledger
+  entry). `hidden` on a meta line is now only the reader's own flag. The day's picks (seeded by the date, favourites ×3, hidden never,
   recent ×0.25, distinct books) are pinned in `daily.json`.
 - Kindle only fetches new highlights while it runs, so `importNow` (unless `opensKindle:
   false`, as from the sync watcher) opens it hidden via `KindleApp.launchHidden`, waits for its

@@ -13,8 +13,11 @@ public struct HighlightsState: Codable, Equatable, Sendable {
         public var title: String
         public var author: String
         public var coverDone: Bool
-        public init(path: String, title: String, author: String, coverDone: Bool) {
-            self.path = path; self.title = title; self.author = author; self.coverDone = coverDone
+        /// Blocks left hidden by deletions before 2026-10-18 have been removed
+        /// (`HighlightsImporter.pruneHidden`). Optional so older ledgers still decode.
+        public var hiddenPruned: Bool?
+        public init(path: String, title: String, author: String, coverDone: Bool, hiddenPruned: Bool? = nil) {
+            self.path = path; self.title = title; self.author = author; self.coverDone = coverDone; self.hiddenPruned = hiddenPruned
         }
     }
 
