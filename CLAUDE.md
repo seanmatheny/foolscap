@@ -386,7 +386,7 @@
   documents (32-hex ids, not store ASINs); untested on a store book, none being downloaded. Identity is `path#line` plus a
   content hash of the quote text; tags/♥/hidden edits go through
   `NoteDocument.replaceHighlightMeta` + `library.save()` like task edits. The index
-  keeps `highlights`/`highlight_tags`/`highlight_books` (migration `v4-highlights`; `v6-highlight-location` added the `location` column and blanks book-file hashes for a re-read);
+  keeps `highlights`/`highlight_tags`/`highlight_books` (migration `v4-highlights`; `v6-highlight-location` added the `location` column and blanks book-file hashes for a re-read; the rescan re-reads a blank-hash row whatever its stat says, found 2026-10-18 when the stat check alone skipped them);
   Daily search uses `PathScope.notUnderAny` to leave out `Scribe/` and `Highlights/`.
 - Highlights search (`HighlightsSection.searchText`) runs off the main actor 120 ms after the
   last keystroke into `searchResults` (capped at `searchResultLimit`, `searchResultTotal` says how

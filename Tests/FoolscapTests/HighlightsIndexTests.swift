@@ -18,6 +18,30 @@ import Foundation
 
         """
 
+    /// A migration that blanks a file's hash gets it read again on the next
+    /// scan, though the file's size and date are what the index remembers.
+    @Test @MainActor func blankHashForcesAReRead() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-rescan-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp)
+        try folder.ensureLayout()
+        try FileManager.default.createDirectory(at: folder.highlightsDirectory, withIntermediateDirectories: true)
+        try Self.book.write(to: folder.highlightsDirectory.appendingPathComponent("Moby Dick.md"), atomically: true, encoding: .utf8)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
+        library.indexesHighlights = true
+        await library.rescan(full: true)
+        let index = library.index
+        let before = try #require(try index.noteRecord(path: "Highlights/Moby Dick.md"))
+        #expect(!before.hash.isEmpty)
+        try await index.db.write { db in
+            try db.execute(sql: "UPDATE notes SET hash = '' WHERE path = ?", arguments: ["Highlights/Moby Dick.md"])
+            try db.execute(sql: "DELETE FROM highlights WHERE path = ?", arguments: ["Highlights/Moby Dick.md"])
+        }
+        await library.rescan()
+        #expect(try index.noteRecord(path: "Highlights/Moby Dick.md")?.hash == before.hash)
+        #expect(try index.highlights().count == 2)
+    }
+
     @Test func indexesBooksAndHighlights() throws {
         let index = try SearchIndex(inMemory: ())
         try index.index(path: "Highlights/Moby Dick.md", day: nil, text: Self.book, stat: FileIO.Stat(mtime: 1, size: 1), hash: "a")

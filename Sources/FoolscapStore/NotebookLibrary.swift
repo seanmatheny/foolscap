@@ -391,7 +391,8 @@ public final class NotebookLibrary {
                 let path = folder.relativePath(of: entry.url)
                 seen.insert(Data(path.utf8))
                 guard let stat = FileIO.stat(entry.url) else { continue }
-                if !full, let k = record(path), k.mtime == stat.mtime, k.size == stat.size { continue }
+                // A blank hash is a migration asking for the file to be read again.
+                if !full, let k = record(path), !k.hash.isEmpty, k.mtime == stat.mtime, k.size == stat.size { continue }
                 guard let data = try? FileIO.read(entry.url) else { continue }
                 let hash = FileIO.hash(data)
                 if !full, let k = record(path), k.hash == hash {
