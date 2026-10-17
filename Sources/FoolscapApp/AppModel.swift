@@ -134,12 +134,12 @@ final class AppModel {
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
         if jiraForced { selectedSectionID = JiraSection.sectionID }
         if secretsForced { selectedSectionID = SecretsSection.sectionID }
-        // `--highlights` opens the tab; `--highlights=books` on the shelf, `--highlights=Highlights/<Title>.md`
+        // `--highlights` opens the tab; `--highlights=books` on the shelf (the default), `--highlights=today` on the day's three, `--highlights=Highlights/<Title>.md`
         // on a book, `--highlights=search:<words>` with that search typed in.
         if highlightsForced, let highlights = highlightsSection {
             if CommandLine.arguments.contains(where: { $0.hasPrefix("--highlights") }) { selectedSectionID = HighlightsSection.sectionID }
             if let value = CommandLine.arguments.first(where: { $0.hasPrefix("--highlights=") })?.dropFirst("--highlights=".count) {
-                if value == "books" { highlights.showBooks() }
+                if value == "books" { highlights.showBooks() } else if value == "today" { highlights.showToday() }
                 else if value.hasPrefix("search:") { highlights.searchText = String(value.dropFirst("search:".count)) }
                 else if !value.isEmpty { highlights.open(book: String(value)) }
             }

@@ -72,7 +72,8 @@ public final class HighlightsSection: NotebookSection {
         case book(String)
     }
 
-    public var mode: Mode = .today
+    /// The shelf first: the day's three are on the flyleaf already.
+    public var mode: Mode = .books
     public var searchText = "" {
         didSet { if searchText != oldValue { scheduleSearch() } }
     }
