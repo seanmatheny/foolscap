@@ -35,7 +35,8 @@ struct JiraPage: View {
                         } else {
                             newTaskField
                                 .frame(height: pitch)
-                            Spacer().frame(height: pitch / 2 - Self.fieldGap)
+                            // A full line between the field and the first group, as between the groups below.
+                            Spacer().frame(height: pitch * 1.5 - Self.fieldGap)
                             if section.state.issues.isEmpty {
                                 Text(section.status.isRunning ? (section.status.phase ?? "Fetching your issues…") : "Nothing assigned to you.")
                                     .font(theme.type.body.face(14 * scale)).italic().foregroundStyle(theme.dimInk.color)

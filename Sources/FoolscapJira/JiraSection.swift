@@ -176,7 +176,14 @@ public final class JiraSection: NotebookSection {
 
     public func start() {
         guard pathMonitor == nil else { return }
-        loadCredentials()
+        // `--jira-sample` shows made-up issues for screenshots without touching the keychain
+        // (a freshly signed debug build prompts for the token and waits for a click).
+        if CommandLine.arguments.contains("--jira-sample") {
+            state.issues = Self.sampleIssues
+            status.needsCredentials = false
+        } else {
+            loadCredentials()
+        }
         applySchedule()
         watchToday()
         let monitor = NWPathMonitor()
@@ -455,6 +462,16 @@ public final class JiraSection: NotebookSection {
     /// Issues by Jira status, "In Progress" first, then the rest in the order
     /// Jira listed them; epics are containers, not work, and are left
     /// out. Within a group, priority first, then the latest change.
+    /// What `--jira-sample` shows: one group per status, the first in progress.
+    static let sampleIssues: [JiraIssue] = [
+        JiraIssue(key: "FOOL-101", summary: "Rotate the service principal secret", statusName: "In Progress", statusCategory: .indeterminate, issueType: "Task", priority: "High", parentKey: "FOOL-2", parentSummary: "Platform", commentCount: 2),
+        JiraIssue(key: "FOOL-98", summary: "Costing and MOU for the storage service", statusName: "In Progress", statusCategory: .indeterminate, issueType: "Task", priority: "Medium", parentKey: "FOOL-3", parentSummary: "BAU"),
+        JiraIssue(key: "FOOL-120", summary: "Automate re-downloading models after a reimage", statusName: "Open", statusCategory: .new, issueType: "Task", priority: "Medium", parentKey: "FOOL-3", parentSummary: "BAU"),
+        JiraIssue(key: "FOOL-119", summary: "Document how to reserve a pair of nodes", statusName: "Open", statusCategory: .new, issueType: "Task", priority: "Low", parentKey: "FOOL-3", parentSummary: "BAU", commentCount: 1),
+        JiraIssue(key: "FOOL-77", summary: "Prepare the new network switches", statusName: "Awaiting - Internal", statusCategory: .indeterminate, issueType: "Task", priority: "Medium", parentKey: "FOOL-4", parentSummary: "Network", commentCount: 6),
+        JiraIssue(key: "FOOL-35", summary: "Upgrade the monitoring stack", statusName: "To Do", statusCategory: .new, issueType: "Task", priority: "Low", parentKey: "FOOL-3", parentSummary: "BAU"),
+    ]
+
     public var groups: [Group] {
         var order: [String] = []
         var byStatus: [String: [JiraIssue]] = [:]

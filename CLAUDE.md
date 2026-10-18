@@ -45,7 +45,7 @@
 - Launch flags for verification: `--day=YYYY-MM-DD`, `--tab=id` (a section: `daily`, `tasks`, …), `--turn-to=id` (turns to that tab 2.5 s after launch, to watch a curl;
   with `FOOLSCAP_SLOW_OPEN=1`, capture with `screencapture`: the curl is a child window), `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
-  to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--jira` (forces the Jira tab on and opens it), `--secrets` (the Secrets tab likewise), `--highlights` (forces the Highlights tab on
+  to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--jira` (forces the Jira tab on and opens it; `--jira-sample` shows made-up issues without reading the keychain, so a freshly signed debug build raises no token prompt), `--secrets` (the Secrets tab likewise), `--highlights` (forces the Highlights tab on
   and opens it; `--highlights=books` on the shelf, which is where the tab opens by default, `--highlights=today` on the day's three, `--highlights=search:words` with a search typed in),
   `--window=WxH` (sizes the main window, to see the index tabs shrink to their icons), `--flyleaf` (forces the tab on and shows the day's three on the
   opening page),
