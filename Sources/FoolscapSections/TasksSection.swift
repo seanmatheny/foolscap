@@ -51,6 +51,7 @@ public final class TasksSection: NotebookSection {
 
 struct TasksPage: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.taskPens) private var pens
     @Bindable var section: TasksSection
     @State private var newTaskText = ""
     @FocusState private var newTaskFocused: Bool
@@ -81,6 +82,7 @@ struct TasksPage: View {
                         // space below the strip, so the task rows stay on the ruling.
                         Spacer().frame(height: Self.fieldGap * 2)
                         CategoryStrip(tags: stripTags, selected: $section.selectedTags,
+                                      wash: { tag in pens.pens.first { $0.tag == tag }?.colour.rgba(onDark: theme.isDark) },
                                       onDropTasks: { items, tag in section.aggregator.addTag(tag, to: items); clearSelection() })
                             .frame(height: pitch)
                         Spacer().frame(height: pitch / 2 - Self.fieldGap)
@@ -119,7 +121,7 @@ struct TasksPage: View {
 
     private func group(_ status: TaskStatus, symbol: String? = nil) -> TaskSectionView {
         TaskSectionView(status: status, symbol: symbol,
-                        tasks: section.aggregator.tasks(status: status, tags: section.selectedTags),
+                        tasks: section.aggregator.tasks(status: status, tags: section.selectedTags, pens: pens),
                         allTags: section.knownTags,
                         pitch: pitch,
                         selection: $selection,
@@ -175,12 +177,13 @@ struct TasksPage: View {
         return "Add a task, with #tags; start with !, !! or !!! for priority"
     }
 
-    /// Tags of tasks still to do; the chosen filters stay until they are cleared,
-    /// even once their last task is done.
+    /// Tags of tasks still to do, the penned ones leading in pen order; the chosen
+    /// filters stay until they are cleared, even once their last task is done.
     private var stripTags: [String] {
         var tags = section.aggregator.openTags
         for chosen in section.selectedTags where !tags.contains(chosen) { tags.append(chosen) }
-        return tags
+        let penned = pens.pens.map(\.tag).filter { tags.contains($0) }
+        return penned + tags.filter { !penned.contains($0) }
     }
 
     /// The selection, in list order, as tasks still present.
@@ -209,6 +212,8 @@ struct TasksPage: View {
 struct CategoryStrip: View {
     let tags: [String]
     @Binding var selected: [String]
+    /// A penned tag's highlighter, worn by its chip.
+    var wash: (String) -> RGBA? = { _ in nil }
     let onDropTasks: ([TaskItem], String) -> Void
 
     var body: some View {
@@ -216,7 +221,7 @@ struct CategoryStrip: View {
             HStack(spacing: 6) {
                 CategoryChip(label: "All", isOn: selected.isEmpty) { selected = [] }
                 ForEach(tags, id: \.self) { tag in
-                    CategoryChip(label: "#" + tag, isOn: selected.contains(tag),
+                    CategoryChip(label: "#" + tag, isOn: selected.contains(tag), wash: wash(tag),
                                  onDrop: { onDropTasks($0, tag) }) { toggle(tag) }
                 }
             }
@@ -233,13 +238,14 @@ struct CategoryStrip: View {
 struct CategoryChip: View {
     let label: String
     let isOn: Bool
+    var wash: RGBA? = nil
     /// Tasks dropped on the chip; nil for a chip that takes no drops ("All").
     var onDrop: (([TaskItem]) -> Void)?
     let action: () -> Void
     @State private var targeted = false
 
     var body: some View {
-        let chip = FilterChip(label: label, isOn: isOn, isTargeted: targeted, action: action)
+        let chip = FilterChip(label: label, isOn: isOn, isTargeted: targeted, wash: wash, action: action)
         if let onDrop {
             chip
                 .dropDestination(for: TaskDrag.self) { drags, _ in
@@ -418,6 +424,7 @@ struct TaskSectionView: View {
 
 struct TaskRow: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.taskPens) private var pens
     let task: TaskItem
     let pitch: CGFloat
     let allTags: [String]
@@ -462,7 +469,8 @@ struct TaskRow: View {
             } else {
                 title
             }
-            ForEach(task.tags, id: \.self) { tag in
+            // The pen's tag is said by the stroke; the others stay as chips.
+            ForEach(task.tags.filter { $0 != pen?.tag }, id: \.self) { tag in
                 TagChip(tag: tag, scale: scale, removable: !task.isReadOnly) { onRemoveTag(tag) }
             }
             if let notes = task.notes {
@@ -552,8 +560,17 @@ struct TaskRow: View {
             .strikethrough(task.status == .completed, color: theme.dimInk.color)
             .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
             .lineLimit(1)
-            // Today's rows are not stroked: the daily page rings the list instead.
-            .highlighted(task.status == .today ? nil : theme.highlighter[task.status])
+            .highlighted(stroke)
+    }
+
+    /// The pen whose tag the task carries, if any (done tasks lie plain).
+    private var pen: TagPen? { task.status == .completed ? nil : pens.pen(for: task)?.pen }
+
+    /// A penned task is stroked in its pen; otherwise the status highlighter, and
+    /// none on Today's rows, which the daily page rings instead.
+    private var stroke: RGBA? {
+        if let pen { return pen.colour.rgba(onDark: theme.isDark) }
+        return task.status == .today ? nil : theme.highlighter[task.status]
     }
 
     private var symbol: String {

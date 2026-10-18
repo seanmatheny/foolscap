@@ -5,19 +5,21 @@ import FoolscapUI
 
 /// Tasks marked today (`[/]`), from any note, gathered at the head of today's page.
 public enum TodayTasks {
-    /// The tasks that head today's page: those in the Today status, highest
-    /// priority first, leaving out the ones written on today's own note (they
-    /// are on the page already). A task ticked done while its id is in `keep`
-    /// (shown on this visit) stays, struck through and last, so a tick does not
-    /// whip the row away; the moon (back to To do) or Someday takes it off the
-    /// page at once.
-    public static func select(from tasks: [TaskItem], today: DayKey, keep: Set<String> = []) -> [TaskItem] {
+    /// The tasks that head today's page: those in the Today status, pen by pen
+    /// when the lanes sort by pen, highest priority first within that, leaving
+    /// out the ones written on today's own note (they are on the page already).
+    /// A task ticked done while its id is in `keep` (shown on this visit) stays,
+    /// struck through and last, so a tick does not whip the row away; the moon
+    /// (back to To do) or Someday takes it off the page at once.
+    public static func select(from tasks: [TaskItem], today: DayKey, keep: Set<String> = [], pens: TaskPens = TaskPens()) -> [TaskItem] {
         tasks.enumerated()
             .filter { $0.element.source.day != today.string
                 && ($0.element.status == .today || ($0.element.status == .completed && keep.contains($0.element.id))) }
-            .map { (offset: $0.offset, task: $0.element, priority: $0.element.priority, done: $0.element.status != .today) }
+            .map { (offset: $0.offset, task: $0.element, rank: pens.laneRank(of: $0.element),
+                    priority: $0.element.priority, done: $0.element.status != .today) }
             .sorted { a, b in
                 if a.done != b.done { return !a.done }
+                if a.rank != b.rank { return a.rank < b.rank }
                 return a.priority != b.priority ? a.priority > b.priority : a.offset < b.offset
             }
             .map(\.task)
@@ -29,6 +31,7 @@ public enum TodayTasks {
 /// came from). The editor lays it on the ruling in whole lines, one per row.
 struct TodayTasksPanel: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.taskPens) private var pens
     @Bindable var section: DailyNotesSection
     let aggregator: TaskAggregator
     /// Ids seen on this visit: a task ticked done stays, struck through, until the page is rebuilt.
@@ -38,7 +41,7 @@ struct TodayTasksPanel: View {
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
-        let tasks = TodayTasks.select(from: aggregator.tasks, today: .today, keep: shown)
+        let tasks = TodayTasks.select(from: aggregator.tasks, today: .today, keep: shown, pens: pens)
         let ids = tasks.map(\.id)
         Group {
             if !tasks.isEmpty {

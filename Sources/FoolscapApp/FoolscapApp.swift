@@ -42,6 +42,7 @@ struct FoolscapApp: App {
                 .environment(model)
                 .environment(\.notebookTheme, model.theme)
                 .environment(\.notebookTabEdge, model.tabEdge)
+                .environment(\.taskPens, model.pens)
         }
     }
 
@@ -53,6 +54,7 @@ struct FoolscapApp: App {
                 .environment(\.notebookTheme, model.theme)
                 .environment(\.notebookTabEdge, model.tabEdge)
                 .environment(\.showsElasticBand, model.elasticBand)
+                .environment(\.taskPens, model.pens)
                 .frame(minWidth: 820, minHeight: 560)
         }
         .windowResizability(.contentMinSize)
@@ -191,7 +193,7 @@ struct PreferencesRoot: View {
         @Bindable var model = model
         PreferencesView(themeID: $model.themeID, notesFolderPath: model.notesFolderPath,
                         tabsSummary: model.tabsSummary, sectionPanes: model.sectionSettingsPanes,
-                        backup: model.backup,
+                        backup: model.backup, knownTags: model.library?.knownTags ?? [],
                         chooseFolder: { model.changeNotesFolder(to: $0) },
                         moveToFolder: { model.moveNotesFolder(to: $0) })
             .onAppear { AppDelegate.flush = { model.flush() }; AppDelegate.save = { model.save() } }

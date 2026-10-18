@@ -129,6 +129,18 @@ public extension EnvironmentValues {
     }
 }
 
+private struct TaskPensKey: EnvironmentKey {
+    static let defaultValue = TaskPens()
+}
+
+public extension EnvironmentValues {
+    /// The highlighter pens from Settings ▸ Tasks: which tags are stroked, in what colour, and the lane order.
+    var taskPens: TaskPens {
+        get { self[TaskPensKey.self] }
+        set { self[TaskPensKey.self] = newValue }
+    }
+}
+
 public extension RGBA {
     var color: Color { Color(.sRGB, red: r, green: g, blue: b, opacity: a) }
 }

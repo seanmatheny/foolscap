@@ -22,6 +22,8 @@ public struct PreferencesView: View {
     let chooseFolder: (URL) -> Void
     let moveToFolder: (URL) -> Void
     let backup: BackupManager?
+    /// Every tag in the notebook, offered when a pen's tag is chosen.
+    let knownTags: [String]
     @AppStorage("textScale") private var textScale = 1.0
     @AppStorage("openingAnimation") private var openingAnimation = true
     @AppStorage(PreferenceKeys.ruling) private var ruling = Ruling.blank.rawValue
@@ -43,12 +45,14 @@ public struct PreferencesView: View {
     @AppStorage(BackupManager.keepKey) private var backupKeep = 10
 
     public init(themeID: Binding<String>, notesFolderPath: String, tabsSummary: String, sectionPanes: [SectionSettingsPane],
-                backup: BackupManager? = nil, chooseFolder: @escaping (URL) -> Void, moveToFolder: @escaping (URL) -> Void) {
+                backup: BackupManager? = nil, knownTags: [String] = [],
+                chooseFolder: @escaping (URL) -> Void, moveToFolder: @escaping (URL) -> Void) {
         self._themeID = themeID
         self.notesFolderPath = notesFolderPath
         self.tabsSummary = tabsSummary
         self.sectionPanes = sectionPanes
         self.backup = backup
+        self.knownTags = knownTags
         self.chooseFolder = chooseFolder
         self.moveToFolder = moveToFolder
     }
@@ -60,6 +64,7 @@ public struct PreferencesView: View {
         TabView(selection: $tab) {
             notebookTab.tabItem { Label("Notebook", systemImage: "book.closed") }.tag("notebook")
             shortcutsTab.tabItem { Label("Shortcuts", systemImage: "keyboard") }.tag("shortcuts")
+            tasksTab.tabItem { Label("Tasks", systemImage: "checklist") }.tag("tasks")
             scribeTab.tabItem { Label("Scribe", systemImage: "pencil.and.scribble") }.tag("scribe")
             highlightsTab.tabItem { Label("Highlights", systemImage: "highlighter") }.tag("highlights")
             jiraTab.tabItem { Label("Jira", systemImage: "checkmark.rectangle.stack") }.tag("jira")
@@ -174,6 +179,10 @@ public struct PreferencesView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var tasksTab: some View {
+        settingsForm(height: 620) { PensSettings(knownTags: knownTags) }
     }
 
     private func shortcutRow(_ label: String, _ keys: String) -> some View {
@@ -299,6 +308,96 @@ struct FontFamilyPicker: View {
             }
         }
         .frame(maxWidth: 360)
+    }
+}
+
+/// Settings ▸ Tasks: up to eight tags given a highlighter pen, in the order the
+/// lanes sort, and the sort toggle. Edits are written as typed; `TaskPens.load`
+/// drops blank and repeated tags when the app reads them back.
+struct PensSettings: View {
+    @Environment(\.notebookTheme) private var theme
+    let knownTags: [String]
+    @AppStorage(TaskPens.key) private var json = "[]"
+    @AppStorage(TaskPens.sortKey) private var sortsLanes = true
+    @State private var pens: [TagPen] = []
+
+    var body: some View {
+        Section("Pens") {
+            ForEach(pens.indices, id: \.self) { i in
+                penRow(i)
+            }
+            if pens.count < TaskPens.limit {
+                Button("Add Pen") {
+                    pens.append(TagPen(tag: "", colour: PenColour.allCases.first { c in !pens.contains { $0.colour == c } } ?? .yellow))
+                }
+            }
+            Text("A task carrying a pen's tag is stroked in its colour, in the Tasks tab and on today's page; the tag's chip is left off the row. A task with two penned tags takes the pen higher in the list. Up to \(TaskPens.limit) pens.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        Section("Order") {
+            Toggle("Sort tasks by pen", isOn: $sortsLanes)
+            Text("Each lane lists penned tasks first, pen by pen in the order above, then the rest; priority still orders the tasks within a pen.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .onAppear { pens = decode(json) }
+        .onChange(of: pens) { _, pens in
+            let encoded = TaskPens.encode(pens)
+            if encoded != json { json = encoded }
+        }
+        // A restore, or another window, rewrote the default.
+        .onChange(of: json) { _, json in
+            let stored = decode(json)
+            if stored != pens { pens = stored }
+        }
+    }
+
+    private func decode(_ json: String) -> [TagPen] { TaskPens.parse(json) ?? [] }
+
+    private func penRow(_ i: Int) -> some View {
+        HStack(spacing: 8) {
+            Text("#").foregroundStyle(.secondary)
+            TextField("", text: Binding(get: { pens[i].tag }, set: { pens[i].tag = Self.cleaned($0) }), prompt: Text("tag"))
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.leading)
+                .frame(width: 150)
+            Menu {
+                let penned = Set(pens.map(\.tag))
+                ForEach(knownTags.filter { !penned.contains($0) }, id: \.self) { tag in
+                    Button("#" + tag) { pens[i].tag = tag }
+                }
+            } label: { Image(systemName: "tag") }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help("Pick a tag from the notebook")
+            .disabled(knownTags.isEmpty)
+            Spacer()
+            HStack(spacing: 5) {
+                ForEach(PenColour.allCases, id: \.self) { colour in
+                    let on = pens[i].colour == colour
+                    Circle()
+                        .fill(colour.rgba(onDark: false).opacity(1).color)
+                        .frame(width: 16, height: 16)
+                        .overlay(Circle().stroke(Color.primary.opacity(on ? 0.8 : 0.15), lineWidth: on ? 2 : 0.5))
+                        .contentShape(Circle())
+                        .onTapGesture { pens[i].colour = colour }
+                        .help(colour.title)
+                }
+            }
+            HStack(spacing: 2) {
+                Button { pens.swapAt(i, i - 1) } label: { Image(systemName: "chevron.up") }
+                    .disabled(i == 0).help("Sort earlier")
+                Button { pens.swapAt(i, i + 1) } label: { Image(systemName: "chevron.down") }
+                    .disabled(i == pens.count - 1).help("Sort later")
+                Button { pens.remove(at: i) } label: { Image(systemName: "xmark.circle") }
+                    .help("Remove the pen")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    /// A tag as typed in a note: no `#`, no spaces.
+    private static func cleaned(_ text: String) -> String {
+        String(text.drop { $0 == "#" }).filter { !$0.isWhitespace }
     }
 }
 

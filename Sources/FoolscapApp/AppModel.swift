@@ -35,6 +35,8 @@ final class AppModel {
     private(set) var elasticBand = false
     private(set) var tabEdge: TabEdge = .left
     private(set) var paperTexture: PaperTexture = .none
+    /// The highlighter pens from Settings ▸ Tasks, and whether the lanes sort by them.
+    private(set) var pens = TaskPens()
     /// Font families chosen in Settings over the theme's own ("" keeps the theme's).
     private(set) var bodyFont = ""
     private(set) var headingFont = ""
@@ -334,6 +336,8 @@ final class AppModel {
         if e != tabEdge { tabEdge = e }
         let p = PaperTexture(rawValue: defaults.string(forKey: PreferenceKeys.paperTexture) ?? "") ?? .none
         if p != paperTexture { paperTexture = p }
+        let pens = TaskPens.load(from: defaults)
+        if pens != self.pens { self.pens = pens }
         let body = defaults.string(forKey: PreferenceKeys.bodyFont) ?? ""
         if body != bodyFont { bodyFont = body }
         let heading = defaults.string(forKey: PreferenceKeys.headingFont) ?? ""

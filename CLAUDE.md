@@ -248,6 +248,18 @@
   case name; `v5-today-status` renamed the old `inProgress` rows. Today's page lists
   tasks in the Today status; the `#today` tag it once used was converted one time by
   `NotebookLibrary.migrateTodayTagToStatus` (`todayTagMigrated` default).
+- Highlighter pens (`TaskPens`, `TagPen`, `PenColour` in Core/TaskPens.swift; Settings ▸ Tasks,
+  `--prefs-tab=tasks`): up to eight tags each given one of eight named highlighters, stored as
+  JSON in the `taskPens` default (`-taskPens lais=mint,home=pink` previews a set: the argument
+  domain drops a JSON value, so `TaskPens.parse` takes that plain form too)
+  and read into the `\.taskPens` environment by `AppModel.readAppearancePreferences`. A task's
+  pen is the first in the list whose tag it carries: `TaskRow` strokes the title with it
+  (`.highlighted`, done rows excepted) and leaves that tag's chip off the row; the Tasks tab's
+  filter strip leads with the penned tags wearing their colour. With `taskSortByPen` (default
+  on) each lane and the daily page's Today panel list penned tasks first, pen by pen in list
+  order, then priority, then note order (`TaskPens.laneRank`, `TaskAggregator.tasks(pens:)`,
+  `TodayTasks.select(pens:)`). `HighlightMark` multiplies into paper and screens onto a dark
+  page (`isDark`), which the Someday/Completed heading strokes on the flat dark themes needed too.
 - Task priority is `!`/`!!`/`!!!` at the start of the task text (`TaskPriority`,
   `TaskLineParser.priority`). It stays inside `TaskItem.title` so files round-trip,
   but `contentKey` strips it: changing priority keeps the task's identity.
@@ -458,7 +470,7 @@
   cannot be photographed.
 - Settings is a `TabView` (Notebook, Shortcuts, Scribe, Highlights, plug-in panes,
   Files); each tab is a grouped form of fixed height. `--prefs-tab=name` opens a tab
-  (`notebook`, `shortcuts`, `scribe`, `highlights`, `jira`, `files`); `--prefs-bottom` and
+  (`notebook`, `shortcuts`, `tasks`, `scribe`, `highlights`, `jira`, `files`); `--prefs-bottom` and
   `--prefs-scroll` scroll the open tab's form.
 - The spine reads faint on purpose (`SpineRidge`, `FoldShadow`, the facing-page and
   page inner shades are all in the 0.1–0.3 range): a heavier crease grabbed the eye.

@@ -66,14 +66,18 @@ public final class TaskAggregator {
         return counts.keys.sorted { (counts[$0]!, $1) > (counts[$1]!, $0) }
     }
 
-    /// Tasks in one status section, highest priority first, otherwise in note order.
+    /// Tasks in one status section: pen by pen when the lanes sort by pen (unpenned
+    /// last), highest priority first within that, otherwise in note order.
     /// Tasks with this status carrying every one of `tags` (all of them when it is empty).
-    public func tasks(status: TaskStatus, tags: [String] = []) -> [TaskItem] {
+    public func tasks(status: TaskStatus, tags: [String] = [], pens: TaskPens = TaskPens()) -> [TaskItem] {
         // Priority is parsed from the title: once per task, not once per comparison.
         tasks.enumerated()
             .filter { item in item.element.status == status && tags.allSatisfy { item.element.tags.contains($0) } }
-            .map { (offset: $0.offset, task: $0.element, priority: $0.element.priority) }
-            .sorted { a, b in a.priority != b.priority ? a.priority > b.priority : a.offset < b.offset }
+            .map { (offset: $0.offset, task: $0.element, rank: pens.laneRank(of: $0.element), priority: $0.element.priority) }
+            .sorted { a, b in
+                if a.rank != b.rank { return a.rank < b.rank }
+                return a.priority != b.priority ? a.priority > b.priority : a.offset < b.offset
+            }
             .map(\.task)
     }
 

@@ -5,7 +5,9 @@ import FoolscapCore
 /// end, multiplied into the paper.
 public struct HighlightMark: View {
     let color: RGBA
-    public init(color: RGBA) { self.color = color }
+    /// On a black page a multiplied stroke vanishes, so dark themes screen it on instead.
+    let isDark: Bool
+    public init(color: RGBA, isDark: Bool = false) { self.color = color; self.isDark = isDark }
 
     public var body: some View {
         GeometryReader { geo in
@@ -17,19 +19,26 @@ public struct HighlightMark: View {
                 .frame(width: geo.size.width + 8, height: geo.size.height * 0.78)
                 .rotationEffect(.degrees(-0.6))
                 .offset(x: -4, y: geo.size.height * 0.12)
-                .blendMode(.multiply)
+                .blendMode(isDark ? .screen : .multiply)
         }
         .allowsHitTesting(false)
     }
 }
 
-public extension View {
-    /// Highlight the view like a marker pen, when `color` is visible.
-    func highlighted(_ color: RGBA?) -> some View {
-        background {
-            if let color, color.a > 0 { HighlightMark(color: color) }
+/// `.highlighted` reads the theme for the blend, so plug-in views need not pass it.
+private struct Highlighted: ViewModifier {
+    @Environment(\.notebookTheme) private var theme
+    let color: RGBA?
+    func body(content: Content) -> some View {
+        content.background {
+            if let color, color.a > 0 { HighlightMark(color: color, isDark: theme.isDark) }
         }
     }
+}
+
+public extension View {
+    /// Highlight the view like a marker pen, when `color` is visible.
+    func highlighted(_ color: RGBA?) -> some View { modifier(Highlighted(color: color)) }
 
     /// Ring a list the way the daily page rings its Today tasks: a dashed line
     /// around a faint wash of `tint`. The ring is drawn around the view, not laid

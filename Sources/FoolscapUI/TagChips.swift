@@ -39,10 +39,12 @@ public struct FilterChip: View {
     let label: String
     let isOn: Bool
     let isTargeted: Bool
+    /// A highlighter the chip wears instead of the ink wash (a penned tag).
+    let wash: RGBA?
     let action: () -> Void
 
-    public init(label: String, isOn: Bool, isTargeted: Bool = false, action: @escaping () -> Void) {
-        self.label = label; self.isOn = isOn; self.isTargeted = isTargeted; self.action = action
+    public init(label: String, isOn: Bool, isTargeted: Bool = false, wash: RGBA? = nil, action: @escaping () -> Void) {
+        self.label = label; self.isOn = isOn; self.isTargeted = isTargeted; self.wash = wash; self.action = action
     }
 
     public var body: some View {
@@ -50,13 +52,23 @@ public struct FilterChip: View {
             Text(label)
                 .font(theme.type.body.face(11.5, weight: isOn || isTargeted ? .semibold : .regular))
                 .padding(.horizontal, 9).padding(.vertical, 3)
-                .background(Capsule().fill(isOn || isTargeted ? theme.accent.color.opacity(isTargeted ? 0.32 : 0.2) : theme.ink.color.opacity(0.06)))
-                .overlay(Capsule().stroke(isTargeted ? theme.accent.color : theme.ink.color.opacity(isOn ? 0.25 : 0.1),
-                                          lineWidth: isTargeted ? 1.2 : 0.5))
+                .background(Capsule().fill(fill))
+                .overlay(Capsule().stroke(outline, lineWidth: isTargeted ? 1.2 : 0.5))
                 .scaleEffect(isTargeted ? 1.08 : 1)
         }
         .buttonStyle(.plain)
         .animation(.easeOut(duration: 0.12), value: isTargeted)
+    }
+
+    private var fill: Color {
+        if let wash { return wash.color.opacity(min(1, wash.a + (isOn || isTargeted ? 0.4 : 0.1))) }
+        return isOn || isTargeted ? theme.accent.color.opacity(isTargeted ? 0.32 : 0.2) : theme.ink.color.opacity(0.06)
+    }
+
+    private var outline: Color {
+        if isTargeted { return theme.accent.color }
+        if let wash { return wash.color.opacity(isOn ? 0.9 : 0.5) }
+        return theme.ink.color.opacity(isOn ? 0.25 : 0.1)
     }
 }
 
