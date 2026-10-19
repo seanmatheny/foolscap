@@ -105,11 +105,26 @@ public final class JiraSection: NotebookSection {
         return JiraNewTaskDefaults(projectKey: project, epicKey: epic, boardID: board > 0 ? board : nil)
     }
 
-    /// The `+` field's prompt names what the task will get.
+    /// The project's open epics, offered by the `+` field's epic chip; empty until
+    /// a pass has fetched them for the project now set.
+    public var epics: [JiraIssue] {
+        state.epicsProject == newTaskDefaults.projectKey ? state.epics ?? [] : []
+    }
+
+    /// The epic chip's choice, kept as the Settings epic: the next task goes there too.
+    public func setEpic(_ key: String?) {
+        defaults.set(key ?? "", forKey: Self.epicKey)
+    }
+
+    /// The epic's summary when it is among the open ones, else its key.
+    public func epicTitle(for key: String) -> String {
+        epics.first { $0.key == key }?.summary ?? key
+    }
+
+    /// The `+` field's prompt names what the task will get (its epic is on the chip beside it).
     public var newTaskPrompt: String {
         let d = newTaskDefaults
         var parts = ["New \(d.projectKey) task, assigned to you"]
-        if let epic = d.epicKey { parts.append("in epic \(epic)") }
         if d.boardID != nil { parts.append("in the open sprint") }
         return parts.joined(separator: ", ")
     }
@@ -180,6 +195,8 @@ public final class JiraSection: NotebookSection {
         // (a freshly signed debug build prompts for the token and waits for a click).
         if CommandLine.arguments.contains("--jira-sample") {
             state.issues = Self.sampleIssues
+            state.epics = Self.sampleEpics
+            state.epicsProject = newTaskDefaults.projectKey
             status.needsCredentials = false
         } else {
             loadCredentials()
@@ -268,7 +285,7 @@ public final class JiraSection: NotebookSection {
             }
         }
         do {
-            let report = try await engine.syncOnce(credentials, progress: progress)
+            let report = try await engine.syncOnce(credentials, epicsProject: newTaskDefaults.projectKey, progress: progress)
             let newState = await engine.state
             guard passID == pass else { return }
             state = newState
@@ -276,6 +293,7 @@ public final class JiraSection: NotebookSection {
             status.lastRun = Date()
             status.lastReport = report
             status.isOffline = false
+            if let why = report.epicsError { status.lastError = "The epics could not be fetched. \(why)" }
             if report.resolved > 0 { await library.rescan() }
         } catch JiraClientError.unauthorised {
             guard passID == pass else { return }
@@ -470,6 +488,12 @@ public final class JiraSection: NotebookSection {
         JiraIssue(key: "FOOL-119", summary: "Document how to reserve a pair of nodes", statusName: "Open", statusCategory: .new, issueType: "Task", priority: "Low", parentKey: "FOOL-3", parentSummary: "BAU", commentCount: 1),
         JiraIssue(key: "FOOL-77", summary: "Prepare the new network switches", statusName: "Awaiting - Internal", statusCategory: .indeterminate, issueType: "Task", priority: "Medium", parentKey: "FOOL-4", parentSummary: "Network", commentCount: 6),
         JiraIssue(key: "FOOL-35", summary: "Upgrade the monitoring stack", statusName: "To Do", statusCategory: .new, issueType: "Task", priority: "Low", parentKey: "FOOL-3", parentSummary: "BAU"),
+    ]
+
+    static let sampleEpics: [JiraIssue] = [
+        JiraIssue(key: "FOOL-2", summary: "Platform", statusName: "In Progress", statusCategory: .indeterminate, issueType: "Epic", isEpic: true),
+        JiraIssue(key: "FOOL-3", summary: "BAU", statusName: "In Progress", statusCategory: .indeterminate, issueType: "Epic", isEpic: true),
+        JiraIssue(key: "FOOL-4", summary: "Network", statusName: "Open", statusCategory: .new, issueType: "Epic", isEpic: true),
     ]
 
     public var groups: [Group] {

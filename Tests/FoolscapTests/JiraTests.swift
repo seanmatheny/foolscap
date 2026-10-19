@@ -19,6 +19,8 @@ final class FakeJiraClient: JiraClient, @unchecked Sendable {
     var taskTypeID: String? = "10008"
     var sprintID: Int? = 13779
     var nextKey = 100
+    var epicsByProject: [String: [JiraIssue]] = [:]
+    var rejectEpics: String?
 
     func assignedIssues(_ credentials: JiraCredentials) async throws -> [JiraIssue] {
         if offline { throw URLError(.notConnectedToInternet) }
@@ -28,6 +30,10 @@ final class FakeJiraClient: JiraClient, @unchecked Sendable {
     func issues(keys: [String], _ credentials: JiraCredentials) async throws -> [JiraIssue] {
         keyQueries.append(keys)
         return keys.compactMap { byKey[$0] }
+    }
+    func openEpics(project: String, _ credentials: JiraCredentials) async throws -> [JiraIssue] {
+        if let rejectEpics { throw JiraClientError.rejected(rejectEpics) }
+        return epicsByProject[project] ?? []
     }
     func issue(key: String, _ credentials: JiraCredentials) async throws -> JiraIssue {
         guard let issue = byKey[key] else { throw JiraClientError.rejected("no issue \(key)") }
@@ -102,6 +108,12 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         #expect(query.first { $0.name == "nextPageToken" }?.value == "p2")
         #expect(r.value(forHTTPHeaderField: "Authorization") == "Basic " + Data("a@b.c:tok".utf8).base64EncodedString())
         #expect(r.value(forHTTPHeaderField: "Accept") == "application/json")
+    }
+
+    @Test func epicsQueryNamesTheProject() {
+        #expect(JiraCloudClient.epicsJQL(project: "CPAS")
+                == #"project = "CPAS" AND issuetype = Epic AND statusCategory != Done ORDER BY updated DESC"#)
+        #expect(JiraCloudClient.epicsJQL(project: #"CP"AS"#).hasPrefix(#"project = "CPAS" "#))
     }
 
     @Test func taskTitleDropsHashesAndNewlines() {
@@ -390,5 +402,36 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         #expect(section.newTaskDefaults == JiraNewTaskDefaults(projectKey: "CPAS", epicKey: nil, boardID: nil))
         #expect(await section.createTask(summary: "A task").value && section.state.issues.first?.summary == "A task" && !section.isCreating)
         #expect(await section.comment(fix, body: "hi").value && client.comments.count == 1)
+    }
+
+    @Test func theEpicChipPicksAmongTheProjectsOpenEpics() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-jira-epics-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let client = FakeJiraClient(), store = MemoryTokenStore()
+        client.epicsByProject["CPAS"] = [issue("CPAS-2", "Platform", type: "Epic"), issue("CPAS-3", "BAU", type: "Epic")]
+        let (section, defaults) = try makeSection(tmp, client: client, store: store)
+        #expect(section.epics.isEmpty && section.epicTitle(for: "CPAS-3") == "CPAS-3")
+        try section.saveCredentials(site: "x.atlassian.net", email: "a@b.c", token: "tok")
+        await section.runSync()
+        #expect(section.epics.map(\.key) == ["CPAS-2", "CPAS-3"] && section.epicTitle(for: "CPAS-3") == "BAU")
+
+        // The pick sticks as the Settings epic and goes with the next task.
+        section.setEpic("CPAS-3")
+        #expect(defaults.string(forKey: JiraSection.epicKey) == "CPAS-3" && section.newTaskDefaults.epicKey == "CPAS-3")
+        #expect(await section.createTask(summary: "Under BAU").value && client.created.last?.epicKey == "CPAS-3")
+        section.setEpic(nil)
+        #expect(section.newTaskDefaults.epicKey == nil)
+        #expect(await section.createTask(summary: "Under none").value && client.created.last?.epicKey == nil)
+
+        // A refused epic fetch keeps the old list and says why; the issues still arrive.
+        client.rejectEpics = "no such project"
+        client.open = [issue("CPAS-7", "Seven")]
+        await section.runSync()
+        #expect(section.epics.map(\.key) == ["CPAS-2", "CPAS-3"] && section.state.issues.map(\.key) == ["CPAS-7"])
+        #expect(section.status.lastError?.contains("no such project") == true)
+
+        // Another project's list is not offered until a pass fetches it.
+        defaults.set("OTHER", forKey: JiraSection.projectKey)
+        #expect(section.epics.isEmpty)
     }
 }

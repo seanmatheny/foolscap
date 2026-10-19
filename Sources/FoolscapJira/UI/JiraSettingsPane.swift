@@ -78,7 +78,7 @@ struct JiraSettingsPane: View {
         TextField("New tasks: project", text: $projectKey, prompt: Text("CPAS"))
         TextField("Epic", text: $epicKey, prompt: Text("CPAS-2, or blank for none"))
         TextField("Board", value: $boardID, format: .number, prompt: Text("1045, or 0 to skip the sprint"))
-        Text("A task typed into the Jira tab's + field is a Task in this project, under this epic, assigned to you, in the board's open sprint.")
+        Text("A task typed into the Jira tab's + field is a Task in this project, under this epic, assigned to you, in the board's open sprint. The epic chip in that field picks among the project's open epics and changes this one too.")
             .font(.caption).foregroundStyle(.secondary)
         .onAppear {
             site = section.site

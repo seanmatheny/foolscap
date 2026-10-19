@@ -199,7 +199,8 @@
   epic as `parent`, assignee from `/myself`, issue type id from createmeta, all cached in
   state) then `POST /rest/agile/1.0/sprint/{id}/issue` for the board's active sprint
   (`jiraProjectKey`/`jiraEpicKey`/`jiraBoardID` defaults, blank epic = none, board 0 = no
-  sprint), and the bubble posts an ADF comment. Jira's refusals (`errorMessages`/`errors`)
+  sprint; the field's epic chip lists the project's open epics, fetched each pass into
+  `JiraState.epics`, and a pick writes `jiraEpicKey`, so it sticks), and the bubble posts an ADF comment. Jira's refusals (`errorMessages`/`errors`)
   surface as `JiraClientError.rejected` in the status line.
 - Secrets (`FoolscapSecrets`): a hard toggle like Jira (`secretsEnabled`, `AppModel.setSecretsEnabled`,
   after Jira/Tasks with the sixth tab colour, a pewter added to every theme; `--secrets` forces it

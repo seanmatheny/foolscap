@@ -6,6 +6,8 @@ public struct JiraSyncReport: Equatable, Sendable {
     public var fetched = 0
     /// Pulled issues Jira has since closed, whose tasks were ticked.
     public var resolved = 0
+    /// Why the epics could not be fetched; the old list stays and the pass still counts.
+    public var epicsError: String?
     public init() {}
 }
 
@@ -100,12 +102,28 @@ public actor JiraSyncEngine {
         state = JiraState.load(from: stateURL)
     }
 
-    public func syncOnce(_ credentials: JiraCredentials, progress: (@Sendable (String) -> Void)? = nil) async throws -> JiraSyncReport {
+    /// `epicsProject` names the project whose open epics the new-task field offers.
+    public func syncOnce(_ credentials: JiraCredentials, epicsProject: String? = nil,
+                         progress: (@Sendable (String) -> Void)? = nil) async throws -> JiraSyncReport {
         var report = JiraSyncReport()
         progress?("Fetching your issues…")
         let open = try await client.assignedIssues(credentials)
         state.issues = open
         report.fetched = open.count
+
+        if let project = epicsProject {
+            progress?("Fetching \(project)'s epics…")
+            do {
+                state.epics = try await client.openEpics(project: project, credentials)
+                state.epicsProject = project
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as JiraClientError {
+                report.epicsError = error.message
+            } catch {
+                report.epicsError = error.localizedDescription
+            }
+        }
 
         // A pulled issue that has left the open list was closed, or reassigned:
         // ask which. Reassigned ones stay pending and are asked again next pass.

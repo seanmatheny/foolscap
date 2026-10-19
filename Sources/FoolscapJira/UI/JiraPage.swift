@@ -13,6 +13,8 @@ struct JiraPage: View {
     @Bindable var section: JiraSection
     @State private var newTaskText = ""
     @FocusState private var newTaskFocused: Bool
+    /// Shared with Settings ▸ Jira: "" means no epic.
+    @AppStorage(JiraSection.epicKey) private var epicKey = JiraSection.defaultEpic
     /// The issue lit for a moment after a route lands on it.
     @State private var flashKey: String?
 
@@ -112,6 +114,7 @@ struct JiraPage: View {
                 .focused($newTaskFocused)
                 .onSubmit { submit() }
                 .disabled(section.isCreating)
+            epicMenu
             if section.isCreating { ProgressView().controlSize(.small) }
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
@@ -119,6 +122,42 @@ struct JiraPage: View {
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.ink.color.opacity(newTaskFocused ? 0.22 : 0.12), lineWidth: 0.5))
         .help("⌘N")
         .colorScheme(theme.isDark ? .dark : .light)
+    }
+
+    /// The epic the next task goes under, as the rows' epic chip; a menu of the project's open ones.
+    private var epicMenu: some View {
+        Menu {
+            Button {
+                section.setEpic(nil)
+            } label: {
+                if epicKey.isEmpty { Label("No epic", systemImage: "checkmark") } else { Text("No epic") }
+            }
+            Divider()
+            if section.epics.isEmpty {
+                Text("Sync to list the epics")
+            } else {
+                ForEach(section.epics) { epic in
+                    Button {
+                        section.setEpic(epic.key)
+                    } label: {
+                        let title = "\(epic.key)  \(epic.summary)"
+                        if epic.key == epicKey { Label(title, systemImage: "checkmark") } else { Text(title) }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(epicKey.isEmpty ? "No epic" : section.epicTitle(for: epicKey))
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
+            }
+            .epicChip(theme: theme, scale: scale, faint: epicKey.isEmpty)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(section.isCreating)
+        .help(epicKey.isEmpty ? "New tasks go under no epic" : "New tasks go under \(epicKey)")
     }
 
     /// The text stays in the field when Jira refuses, with the reason in the status line.
@@ -215,11 +254,7 @@ struct JiraIssueRow: View {
             if let parent = issue.parentSummary {
                 // The epic, as a chip in Jira's purple.
                 Text(parent)
-                    .font(theme.type.body.face(10.5 * scale, weight: .medium))
-                    .foregroundStyle(theme.isDark ? Color(red: 0.80, green: 0.74, blue: 0.95) : Color(red: 0.36, green: 0.24, blue: 0.62))
-                    .lineLimit(1)
-                    .padding(.horizontal, 7).padding(.vertical, 1.5)
-                    .background(Capsule().fill(Color(red: 0.49, green: 0.37, blue: 0.80).opacity(theme.isDark ? 0.28 : 0.16)))
+                    .epicChip(theme: theme, scale: scale)
                     .help("Epic: \(parent)")
             }
             statusChip(busy: busy)
@@ -339,5 +374,19 @@ struct JiraIssueRow: View {
         commenting = false
         draft = ""
         section.comment(issue, body: text)
+    }
+}
+
+extension View {
+    /// An epic as a chip in Jira's purple; `faint` for "No epic".
+    func epicChip(theme: NotebookTheme, scale: CGFloat, faint: Bool = false) -> some View {
+        self
+            .font(theme.type.body.face(10.5 * scale, weight: .medium))
+            .foregroundStyle(faint ? theme.dimInk.color
+                             : theme.isDark ? Color(red: 0.80, green: 0.74, blue: 0.95) : Color(red: 0.36, green: 0.24, blue: 0.62))
+            .lineLimit(1)
+            .padding(.horizontal, 7).padding(.vertical, 1.5)
+            .background(Capsule().fill(faint ? theme.ink.color.opacity(0.07)
+                                       : Color(red: 0.49, green: 0.37, blue: 0.80).opacity(theme.isDark ? 0.28 : 0.16)))
     }
 }

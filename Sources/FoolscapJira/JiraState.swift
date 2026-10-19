@@ -15,6 +15,9 @@ public struct JiraState: Codable, Equatable, Sendable {
     /// per project. (Optional so a state file from before them still loads.)
     public var accountID: String?
     public var issueTypeIDs: [String: String]?
+    /// The open epics of `epicsProject`, fetched with every pass for the new-task field's menu.
+    public var epics: [JiraIssue]?
+    public var epicsProject: String?
 
     public struct Pulled: Codable, Equatable, Sendable {
         /// `TaskItem.contentKey` of the task line, its identity across moves.

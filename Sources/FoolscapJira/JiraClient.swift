@@ -49,6 +49,8 @@ public protocol JiraClient: Sendable {
     func assignedIssues(_ credentials: JiraCredentials) async throws -> [JiraIssue]
     /// The named issues whatever their status (how a pulled issue's resolution is noticed).
     func issues(keys: [String], _ credentials: JiraCredentials) async throws -> [JiraIssue]
+    /// The project's epics not yet done, for the new-task field's epic menu.
+    func openEpics(project: String, _ credentials: JiraCredentials) async throws -> [JiraIssue]
     /// One issue, read directly: a search lags a few seconds behind a write.
     func issue(key: String, _ credentials: JiraCredentials) async throws -> JiraIssue
     /// The moves the workflow allows from the issue's current status.
@@ -137,6 +139,15 @@ public final class JiraCloudClient: JiraClient {
             out += try await search("key in (\(chunk.joined(separator: ", ")))", credentials)
         }
         return out
+    }
+
+    public func openEpics(project: String, _ credentials: JiraCredentials) async throws -> [JiraIssue] {
+        try await search(Self.epicsJQL(project: project), credentials)
+    }
+
+    static func epicsJQL(project: String) -> String {
+        let key = project.replacingOccurrences(of: "\"", with: "")
+        return "project = \"\(key)\" AND issuetype = Epic AND statusCategory != Done ORDER BY updated DESC"
     }
 
     private func search(_ jql: String, _ credentials: JiraCredentials) async throws -> [JiraIssue] {
