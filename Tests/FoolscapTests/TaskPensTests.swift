@@ -98,5 +98,14 @@ import Foundation
         #expect(aggregator.tasks(status: .someday, pens: pens).map(\.displayTitle) == ["Parked"])
         // The filter still applies inside the pen order.
         #expect(aggregator.tasks(status: .notStarted, tags: ["home"], pens: pens).map(\.displayTitle) == ["Home"])
+
+        // A drop on a pen's chip moves the task to that pen in one write: the other pen tags come off.
+        let home = aggregator.tasks.first { $0.displayTitle == "Home" }!
+        aggregator.addTag("lais", to: [home], replacing: ["home"])
+        #expect(aggregator.tasks.first { $0.id == home.id }?.tags == ["lais"])
+        try await Task.sleep(for: .milliseconds(300))
+        let text = try String(contentsOf: folder.url(for: day), encoding: .utf8)
+        #expect(text.contains("- [ ] Home #lais\n"))
+        #expect(!text.contains("#home #lais"))
     }
 }

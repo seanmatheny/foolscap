@@ -117,19 +117,22 @@ public final class TaskAggregator {
 
     public func addTag(_ tag: String, to task: TaskItem) { addTag(tag, to: [task]) }
 
-    /// Tag several tasks at once (a drop onto a tag chip). Tasks that already carry
-    /// the tag are left alone; the writes run one after another like `move`.
-    public func addTag(_ tag: String, to items: [TaskItem]) {
+    /// Tag several tasks at once (a drop onto a tag chip), taking off any of
+    /// `replacing` they carry in the same write (a drop on a pen's chip moves the
+    /// task to that pen). Tasks the edit would leave as they are are left alone;
+    /// the writes run one after another like `move`.
+    public func addTag(_ tag: String, to items: [TaskItem], replacing: [String] = []) {
         let clean = tag.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased()
         guard !clean.isEmpty else { return }
         let edits = items.compactMap { task -> (TaskItem, String, any TaskProvider)? in
-            guard !task.tags.contains(clean), !task.isReadOnly,
-                  let provider = providers.first(where: { $0.id == task.providerID }) else { return nil }
-            return (task, task.title + " #" + clean, provider)
+            guard !task.isReadOnly, let provider = providers.first(where: { $0.id == task.providerID }) else { return nil }
+            let stripped = replacing.filter { $0 != clean }.reduce(task.title) { TaskLineParser.removingTag($1, from: $0) }
+            let title = TaskLineParser.addingTag(clean, to: stripped)
+            return title == task.title ? nil : (task, title, provider)
         }
         guard !edits.isEmpty else { return }
         for (task, title, _) in edits {
-            if let i = tasks.firstIndex(where: { $0.id == task.id }) { tasks[i].title = title; tasks[i].tags.append(clean) }
+            if let i = tasks.firstIndex(where: { $0.id == task.id }) { tasks[i].title = title; tasks[i].tags = TaskLineParser.tags(in: title) }
         }
         Task {
             for (task, title, provider) in edits {

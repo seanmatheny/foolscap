@@ -83,7 +83,12 @@ struct TasksPage: View {
                         Spacer().frame(height: Self.fieldGap * 2)
                         CategoryStrip(tags: stripTags, selected: $section.selectedTags,
                                       wash: { tag in pens.pens.first { $0.tag == tag }?.colour.rgba(onDark: theme.isDark) },
-                                      onDropTasks: { items, tag in section.aggregator.addTag(tag, to: items); clearSelection() })
+                                      onDropTasks: { items, tag in
+                                          // Dropped on a pen's chip, a task moves to that pen: its other pen tags come off.
+                                          let others = pens.pens.map(\.tag).contains(tag) ? pens.pens.map(\.tag).filter { $0 != tag } : []
+                                          section.aggregator.addTag(tag, to: items, replacing: others)
+                                          clearSelection()
+                                      })
                             .frame(height: pitch)
                         Spacer().frame(height: pitch / 2 - Self.fieldGap)
                         // The desk: what is in hand across the top, then what is
@@ -469,9 +474,14 @@ struct TaskRow: View {
             } else {
                 title
             }
-            // The pen's tag is said by the stroke; the others stay as chips.
+            // The pen's tag is said by the stroke; the others stay as chips. The pen's own
+            // chip shows under the pointer, in its colour, so the tag can still be taken off.
             ForEach(task.tags.filter { $0 != pen?.tag }, id: \.self) { tag in
                 TagChip(tag: tag, scale: scale, removable: !task.isReadOnly) { onRemoveTag(tag) }
+            }
+            if let pen {
+                TagChip(tag: pen.tag, scale: scale, removable: !task.isReadOnly, tint: pen.colour.rgba(onDark: theme.isDark)) { onRemoveTag(pen.tag) }
+                    .opacity(hovering ? 1 : 0)
             }
             if let notes = task.notes {
                 Button { editing = true } label: { Image(systemName: "text.alignleft").font(.system(size: 11)) }
@@ -519,6 +529,8 @@ struct TaskRow: View {
                 Text(task.source.path).font(theme.type.body.face(11 * scale)).foregroundStyle(theme.dimInk.color)
             }
         }
+        // Done rows lie faded under their strikethrough.
+        .opacity(task.status == .completed ? 0.55 : 1)
         .frame(height: pitch)
         .padding(.leading, 8)
         .background(RoundedRectangle(cornerRadius: 5).fill(theme.accent.color.opacity(isSelected ? 0.16 : 0)).padding(.vertical, 2))
@@ -536,6 +548,11 @@ struct TaskRow: View {
                     }
                     Divider()
                     Button("New Tag…") { askTag = true }
+                }
+                if !task.tags.isEmpty {
+                    Menu("Remove Tag") {
+                        ForEach(task.tags, id: \.self) { tag in Button("#" + tag) { onRemoveTag(tag) } }
+                    }
                 }
                 Menu("Priority") {
                     ForEach(TaskPriority.allCases, id: \.self) { p in
@@ -567,10 +584,10 @@ struct TaskRow: View {
     private var pen: TagPen? { task.status == .completed ? nil : pens.pen(for: task)?.pen }
 
     /// A penned task is stroked in its pen; otherwise the status highlighter, and
-    /// none on Today's rows, which the daily page rings instead.
+    /// none on Today's rows (the daily page rings them) or done ones (faded instead).
     private var stroke: RGBA? {
         if let pen { return pen.colour.rgba(onDark: theme.isDark) }
-        return task.status == .today ? nil : theme.highlighter[task.status]
+        return task.status == .today || task.status == .completed ? nil : theme.highlighter[task.status]
     }
 
     private var symbol: String {

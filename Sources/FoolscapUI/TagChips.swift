@@ -8,27 +8,35 @@ public struct TagChip: View {
     let tag: String
     let scale: CGFloat
     let removable: Bool
+    /// A pen's colour: the chip is filled with it and lettered in ink, instead of the accent.
+    let tint: RGBA?
     let onRemove: () -> Void
     @State private var hovering = false
 
-    public init(tag: String, scale: CGFloat = 1, removable: Bool = true, onRemove: @escaping () -> Void) {
-        self.tag = tag; self.scale = scale; self.removable = removable; self.onRemove = onRemove
+    public init(tag: String, scale: CGFloat = 1, removable: Bool = true, tint: RGBA? = nil, onRemove: @escaping () -> Void) {
+        self.tag = tag; self.scale = scale; self.removable = removable; self.tint = tint; self.onRemove = onRemove
     }
 
     public var body: some View {
         let armed = removable && hovering
+        let ink = tint == nil ? theme.accent.color : theme.ink.color
         Button(action: onRemove) {
             Text("#" + tag)
                 .font(theme.type.body.face(11 * scale))
-                .strikethrough(armed, color: theme.accent.color)
-                .foregroundStyle(theme.accent.color)
+                .strikethrough(armed, color: ink)
+                .foregroundStyle(ink)
                 .padding(.horizontal, 6).padding(.vertical, 1)
-                .background(Capsule().fill(theme.accent.color.opacity(armed ? 0.22 : 0.12)))
+                .background(Capsule().fill(fill(armed: armed)))
         }
         .buttonStyle(.plain)
         .disabled(!removable)
         .onHover { hovering = $0 }
         .help(removable ? "Remove #\(tag)" : "")
+    }
+
+    private func fill(armed: Bool) -> Color {
+        if let tint { return tint.opacity(1).color.opacity(theme.isDark ? (armed ? 0.85 : 0.55) : (armed ? 0.8 : 0.45)) }
+        return theme.accent.color.opacity(armed ? 0.22 : 0.12)
     }
 }
 
@@ -61,13 +69,14 @@ public struct FilterChip: View {
     }
 
     private var fill: Color {
-        if let wash { return wash.color.opacity(min(1, wash.a + (isOn || isTargeted ? 0.4 : 0.1))) }
+        // A pen's wash is faint by design (it sits under text); the chip wears the colour itself, stronger on black.
+        if let wash { return wash.opacity(1).color.opacity(theme.isDark ? (isOn || isTargeted ? 0.85 : 0.55) : (isOn || isTargeted ? 0.8 : 0.45)) }
         return isOn || isTargeted ? theme.accent.color.opacity(isTargeted ? 0.32 : 0.2) : theme.ink.color.opacity(0.06)
     }
 
     private var outline: Color {
         if isTargeted { return theme.accent.color }
-        if let wash { return wash.color.opacity(isOn ? 0.9 : 0.5) }
+        if let wash { return wash.opacity(1).color.opacity(isOn ? 0.9 : 0.5) }
         return theme.ink.color.opacity(isOn ? 0.25 : 0.1)
     }
 }

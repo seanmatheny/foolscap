@@ -255,8 +255,11 @@
   domain drops a JSON value, so `TaskPens.parse` takes that plain form too)
   and read into the `\.taskPens` environment by `AppModel.readAppearancePreferences`. A task's
   pen is the first in the list whose tag it carries: `TaskRow` strokes the title with it
-  (`.highlighted`, done rows excepted) and leaves that tag's chip off the row; the Tasks tab's
-  filter strip leads with the penned tags wearing their colour. With `taskSortByPen` (default
+  (`.highlighted`; done rows carry no stroke and lie at 0.55 opacity) and leaves that tag's chip
+  off the row until the pointer is over it, when it shows in the pen's colour so the tag can be
+  taken off (the context menu's Remove Tag lists every tag too); a drop on a pen's chip moves
+  the task to that pen (`TaskAggregator.addTag(_:to:replacing:)` takes the other pen tags off
+  in the same write). The Tasks tab's filter strip leads with the penned tags wearing their colour. With `taskSortByPen` (default
   on) each lane and the daily page's Today panel list penned tasks first, pen by pen in list
   order, then priority, then note order (`TaskPens.laneRank`, `TaskAggregator.tasks(pens:)`,
   `TodayTasks.select(pens:)`). `HighlightMark` multiplies into paper and screens onto a dark
