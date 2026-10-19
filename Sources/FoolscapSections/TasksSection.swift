@@ -325,10 +325,9 @@ struct TaskSectionView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(theme.dimInk.color)
                 }
+                // Plain: highlighter colours belong to the pens (Today is ringed as a lane instead).
                 Text(status.title)
                     .font(theme.type.heading.face(17 * scale, weight: .bold))
-                    // Today is ringed as a lane instead, like the daily page's list.
-                    .highlighted(status == .today ? nil : theme.highlighter[status])
                 Text("\(tasks.count)").font(theme.type.body.face(12 * scale)).foregroundStyle(theme.dimInk.color)
             }
             .frame(height: pitch)
@@ -587,12 +586,9 @@ struct TaskRow: View {
     /// The pen whose tag the task carries, if any (done tasks lie plain).
     private var pen: TagPen? { task.status == .completed ? nil : pens.pen(for: task)?.pen }
 
-    /// A penned task is stroked in its pen; otherwise the status highlighter, and
-    /// none on Today's rows (the daily page rings them) or done ones (faded instead).
-    private var stroke: RGBA? {
-        if let pen { return pen.colour.rgba(onDark: theme.isDark) }
-        return task.status == .today || task.status == .completed ? nil : theme.highlighter[task.status]
-    }
+    /// A penned task is stroked in its pen and every other task lies plain: the lanes
+    /// say the status, so a status colour would read as a pen (Sean, 2026-10-20).
+    private var stroke: RGBA? { pen?.colour.rgba(onDark: theme.isDark) }
 
     private var symbol: String {
         switch task.status {

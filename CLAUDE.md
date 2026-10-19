@@ -171,8 +171,10 @@
   wash of a colour, drawn as a background with negative padding so the rows inside keep to the
   ruling. The daily page's Today panel and the Tasks tab's Today lane are ringed in the Today
   highlighter colour; the Jira tab's In Progress group in the Jira tab colour
-  (`theme.tabColor(at: 4)`) so the two read apart. Their headings carry no highlighter stroke
-  and Today rows none anywhere; To do, Someday and Completed keep the pen stroke on their headings.
+  (`theme.tabColor(at: 4)`) so the two read apart. No lane heading or row in the Tasks tab
+  carries a status highlighter (Someday's blue and Completed's green were dropped on 2026-10-20 as
+  they read as pens): only pens stroke rows there. The editor still tints `[/]`, `[>]` and `[x]`
+  lines with `theme.highlighter`.
 - Themes ship with no ruling and no elastic band; both are Settings options
   (`ruling`, `marginRule`, `elasticBand` defaults) applied on top of the theme in
   `AppModel.theme` via `NotebookTheme.ruled`, with rule colours per theme. Midnight
@@ -270,7 +272,7 @@
   on) each lane and the daily page's Today panel list penned tasks first, pen by pen in list
   order, then priority, then note order (`TaskPens.laneRank`, `TaskAggregator.tasks(pens:)`,
   `TodayTasks.select(pens:)`). `HighlightMark` multiplies into paper and screens onto a dark
-  page (`isDark`), which the Someday/Completed heading strokes on the flat dark themes needed too.
+  page (`isDark`).
 - Task priority is `!`/`!!`/`!!!` at the start of the task text (`TaskPriority`,
   `TaskLineParser.priority`). There is no "no priority" (Sean, 2026-10-20): a task with no
   marker is Low, as is `!`, so new tasks start Low, setting Low strips the marker, and every
