@@ -55,29 +55,30 @@ public enum TaskStatus: String, Codable, CaseIterable, Sendable, Hashable {
 }
 
 /// Priority is written at the start of the task text as `!`, `!!` or `!!!`
-/// (the Reminders convention), so it survives in plain markdown.
+/// (the Reminders convention), so it survives in plain markdown. Every task has
+/// one: a task with no marker is Low, as is `!`, so new tasks start Low and
+/// setting Low takes the marker off rather than writing `!`.
 public enum TaskPriority: Int, Codable, CaseIterable, Sendable, Hashable, Comparable {
-    case none = 0, low = 1, medium = 2, high = 3
+    case low = 1, medium = 2, high = 3
 
-    public var marker: String { String(repeating: "!", count: rawValue) }
+    /// The marker written for this priority: none for Low.
+    public var marker: String { self == .low ? "" : String(repeating: "!", count: rawValue) }
 
     public init(marker: String) {
-        self = TaskPriority(rawValue: min(3, marker.count)) ?? .none
+        self = TaskPriority(rawValue: min(3, max(1, marker.count))) ?? .low
     }
 
     public var title: String {
         switch self {
-        case .none: return "No Priority"
         case .low: return "Low"
         case .medium: return "Medium"
         case .high: return "High"
         }
     }
 
-    /// The indicator light: blue, amber and red; nil for no priority.
-    public var color: RGBA? {
+    /// The indicator light: blue, amber and red.
+    public var color: RGBA {
         switch self {
-        case .none: return nil
         case .low: return .hex(0x4E8AC2)
         case .medium: return .hex(0xE0A030)
         case .high: return .hex(0xD2453A)

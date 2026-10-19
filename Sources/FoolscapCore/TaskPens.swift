@@ -1,11 +1,27 @@
 import Foundation
 
 /// A highlighter pen's colour: named, so a pen reads on every theme. Each has a
-/// face for paper (multiplied in) and one for a black page (screened on).
+/// face for paper (multiplied in) and one for a black page (screened on). The
+/// eight are spread round the colour wheel (one green, one teal, a true blue, a
+/// purple and a pink) so no two read alike in a lane; "mint" became `teal` on
+/// 2026-10-20 and old settings still read.
 public enum PenColour: String, Codable, CaseIterable, Sendable {
-    case yellow, green, mint, blue, violet, pink, orange, grey
+    case yellow, orange, pink, violet, blue, teal, green, grey
 
     public var title: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+
+    /// A colour by name, taking the retired names too.
+    public static func named(_ name: String) -> PenColour? {
+        PenColour(rawValue: name) ?? (name == "mint" ? .teal : nil)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let name = try decoder.singleValueContainer().decode(String.self)
+        guard let colour = PenColour.named(name) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "No pen colour \(name)"))
+        }
+        self = colour
+    }
 
     public func rgba(onDark: Bool) -> RGBA {
         onDark ? .hex(dark, alpha: 0.32) : .hex(light, alpha: 0.5)
@@ -13,26 +29,26 @@ public enum PenColour: String, Codable, CaseIterable, Sendable {
 
     private var light: UInt32 {
         switch self {
-        case .yellow: return 0xF7D842
-        case .green: return 0x8ED081
-        case .mint: return 0x7FD9B8
-        case .blue: return 0xB9C6EA
-        case .violet: return 0xC9B8F0
-        case .pink: return 0xF4B6CF
-        case .orange: return 0xF8B46A
+        case .yellow: return 0xF7DC3A
+        case .orange: return 0xF89A3E
+        case .pink: return 0xF58FC0
+        case .violet: return 0xAA86F2
+        case .blue: return 0x6FA8F5
+        case .teal: return 0x45CBC0
+        case .green: return 0x9BD650
         case .grey: return 0xC8C4BC
         }
     }
 
     private var dark: UInt32 {
         switch self {
-        case .yellow: return 0xD7D39A
-        case .green: return 0xA8D88C
-        case .mint: return 0x9EDFC0
-        case .blue: return 0x9ED1F5
-        case .violet: return 0xC4B5FF
-        case .pink: return 0xF3A6C7
-        case .orange: return 0xF5B98A
+        case .yellow: return 0xE8DE6A
+        case .orange: return 0xF5A860
+        case .pink: return 0xF590C2
+        case .violet: return 0xB89CFF
+        case .blue: return 0x7DB4FF
+        case .teal: return 0x5CD8CC
+        case .green: return 0xA8E070
         case .grey: return 0xB9B9C2
         }
     }
@@ -95,13 +111,13 @@ public struct TaskPens: Codable, Hashable, Sendable {
     }
 
     /// The stored JSON, or `tag=colour,tag=colour`: the argument domain drops a JSON
-    /// value (it is not a property list), so `-taskPens lais=mint,home=pink` previews a set.
+    /// value (it is not a property list), so `-taskPens lais=teal,home=pink` previews a set.
     public static func parse(_ text: String) -> [TagPen]? {
         if let pens = try? JSONDecoder().decode([TagPen].self, from: Data(text.utf8)) { return pens }
         var pens: [TagPen] = []
         for item in text.split(separator: ",") {
             let parts = item.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-            guard parts.count == 2, let colour = PenColour(rawValue: parts[1]) else { return nil }
+            guard parts.count == 2, let colour = PenColour.named(parts[1]) else { return nil }
             pens.append(TagPen(tag: String(parts[0].drop { $0 == "#" }), colour: colour))
         }
         return pens.isEmpty ? nil : pens

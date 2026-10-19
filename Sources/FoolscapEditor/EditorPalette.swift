@@ -57,7 +57,7 @@ public struct EditorPalette {
         tagBackground = theme.accent.nsColor.withAlphaComponent(0.14)
         selection = theme.accent.nsColor.withAlphaComponent(theme.isDark ? 0.35 : 0.22)
         highlighter = theme.highlighter.mapValues { $0.nsColor }
-        priorityColors = Dictionary(uniqueKeysWithValues: TaskPriority.allCases.compactMap { p in p.color.map { (p, $0.nsColor) } })
+        priorityColors = Dictionary(uniqueKeysWithValues: TaskPriority.allCases.map { ($0, $0.color.nsColor) })
         pitch = theme.linePitch
         isDark = theme.isDark
     }

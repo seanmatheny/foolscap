@@ -4,6 +4,12 @@
   so he can finish what he is typing and hand over the machine. Building is fine
   to do unprompted; stop at the build step unless he has said in the current
   request that Claude may go straight on into testing and verification.
+- Versioning (from 0.2.0, 2026-10-20): `CFBundleShortVersionString` in
+  `Sources/FoolscapApp/Info.plist` is MAJOR.MINOR.PATCH and goes up in the same commit as
+  every change to the app: a new feature or visible change of behaviour bumps MINOR (0.2.0 →
+  0.3.0), a fix or small tweak bumps PATCH (0.3.0 → 0.3.1); 1.0.0 is Sean's call. The build
+  number (`CFBundleVersion`) is stamped by `_bundle` from `git rev-list --count HEAD`, so never
+  edit it. Foolscap ▸ About Foolscap shows both, e.g. "Version 0.2.0 (512)".
 - Build with `make app-debug` / `make test`, never bare `swift`: `swift` on PATH is
   python-swiftclient. The Makefile uses Xcode's toolchain (`DEVELOPER_DIR`) when
   its licence is accepted, else the Command Line Tools plus Xcode's macro plugins.
@@ -251,13 +257,14 @@
   `NotebookLibrary.migrateTodayTagToStatus` (`todayTagMigrated` default).
 - Highlighter pens (`TaskPens`, `TagPen`, `PenColour` in Core/TaskPens.swift; Settings ▸ Tasks,
   `--prefs-tab=tasks`): up to eight tags each given one of eight named highlighters, stored as
-  JSON in the `taskPens` default (`-taskPens lais=mint,home=pink` previews a set: the argument
+  JSON in the `taskPens` default (`-taskPens lais=teal,home=pink` previews a set: the argument
   domain drops a JSON value, so `TaskPens.parse` takes that plain form too)
   and read into the `\.taskPens` environment by `AppModel.readAppearancePreferences`. A task's
   pen is the first in the list whose tag it carries: `TaskRow` strokes the title with it
   (`.highlighted`; done rows carry no stroke and lie at 0.55 opacity) and leaves that tag's chip
   off the row until the pointer is over it, when it shows in the pen's colour so the tag can be
-  taken off (the context menu's Remove Tag lists every tag too); a drop on a pen's chip moves
+  taken off (on the daily page's Today panel, which has no filter strip to act as a key, the
+  pen's chip always shows: `TaskRow.showsPenTag`) (the context menu's Remove Tag lists every tag too); a drop on a pen's chip moves
   the task to that pen (`TaskAggregator.addTag(_:to:replacing:)` takes the other pen tags off
   in the same write). The Tasks tab's filter strip leads with the penned tags wearing their colour. With `taskSortByPen` (default
   on) each lane and the daily page's Today panel list penned tasks first, pen by pen in list
@@ -265,7 +272,9 @@
   `TodayTasks.select(pens:)`). `HighlightMark` multiplies into paper and screens onto a dark
   page (`isDark`), which the Someday/Completed heading strokes on the flat dark themes needed too.
 - Task priority is `!`/`!!`/`!!!` at the start of the task text (`TaskPriority`,
-  `TaskLineParser.priority`). It stays inside `TaskItem.title` so files round-trip,
+  `TaskLineParser.priority`). There is no "no priority" (Sean, 2026-10-20): a task with no
+  marker is Low, as is `!`, so new tasks start Low, setting Low strips the marker, and every
+  row shows its light. It stays inside `TaskItem.title` so files round-trip,
   but `contentKey` strips it: changing priority keeps the task's identity.
 - Tag completion (`TagCompletion` in Core) shows `TagCompletionPopup` (FoolscapUI): a
   themed, never-key child panel under the typed `#tag`, fed by the editor

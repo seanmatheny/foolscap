@@ -179,7 +179,7 @@ struct TasksPage: View {
             let tags = section.selectedTags.map { "#" + $0 }.joined(separator: " ")
             return "Add a task tagged \(tags); more #tags, or start with ! for priority"
         }
-        return "Add a task, with #tags; start with !, !! or !!! for priority"
+        return "Add a task, with #tags; start with !! or !!! to raise its priority"
     }
 
     /// Tags of tasks still to do, the penned ones leading in pen order; the chosen
@@ -446,6 +446,9 @@ struct TaskRow: View {
     let onSetPriority: (TaskPriority) -> Void
     /// Set for a `#jira` task: a click on its title turns to the issue in the Jira tab.
     var onOpenIssue: (() -> Void)? = nil
+    /// Keeps the pen's chip showing, in its colour, where no filter strip names the pens
+    /// (the daily page's Today panel); the Tasks tab shows it only under the pointer.
+    var showsPenTag = false
     @State private var hovering = false
     @State private var editing = false
     @State private var askTag = false
@@ -463,7 +466,7 @@ struct TaskRow: View {
             .pointerStyle(.link)
             .help(task.isReadOnly ? "" : (task.status == .completed ? "Mark not done" : "Mark done"))
             .disabled(task.isReadOnly)
-            PriorityLight(priority: task.priority, visible: hovering || task.priority != .none, onSet: onSetPriority)
+            PriorityLight(priority: task.priority, onSet: onSetPriority)
                 .disabled(task.isReadOnly)
             if let onOpenIssue {
                 // The Button takes the click before the row's own tap gesture.
@@ -475,13 +478,14 @@ struct TaskRow: View {
                 title
             }
             // The pen's tag is said by the stroke; the others stay as chips. The pen's own
-            // chip shows under the pointer, in its colour, so the tag can still be taken off.
+            // chip shows in its colour, under the pointer (so the tag can still be taken off)
+            // or always where nothing else says which tag a colour stands for.
             ForEach(task.tags.filter { $0 != pen?.tag }, id: \.self) { tag in
                 TagChip(tag: tag, scale: scale, removable: !task.isReadOnly) { onRemoveTag(tag) }
             }
             if let pen {
                 TagChip(tag: pen.tag, scale: scale, removable: !task.isReadOnly, tint: pen.colour.rgba(onDark: theme.isDark)) { onRemoveTag(pen.tag) }
-                    .opacity(hovering ? 1 : 0)
+                    .opacity(hovering || showsPenTag ? 1 : 0)
             }
             if let notes = task.notes {
                 Button { editing = true } label: { Image(systemName: "text.alignleft").font(.system(size: 11)) }
@@ -655,7 +659,6 @@ struct TaskEditPopover: View {
 struct PriorityLight: View {
     @Environment(\.notebookTheme) private var theme
     let priority: TaskPriority
-    let visible: Bool
     let onSet: (TaskPriority) -> Void
 
     var body: some View {
@@ -667,13 +670,9 @@ struct PriorityLight: View {
             }
         } label: {
             ZStack {
-                if let color = priority.color {
-                    Circle().fill(color.color)
-                    Circle().fill(LinearGradient(colors: [.white.opacity(0.55), .clear], startPoint: .top, endPoint: .center))
-                    Circle().stroke(Color.black.opacity(0.25), lineWidth: 0.5)
-                } else {
-                    Circle().stroke(theme.dimInk.color.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [1.5, 1.5]))
-                }
+                Circle().fill(priority.color.color)
+                Circle().fill(LinearGradient(colors: [.white.opacity(0.55), .clear], startPoint: .top, endPoint: .center))
+                Circle().stroke(Color.black.opacity(0.25), lineWidth: 0.5)
             }
             .frame(width: 9, height: 9)
             .frame(width: 14, height: 14)
@@ -683,7 +682,6 @@ struct PriorityLight: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .opacity(visible ? 1 : 0)
-        .help(priority == .none ? "Set a priority" : "\(priority.title) priority")
+        .help("\(priority.title) priority")
     }
 }

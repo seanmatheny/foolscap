@@ -104,6 +104,7 @@ _bundle:
 	cp "$(BUILD_DIR)/$(BINARY_NAME)" "$(MACOS_DIR)/$(BINARY_NAME)"
 	cp "$(BUILD_DIR)/FoolscapScribeOCR" "$(MACOS_DIR)/scribe-ocr"
 	cp "$(PLIST_SRC)" "$(CONTENTS)/Info.plist"
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$(git rev-list --count HEAD 2>/dev/null || echo 1)" "$(CONTENTS)/Info.plist"
 	@for b in $(BUILD_DIR)/*.bundle; do [ -d "$$b" ] && cp -R "$$b" "$(RESOURCES_DIR)/"; done; true
 	@if [ -x "$(VLM_PRODUCTS)/FoolscapScribeVLM" ]; then \
 	  cp "$(VLM_PRODUCTS)/FoolscapScribeVLM" "$(MACOS_DIR)/scribe-vlm"; \

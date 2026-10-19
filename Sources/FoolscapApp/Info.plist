@@ -10,10 +10,12 @@
     <string>Foolscap</string>
     <key>CFBundleDisplayName</key>
     <string>Foolscap</string>
+    <!-- The build number is stamped by the Makefile from the commit count; the
+         version is bumped by hand with every commit (see CLAUDE.md, Versioning). -->
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1</string>
+    <string>0.2.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconFile</key>

@@ -242,7 +242,7 @@ struct JiraIssueRow: View {
             .disabled(busy)
             .help(pulled ? "In Today; click to send it back to To do" : "Pull into Today")
             Circle()
-                .fill(TaskPriority(rawValue: issue.taskPriorityLevel)?.color?.color ?? .clear)
+                .fill(TaskPriority(rawValue: issue.taskPriorityLevel)?.color.color ?? .clear)
                 .frame(width: 8, height: 8)
                 .help(issue.priority ?? "")
             Text(issue.key)

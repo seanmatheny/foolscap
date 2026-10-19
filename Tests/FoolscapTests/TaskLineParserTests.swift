@@ -94,9 +94,9 @@ import Foundation
         #expect(TaskLineParser.priority(in: "!!! Fix the server #work") == .high)
         #expect(TaskLineParser.priority(in: "!! Medium one") == .medium)
         #expect(TaskLineParser.priority(in: "! Low one") == .low)
-        #expect(TaskLineParser.priority(in: "Plain task") == .none)
-        #expect(TaskLineParser.priority(in: "Wow! not a marker") == .none)
-        #expect(TaskLineParser.priority(in: "!!!!") == .none)      // four bangs are just text
+        #expect(TaskLineParser.priority(in: "Plain task") == .low)      // no marker is Low: every task has a priority
+        #expect(TaskLineParser.priority(in: "Wow! not a marker") == .low)
+        #expect(TaskLineParser.priority(in: "!!!!") == .low)      // four bangs are just text
         #expect(TaskLineParser.priority(in: "!!") == .medium)      // a bare marker still counts
         #expect(TaskLineParser.priority(in: "!Log into the switches") == .low)   // no space needed
         #expect(TaskLineParser.priority(in: "!!!Fix it") == .high)
@@ -110,8 +110,8 @@ import Foundation
         #expect(TaskLineParser.stripPriority(from: "!!! Fix the server #work") == "Fix the server #work")
         #expect(TaskLineParser.stripPriority(from: "Fix the server") == "Fix the server")
         #expect(TaskLineParser.settingPriority(.high, in: "Fix it #a") == "!!! Fix it #a")
-        #expect(TaskLineParser.settingPriority(.low, in: "!!! Fix it #a") == "! Fix it #a")
-        #expect(TaskLineParser.settingPriority(.none, in: "!! Fix it") == "Fix it")
+        #expect(TaskLineParser.settingPriority(.low, in: "!!! Fix it #a") == "Fix it #a")   // Low is the default, so no marker
+        #expect(TaskLineParser.settingPriority(.medium, in: "! Fix it") == "!! Fix it")
     }
 
     @Test func priorityIsMetadataNotIdentity() {
@@ -120,7 +120,7 @@ import Foundation
         let high = TaskItem(providerID: "daily", title: "!!! Fix it #a", status: .notStarted, tags: ["a"], indent: 0,
                             source: TaskSource(path: "x.md", line: 0))
         #expect(plain.contentKey == high.contentKey)
-        #expect(high.priority == .high && plain.priority == .none)
+        #expect(high.priority == .high && plain.priority == .low)
         #expect(high.displayTitle == "Fix it")
         // The task line parser keeps the marker in the title so the file round-trips byte for byte.
         #expect(TaskLineParser.parse("- [ ] !! Buy milk")?.title == "!! Buy milk")
