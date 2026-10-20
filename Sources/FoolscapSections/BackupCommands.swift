@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 import UniformTypeIdentifiers
 import FoolscapCore
@@ -80,3 +81,4 @@ public enum BackupCommands {
         alert.runModal()
     }
 }
+#endif

@@ -99,7 +99,7 @@ struct DayPagesAppendix: View {
         .task(id: page.id) {
             guard thumbnails[page.id] == nil else { return }
             for provider in providers {
-                if let image = await provider.thumbnail(for: page, width: width, backingScale: NSScreen.main?.backingScaleFactor ?? 2) {
+                if let image = await provider.thumbnail(for: page, width: width, backingScale: Platform.backingScale) {
                     thumbnails[page.id] = image
                     return
                 }

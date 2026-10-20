@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 import FoolscapCore
 import FoolscapStore
@@ -210,3 +211,4 @@ public final class QuickTaskPanel: NSObject, NSTextFieldDelegate {
         }
     }
 }
+#endif

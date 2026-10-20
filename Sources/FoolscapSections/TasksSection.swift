@@ -408,15 +408,21 @@ struct TaskSectionView: View {
     /// Click selects one task, ⌘-click adds or removes one, ⇧-click extends from
     /// the last clicked task within this section. Escape or a click on the page clears.
     private func select(_ task: TaskItem) {
+        #if canImport(AppKit)
         let modifiers = NSEvent.modifierFlags
-        if modifiers.contains(.command) {
+        let command = modifiers.contains(.command), shift = modifiers.contains(.shift)
+        #else
+        // A touch has no modifiers: a tap selects one task.
+        let command = false, shift = false
+        #endif
+        if command {
             if selection.remove(task.id) == nil { selection.insert(task.id) }
             selectionAnchor = task.id
-        } else if modifiers.contains(.shift), let anchor = selectionAnchor,
+        } else if shift, let anchor = selectionAnchor,
                   let a = visibleTasks.firstIndex(where: { $0.id == anchor }),
                   let b = visibleTasks.firstIndex(where: { $0.id == task.id }) {
             selection.formUnion(visibleTasks[min(a, b)...max(a, b)].map(\.id))
-        } else if modifiers.contains(.shift) {
+        } else if shift {
             selection.insert(task.id)
             selectionAnchor = task.id
         } else {
@@ -462,7 +468,7 @@ struct TaskRow: View {
                     .frame(width: 20)
             }
             .buttonStyle(.plain)
-            .pointerStyle(.link)
+            .linkPointer()
             .help(task.isReadOnly ? "" : (task.status == .completed ? "Mark not done" : "Mark done"))
             .disabled(task.isReadOnly)
             PriorityLight(priority: task.priority, onSet: onSetPriority)
@@ -471,7 +477,7 @@ struct TaskRow: View {
                 // The Button takes the click before the row's own tap gesture.
                 Button(action: onOpenIssue) { title.underline(hovering, color: theme.dimInk.color) }
                     .buttonStyle(.plain)
-                    .pointerStyle(.link)
+                    .linkPointer()
                     .help("Open in the Jira tab")
             } else {
                 title
@@ -491,7 +497,7 @@ struct TaskRow: View {
                     .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help(notes)
             }
             if let link = task.firstLink {
-                Button { NSWorkspace.shared.open(link) } label: { Image(systemName: "link").font(.system(size: 11)) }
+                Button { Platform.openURL(link) } label: { Image(systemName: "link").font(.system(size: 11)) }
                     .buttonStyle(.plain).foregroundStyle(theme.accent.color).help(link.absoluteString)
             }
             // Kept mounted (just invisible) so a popover anchored here survives the pointer leaving the row.
@@ -679,5 +685,17 @@ struct PriorityLight: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("\(priority.title) priority")
+    }
+}
+
+private extension View {
+    /// The pointing hand over the tick on the Mac; a phone has no pointer.
+    @ViewBuilder
+    func linkPointer() -> some View {
+        #if canImport(AppKit)
+        pointerStyle(.link)
+        #else
+        self
+        #endif
     }
 }

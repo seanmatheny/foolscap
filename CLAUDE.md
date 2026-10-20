@@ -557,3 +557,16 @@
   caret back. `PageRuling.textLeft`/`textRight` are vars the phone app narrows at launch
   (36/16 against the Mac's 58/36). Pictures, link cards, drag-and-drop, find and the spell-check
   filter are Mac-only for now (`OverlayController` and friends are gated whole).
+- The app model is split (since 0.6.0): `AppModelCore` (FoolscapSections/AppModelCore.swift) holds
+  what both apps share (defaults, the library, Daily Notes + Tasks, `rewireSections`/`tabRank`,
+  `readAppearancePreferences`, `changeNotesFolder`, `flush`/`save`, the defaults observer with the
+  `defaultsChanged()` and `sectionSelectionChanged(from:)` hooks); the Mac's `AppModel` subclasses
+  it with the optional sections, backups, hot keys and launch flags, the phone's `PhoneModel`
+  with the Files-picker folder (`BookmarkedFolder`, a first-run card, "Choose Folder in Files…"
+  on the Settings tab). Settings panes both apps show live in `PreferencePanes.swift`
+  (`NotebookSettingsSections`, `PensSettings`, `FontFamilyPicker`, the swatches,
+  `PreferenceKeys`, `SectionSettingsPane`); `PreferencesView.swift` is the Mac's TabView shell and
+  is gated whole, as are `QuickTaskPanel`, `GlobalHotKey`, `BackupCommands`, `ExportPanel` and
+  `NoteExporter`. `SearchOverlay` is in Sections. On the phone Settings is a notebook tab (id
+  `settings`, the sixth tab colour), not a window; the Tasks tab's ⌘/⇧-click multi-select is a
+  plain tap there, and `.pointerStyle` is behind `linkPointer()`.

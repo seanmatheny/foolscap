@@ -35,6 +35,8 @@ targets:
         product: FoolscapUI
       - package: foolscap
         product: FoolscapEditor
+      - package: foolscap
+        product: FoolscapSections
     settings:
       base:
         PRODUCT_NAME: Foolscap

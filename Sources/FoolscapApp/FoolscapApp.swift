@@ -169,24 +169,6 @@ struct RootView: View {
     }
 }
 
-/// The search palette over the notebook. A view of its own so that opening and
-/// closing it re-renders this, not `RootView` and the whole notebook under it.
-struct SearchOverlay: View {
-    @Bindable var coordinator: SearchCoordinator
-
-    var body: some View {
-        ZStack(alignment: .top) {
-            if coordinator.isPresented {
-                Color.black.opacity(0.001).contentShape(Rectangle())
-                    .onTapGesture { coordinator.isPresented = false }
-                SearchPalette(coordinator: coordinator).padding(.top, 70)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .animation(.easeOut(duration: 0.15), value: coordinator.isPresented)
-    }
-}
-
 struct PreferencesRoot: View {
     @Environment(AppModel.self) private var model
     var body: some View {

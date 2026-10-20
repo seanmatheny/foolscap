@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import SwiftUI
 import AppKit
 import FoolscapCore
@@ -102,3 +103,4 @@ public struct ExportPanel: View {
         }
     }
 }
+#endif

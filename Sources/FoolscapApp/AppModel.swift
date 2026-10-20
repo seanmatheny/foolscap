@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
@@ -8,49 +9,17 @@ import FoolscapHighlights
 import FoolscapJira
 import FoolscapSecrets
 
-/// Wires the store, the section registry and user preferences together.
+/// The Mac's app model: the shared wiring (`AppModelCore`) plus the optional
+/// sections, backups, the launch flags and the panels.
 @MainActor
 @Observable
-final class AppModel {
-    var sections: [any NotebookSection] = []
-    var selectedSectionID: String {
-        didSet {
-            UserDefaults.standard.set(selectedSectionID, forKey: "selectedSection")
-            if oldValue == SecretsSection.sectionID, selectedSectionID != oldValue { secretsSection?.didLeaveTab() }
-            if selectedSectionID == SecretsSection.sectionID, selectedSectionID != oldValue { secretsSection?.didEnterTab() }
-            // Going somewhere (a tab, the Go menu, a search result) turns the flyleaf away.
-            if flyleafPresented { flyleafPresented = false }
-        }
-    }
-    var themeID: String {
-        didSet { UserDefaults.standard.set(themeID, forKey: "themeID") }
-    }
-    /// Text size multiplier (View ▸ Bigger/Smaller Text, or the Settings slider).
-    var textScale: Double {
-        didSet { UserDefaults.standard.set(textScale, forKey: "textScale") }
-    }
-    /// Paper and cover options from Settings, independent of the theme.
-    private(set) var ruling: Ruling = .blank
-    private(set) var marginRule = false
-    private(set) var elasticBand = false
-    private(set) var tabEdge: TabEdge = .left
-    private(set) var paperTexture: PaperTexture = .none
-    /// The highlighter pens from Settings ▸ Tasks, and whether the lanes sort by them.
-    private(set) var pens = TaskPens()
-    /// Font families chosen in Settings over the theme's own ("" keeps the theme's).
-    private(set) var bodyFont = ""
-    private(set) var headingFont = ""
-    private(set) var monoFont = ""
-    private(set) var library: NotebookLibrary?
+final class AppModel: AppModelCore {
     private(set) var backup: BackupManager?
-    private(set) var startupError: String?
-    let search = SearchCoordinator()
     var showExport = false
     /// The Scribe tab is a hard toggle: off means no section object, no sync, no index rows.
     private(set) var scribeEnabled = false
     /// `--scribe` keeps the tab on for this launch whatever Settings says.
     private var scribeForced = false
-    private var tasksSection: TasksSection?
     /// The Highlights tab is a hard toggle too: off means no section, no import, no index rows.
     private(set) var highlightsEnabled = false
     /// `--highlights` / `--flyleaf` keep the tab on for this launch whatever Settings says.
@@ -74,51 +43,15 @@ final class AppModel {
     private var secretsForced = false
     private(set) var secretsSection: SecretsSection?
 
-    var theme: NotebookTheme {
-        (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).withType(body: bodyFont, heading: headingFont, mono: monoFont)
-            .scaled(by: textScale).onPaper(paperTexture).ruled(ruling, marginRule: marginRule)
-    }
-    var tabs: [NotebookTabItem] { sections.map { NotebookTabItem(id: $0.id, appearance: $0.tab) } }
-    var notesFolderPath: String { library?.folder.root.path ?? "" }
-
     init() {
         let defaults = UserDefaults.standard
-        themeID = defaults.string(forKey: "themeID") ?? NotebookTheme.classicBlack.id
-        textScale = defaults.object(forKey: "textScale") as? Double ?? 1.0
-        selectedSectionID = defaults.string(forKey: "selectedSection") ?? "daily"
-        readAppearancePreferences()
         let root = defaults.string(forKey: "notesFolder").map { URL(fileURLWithPath: $0) } ?? NotesFolder.defaultRoot
-        do {
-            library = try NotebookLibrary(folder: NotesFolder(root: root))
-        } catch {
-            startupError = "Could not open notebook folder \(root.path): \(error.localizedDescription)"
-        }
+        super.init(notesFolder: root)
         if let library {
             let backup = BackupManager(library: library)
             backup.onRestored = { [weak self] in self?.reloadAfterRestore() }
             backup.startSchedule()
             self.backup = backup
-            let daily = DailyNotesSection(library: library)
-            let tasks = TasksSection(library: library) { [weak self] route in
-                guard let self else { return }
-                self.selectedSectionID = "daily"
-                daily.navigate(to: route)
-            }
-            daily.taskAggregator = tasks.aggregator
-            daily.openSearch = { [weak self] in self?.search.open() }
-            daily.openRoute = { [weak self] sectionID, route in
-                // A route to a tab that is switched off (Jira, say) goes nowhere.
-                guard let self, let target = self.section(id: sectionID) else { return }
-                self.selectedSectionID = sectionID
-                target.navigate(to: route)
-            }
-            sections = [daily, tasks]
-            tasksSection = tasks
-            search.navigate = { [weak self] sectionID, route in
-                guard let self else { return }
-                self.selectedSectionID = sectionID
-                self.section(id: sectionID)?.navigate(to: route)
-            }
             highlightsForced = CommandLine.arguments.contains { $0 == "--highlights" || $0.hasPrefix("--highlights=") || $0 == "--flyleaf" }
             setHighlightsEnabled(highlightsForced || defaults.bool(forKey: "highlightsEnabled"))
             scribeForced = CommandLine.arguments.contains { $0 == "--scribe" || $0.hasPrefix("--scribe=") }
@@ -128,10 +61,6 @@ final class AppModel {
             secretsForced = CommandLine.arguments.contains("--secrets")
             setSecretsEnabled(secretsForced || defaults.bool(forKey: SecretsSection.enabledKey))
             rewireSections()
-            // Today's page once listed tasks tagged #today; now it lists the Today status.
-            if !defaults.bool(forKey: "todayTagMigrated") {
-                Task { await library.migrateTodayTagToStatus(); defaults.set(true, forKey: "todayTagMigrated") }
-            }
         }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
         if jiraForced { selectedSectionID = JiraSection.sectionID }
@@ -302,48 +231,27 @@ final class AppModel {
         NotificationCenter.default.addObserver(forName: HotKeyPreferences.changed, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.registerHotKeys() }
         }
-        // Settings changes the scale, the paper options and the Scribe toggle through
-        // @AppStorage (and a restore rewrites them all); mirror them here.
-        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let defaults = UserDefaults.standard
-                let v = defaults.object(forKey: "textScale") as? Double ?? 1.0
-                if v != self.textScale { self.textScale = v }
-                if let id = defaults.string(forKey: "themeID"), id != self.themeID, NotebookTheme.builtIn(id: id) != nil { self.themeID = id }
-                self.readAppearancePreferences()
-                let scribe = defaults.bool(forKey: "scribeEnabled")
-                if !self.scribeForced, scribe != self.scribeEnabled { self.setScribeEnabled(scribe) }
-                let highlights = defaults.bool(forKey: "highlightsEnabled")
-                if !self.highlightsForced, highlights != self.highlightsEnabled { self.setHighlightsEnabled(highlights) }
-                let jira = defaults.bool(forKey: "jiraEnabled")
-                if !self.jiraForced, jira != self.jiraEnabled { self.setJiraEnabled(jira) }
-                let secrets = defaults.bool(forKey: SecretsSection.enabledKey)
-                if !self.secretsForced, secrets != self.secretsEnabled { self.setSecretsEnabled(secrets) }
-            }
-        }
     }
 
-    private func readAppearancePreferences() {
+    /// The shared defaults are mirrored by the core; the section toggles here.
+    override func defaultsChanged() {
+        super.defaultsChanged()
         let defaults = UserDefaults.standard
-        let r = Ruling(rawValue: defaults.string(forKey: PreferenceKeys.ruling) ?? "") ?? .blank
-        if r != ruling { ruling = r }
-        let m = defaults.bool(forKey: PreferenceKeys.marginRule)
-        if m != marginRule { marginRule = m }
-        let b = defaults.bool(forKey: PreferenceKeys.elasticBand)
-        if b != elasticBand { elasticBand = b }
-        let e = TabEdge(rawValue: defaults.string(forKey: PreferenceKeys.tabEdge) ?? "") ?? .left
-        if e != tabEdge { tabEdge = e }
-        let p = PaperTexture(rawValue: defaults.string(forKey: PreferenceKeys.paperTexture) ?? "") ?? .none
-        if p != paperTexture { paperTexture = p }
-        let pens = TaskPens.load(from: defaults)
-        if pens != self.pens { self.pens = pens }
-        let body = defaults.string(forKey: PreferenceKeys.bodyFont) ?? ""
-        if body != bodyFont { bodyFont = body }
-        let heading = defaults.string(forKey: PreferenceKeys.headingFont) ?? ""
-        if heading != headingFont { headingFont = heading }
-        let mono = defaults.string(forKey: PreferenceKeys.monoFont) ?? ""
-        if mono != monoFont { monoFont = mono }
+        let scribe = defaults.bool(forKey: "scribeEnabled")
+        if !scribeForced, scribe != scribeEnabled { setScribeEnabled(scribe) }
+        let highlights = defaults.bool(forKey: "highlightsEnabled")
+        if !highlightsForced, highlights != highlightsEnabled { setHighlightsEnabled(highlights) }
+        let jira = defaults.bool(forKey: "jiraEnabled")
+        if !jiraForced, jira != jiraEnabled { setJiraEnabled(jira) }
+        let secrets = defaults.bool(forKey: SecretsSection.enabledKey)
+        if !secretsForced, secrets != secretsEnabled { setSecretsEnabled(secrets) }
+    }
+
+    override func sectionSelectionChanged(from old: String) {
+        if old == SecretsSection.sectionID, selectedSectionID != old { secretsSection?.didLeaveTab() }
+        if selectedSectionID == SecretsSection.sectionID, selectedSectionID != old { secretsSection?.didEnterTab() }
+        // Going somewhere (a tab, the Go menu, a search result) turns the flyleaf away.
+        if flyleafPresented { flyleafPresented = false }
     }
 
     /// A restore replaced the files, the index and the settings underneath the
@@ -455,38 +363,6 @@ final class AppModel {
         rewireSections()
     }
 
-    /// Where a tab sits whatever order the sections were switched on in: Daily Notes first,
-    /// Tasks next, Jira after Tasks, Secrets last; everything else (Highlights, Scribe,
-    /// plug-ins) in between in the order it was added.
-    static func tabRank(_ id: String) -> Int {
-        switch id {
-        case "daily": return 0
-        case "tasks": return 1
-        case JiraSection.sectionID: return 2
-        case HighlightsSection.sectionID: return 10
-        case ScribeSection.sectionID: return 11
-        case SecretsSection.sectionID: return 100
-        default: return 50
-        }
-    }
-
-    private func rewireSections() {
-        // `sort` is stable, so same-ranked sections keep their order.
-        sections.sort { Self.tabRank($0.id) < Self.tabRank($1.id) }
-        tasksSection?.aggregator.setProviders(sections.compactMap(\.taskProvider))
-        (section(id: "daily") as? DailyNotesSection)?.dayPagesProviders = sections.compactMap(\.dayPagesProvider)
-        search.setSections(sections)
-    }
-
-    /// One line for Settings: "⌘D Daily Notes · ⌘T Tasks · ⌘K Scribe".
-    var tabsSummary: String {
-        sections.compactMap { s in s.tab.shortcut.map { "⌘\($0.uppercased()) \(s.tab.label)" } }.joined(separator: " · ")
-    }
-
-    var sectionSettingsPanes: [SectionSettingsPane] {
-        sections.compactMap { s in s.makeSettingsPane().map { SectionSettingsPane(id: s.id, title: s.tab.label, view: $0) } }
-    }
-
     func registerHotKeys() {
         GlobalHotKey.shared.register(name: HotKeyPreferences.quickTaskName, combo: HotKeyPreferences.quickTask) { [weak self] in
             guard let self, let library = self.library else { return }
@@ -494,68 +370,23 @@ final class AppModel {
         }
     }
 
-    func adjustTextScale(by delta: Double) {
-        textScale = min(1.6, max(0.8, (textScale + delta).rounded(toPlaces: 2)))
-    }
-
     func quickTask() {
         guard let library else { return }
         QuickTaskPanel.shared.toggle(library: library, theme: theme)
     }
 
-    func section(id: String) -> (any NotebookSection)? { sections.first { $0.id == id } }
-
-    func changeNotesFolder(to url: URL) {
-        do {
-            if let library {
-                try library.open(folder: NotesFolder(root: url))
-            } else {
-                library = try NotebookLibrary(folder: NotesFolder(root: url))
-                startupError = nil
-            }
-            UserDefaults.standard.set(url.path, forKey: "notesFolder")
-        } catch {
-            startupError = "Could not open \(url.path): \(error.localizedDescription)"
-        }
-    }
-
-    var dailyNotes: DailyNotesSection? { section(id: "daily") as? DailyNotesSection }
-
-    func showDailyNotes() { selectedSectionID = "daily" }
-
-    func moveNotesFolder(to url: URL) {
-        guard let library else { changeNotesFolder(to: url); return }
-        Task {
-            do {
-                try await library.migrate(to: url)
-                UserDefaults.standard.set(url.path, forKey: "notesFolder")
-            } catch {
-                startupError = "Could not move the notebook: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func rebuildIndex() {
-        Task { await library?.rebuildIndex() }
-    }
-
     /// Synchronous, for quitting: the vault locks (and saves) first, and a sync or
     /// import under way is cancelled so its helper (scribe-vlm, Calibre, the hidden
     /// Kindle) does not outlive the app.
-    func flush() {
+    override func flush() {
         secretsSection?.lockNow()
         (section(id: ScribeSection.sectionID) as? ScribeSection)?.stop()
         highlightsSection?.stop()
-        library?.flushAll()
+        super.flush()
     }
 
-    func save() {
+    override func save() {
         secretsSection?.saveIfDirty()
-        guard let library else { return }
-        Task { await library.save() }
+        super.save()
     }
-}
-
-private extension Double {
-    func rounded(toPlaces n: Int) -> Double { let p = pow(10.0, Double(n)); return (self * p).rounded() / p }
 }

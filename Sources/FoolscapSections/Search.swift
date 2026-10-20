@@ -1,5 +1,7 @@
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
@@ -271,6 +273,27 @@ struct SearchHitRow: View {
     }
 }
 
+/// The search palette over the notebook. A view of its own so that opening and
+/// closing it re-renders this, not the root view and the whole notebook under it.
+public struct SearchOverlay: View {
+    @Bindable var coordinator: SearchCoordinator
+
+    public init(coordinator: SearchCoordinator) { self.coordinator = coordinator }
+
+    public var body: some View {
+        ZStack(alignment: .top) {
+            if coordinator.isPresented {
+                Color.black.opacity(0.001).contentShape(Rectangle())
+                    .onTapGesture { coordinator.isPresented = false }
+                SearchPalette(coordinator: coordinator).padding(.top, 70)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: coordinator.isPresented)
+    }
+}
+
+#if canImport(AppKit)
 /// Menu helpers for the in-note find bar (NSTextFinder on the focused text view).
 @MainActor
 public enum FindCommands {
@@ -280,3 +303,4 @@ public enum FindCommands {
         responder.performTextFinderAction(item)
     }
 }
+#endif

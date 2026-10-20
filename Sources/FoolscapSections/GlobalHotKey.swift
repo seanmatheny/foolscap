@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 import Carbon.HIToolbox
 
@@ -91,3 +92,4 @@ public final class GlobalHotKey {
         refsByID[id] = ref; handlers[id] = handler; idsByName[name] = id
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 import FoolscapCore
 import FoolscapStore
@@ -190,3 +191,4 @@ public enum NoteExporter {
         return try Data(contentsOf: tmp)
     }
 }
+#endif
