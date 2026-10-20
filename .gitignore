@@ -5,5 +5,7 @@ Foolscap.app/
 .DS_Store
 Icon/Foolscap.iconset/
 Icon/Foolscap.icns
+Mobile/team.xcconfig
+Mobile/Assets.xcassets/AppIcon.appiconset/icon-1024.png
 
 Bakeoff/

@@ -1,0 +1,36 @@
+# The iPhone app. `make ios-project` turns this into Mobile/Foolscap.xcodeproj (gitignored)
+# with XcodeGen; `make ios` builds and signs it, `make ios-install` puts it on the phone.
+# Signing is automatic against the free Personal Team: DEVELOPMENT_TEAM is not written
+# here but passed by the Makefile from Mobile/team.xcconfig (gitignored, see
+# team.xcconfig.example). Version and build come from the Makefile too, the same
+# numbers as the Mac app.
+name: Foolscap
+options:
+  bundleIdPrefix: com.seanmatheny
+  deploymentTarget:
+    iOS: "26.0"
+  xcodeVersion: "27.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  FoolscapMobile:
+    type: application
+    platform: iOS
+    sources:
+      - path: FoolscapMobile
+      - path: Assets.xcassets
+    settings:
+      base:
+        PRODUCT_NAME: Foolscap
+        PRODUCT_BUNDLE_IDENTIFIER: com.seanmatheny.foolscap.ios
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "0.3.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

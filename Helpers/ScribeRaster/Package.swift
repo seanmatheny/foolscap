@@ -6,7 +6,7 @@ import PackageDescription
 // can depend on it without pulling in the app.
 let package = Package(
     name: "ScribeRaster",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [.library(name: "ScribeRaster", targets: ["ScribeRaster"])],
     targets: [.target(name: "ScribeRaster")]
 )

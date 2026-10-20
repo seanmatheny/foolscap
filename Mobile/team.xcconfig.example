@@ -1,0 +1,3 @@
+// Copy to Mobile/team.xcconfig (gitignored) and fill in the Personal Team id that
+// Xcode ▸ Settings ▸ Accounts shows for your Apple ID; `make ios-team` prints it.
+DEVELOPMENT_TEAM = ABCDE12345

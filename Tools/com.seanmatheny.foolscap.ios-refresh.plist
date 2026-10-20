@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The LaunchAgent that keeps the iPhone app signed: `make ios-agent-install` fills in
+     the paths and loads it. A LaunchAgent (not a daemon) so xcodebuild can reach the
+     Apple ID in the login keychain. Every six hours; Tools/ios-refresh.sh itself returns
+     at once until the last install is five days old. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.seanmatheny.foolscap.ios-refresh</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>@REPO@/Tools/ios-refresh.sh</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>DEVELOPER_DIR</key>
+        <string>/Applications/Xcode.app/Contents/Developer</string>
+        <key>FOOLSCAP_REPO</key>
+        <string>@REPO@</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>21600</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>@HOME@/Library/Logs/foolscap-ios-refresh.launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>@HOME@/Library/Logs/foolscap-ios-refresh.launchd.log</string>
+</dict>
+</plist>
