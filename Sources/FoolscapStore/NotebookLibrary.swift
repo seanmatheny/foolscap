@@ -309,6 +309,19 @@ public final class NotebookLibrary {
     /// when it comes to the front, since iCloud can land files while it is away.
     public func checkForExternalChanges() async { await externalChange() }
 
+    /// The appearance file in the folder (`AppearanceSync.fileName`), read off the main actor.
+    public func readAppearance() async -> AppearanceSettings? {
+        let root = folder.root, presenter = watcher
+        return await Task.detached(priority: .utility) { AppearanceSync.read(root: root, presenter: presenter) }.value
+    }
+
+    /// Write the appearance file unless it already says the same; our own write is
+    /// not reported back by the watcher.
+    public func writeAppearance(_ settings: AppearanceSettings) async {
+        let root = folder.root, presenter = watcher
+        await Task.detached(priority: .utility) { _ = try? AppearanceSync.write(settings, root: root, presenter: presenter) }.value
+    }
+
     /// Something changed in the folder. Every open document is checked off the
     /// main actor (a stat first, a coordinated read only when it moved), then
     /// the index catches up.

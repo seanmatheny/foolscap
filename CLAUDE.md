@@ -570,3 +570,14 @@
   `NoteExporter`. `SearchOverlay` is in Sections. On the phone Settings is a notebook tab (id
   `settings`, the sixth tab colour), not a window; the Tasks tab's ⌘/⇧-click multi-select is a
   plain tap there, and `.pointerStyle` is behind `linkPointer()`.
+- Appearance sync (since 0.7.0): the Mac is the `AppearanceRole.source` and writes
+  `.foolscap-appearance.json` at the notebook root (`AppearanceSettings` in
+  FoolscapStore/AppearanceSync.swift: theme, text scale, opening animation, ruling, margin rule,
+  band, tab edge, paper, the three font families, the pens and their sort) whenever the defaults
+  change, through `NotebookLibrary.writeAppearance` with its own presenter so the watcher stays
+  quiet; dot-prefixed, so nothing indexes or lists it and iCloud Drive still carries it. The
+  phone is a `.follower` while "Follow the Mac's appearance" (`followMacAppearance`, default
+  on) is on: it applies the file at launch, on coming to the front and on every folder change,
+  only the keys that differ, a font family the phone lacks falling back to the theme's face;
+  its own appearance controls are disabled meanwhile. `PreferenceKeys` lives in Core
+  (Preferences.swift) so the store can name the keys. One direction only.

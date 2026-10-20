@@ -20,24 +20,11 @@ public struct SectionSettingsPane: Identifiable {
     public init(id: String, title: String, view: AnyView) { self.id = id; self.title = title; self.view = view }
 }
 
-/// Settings keys the app mirrors into the theme and the chrome environment.
-public enum PreferenceKeys {
-    public static let ruling = "ruling"
-    public static let marginRule = "marginRule"
-    public static let elasticBand = "elasticBand"
-    public static let tabEdge = "tabEdge"
-    public static let paperTexture = "paperTexture"
-    /// Font family names; empty means the theme's own face.
-    public static let bodyFont = "bodyFont"
-    public static let headingFont = "headingFont"
-    public static let monoFont = "monoFont"
-}
-
 /// Settings ▸ Notebook: the theme and its paper, the type, the page and the cover.
 public struct NotebookSettingsSections: View {
     @Binding var themeID: String
-    @AppStorage("textScale") private var textScale = 1.0
-    @AppStorage("openingAnimation") private var openingAnimation = true
+    @AppStorage(PreferenceKeys.textScale) private var textScale = 1.0
+    @AppStorage(PreferenceKeys.openingAnimation) private var openingAnimation = true
     @AppStorage(PreferenceKeys.ruling) private var ruling = Ruling.blank.rawValue
     @AppStorage(PreferenceKeys.marginRule) private var marginRule = false
     @AppStorage(PreferenceKeys.elasticBand) private var elasticBand = false

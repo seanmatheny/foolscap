@@ -47,6 +47,8 @@ final class AppModel: AppModelCore {
         let defaults = UserDefaults.standard
         let root = defaults.string(forKey: "notesFolder").map { URL(fileURLWithPath: $0) } ?? NotesFolder.defaultRoot
         super.init(notesFolder: root)
+        // The Mac's Settings are the notebook's look; the phone follows them.
+        appearanceRole = .source
         if let library {
             let backup = BackupManager(library: library)
             backup.onRestored = { [weak self] in self?.reloadAfterRestore() }

@@ -24,16 +24,51 @@ struct FoolscapMobileApp: App {
     }
 }
 
-/// The shared wiring plus the folder the Files picker granted.
+/// The shared wiring plus the folder the Files picker granted and the Mac's look.
 @MainActor @Observable
 final class PhoneModel: AppModelCore {
+    static let followKey = "followMacAppearance"
     /// No folder has been chosen yet: the notebook is the app's own Documents.
     private(set) var usingLocalFolder: Bool
+    @ObservationIgnored private var changeWatch: Task<Void, Never>?
 
     init() {
         let bookmarked = BookmarkedFolder.resolve()
         usingLocalFolder = bookmarked == nil
         super.init(notesFolder: bookmarked ?? NotesFolder.defaultRoot)
+        followSettingChanged()
+        watchForChanges()
+    }
+
+    /// "Follow the Mac's appearance" (on unless turned off): the look comes from
+    /// the file the Mac writes into the notebook folder.
+    var followsMac: Bool { UserDefaults.standard.object(forKey: Self.followKey) as? Bool ?? true }
+
+    func followSettingChanged() {
+        appearanceRole = followsMac ? .follower : .independent
+        if followsMac { Task { await applyMacAppearance() } }
+    }
+
+    /// Take the look from the file: at launch, when the app comes to the front and
+    /// whenever the folder changes (iCloud landing the Mac's new file among them).
+    func applyMacAppearance() async {
+        await applyFollowedAppearance(fontAvailable: { UIFont.familyNames.contains($0) })
+    }
+
+    private func watchForChanges() {
+        guard let library else { return }
+        changeWatch = Task { [weak self] in
+            for await _ in library.changes {
+                guard let self else { return }
+                await self.applyMacAppearance()
+            }
+        }
+    }
+
+    override func defaultsChanged() {
+        super.defaultsChanged()
+        let role: AppearanceRole = followsMac ? .follower : .independent
+        if role != appearanceRole { followSettingChanged() }
     }
 
     /// Keep the folder the picker granted and open the notebook there.
@@ -91,7 +126,7 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             // The app may be killed in the background: write what is dirty now.
             if phase == .background { model.flush() }
-            if phase == .active { Task { await model.library?.checkForExternalChanges() } }
+            if phase == .active { Task { await model.library?.checkForExternalChanges(); await model.applyMacAppearance() } }
         }
     }
 }
@@ -108,10 +143,25 @@ struct PhoneSettingsPage: View {
         return "Version \(info["CFBundleShortVersionString"] as? String ?? "?") (\(info["CFBundleVersion"] as? String ?? "?"))"
     }
 
+    @AppStorage(PhoneModel.followKey) private var followsMac = true
+
     var body: some View {
         Form {
-            NotebookSettingsSections(themeID: $model.themeID)
-            PensSettings(knownTags: model.library?.knownTags ?? [])
+            Section("Appearance") {
+                Toggle("Follow the Mac's appearance", isOn: $followsMac)
+                Text(followsMac
+                     ? (model.followedAppearance == nil
+                        ? "The Mac's Settings (theme, paper, type, pens) come with the notebook folder; none have arrived yet."
+                        : "Theme, paper, type and pens are the Mac's; turn this off to choose them here.")
+                     : "This phone keeps a look of its own.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Group {
+                NotebookSettingsSections(themeID: $model.themeID)
+                PensSettings(knownTags: model.library?.knownTags ?? [])
+            }
+            .disabled(followsMac)
+            .opacity(followsMac ? 0.55 : 1)
             Section("Notebook folder") {
                 Text(model.usingLocalFolder ? "This phone's own copy (not synced)" : model.notesFolderPath)
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)

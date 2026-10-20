@@ -41,6 +41,13 @@ open class AppModelCore {
     public let search = SearchCoordinator()
     public private(set) var tasksSection: TasksSection?
     @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
+    /// How this device takes part in the appearance sync: the Mac writes the
+    /// appearance file, the phone reads it while "Follow the Mac's appearance" is on.
+    public var appearanceRole: AppearanceRole = .independent {
+        didSet { if appearanceRole != oldValue { syncAppearance() } }
+    }
+    /// Whether this device's appearance came from the file (so Settings can say so).
+    public private(set) var followedAppearance: AppearanceSettings?
 
     public var theme: NotebookTheme {
         (NotebookTheme.builtIn(id: themeID) ?? .classicBlack).withType(body: bodyFont, heading: headingFont, mono: monoFont)
@@ -106,6 +113,22 @@ open class AppModelCore {
         if v != textScale { textScale = v }
         if let id = defaults.string(forKey: "themeID"), id != themeID, NotebookTheme.builtIn(id: id) != nil { themeID = id }
         readAppearancePreferences()
+        syncAppearance()
+    }
+
+    /// As the source, write the appearance file when the look changed.
+    public func syncAppearance() {
+        guard appearanceRole == .source, let library else { return }
+        let settings = AppearanceSettings()
+        Task { await library.writeAppearance(settings) }
+    }
+
+    /// As a follower, take the look from the file (when there is one). `fontAvailable`
+    /// says which families this device has; others fall back to the theme's face.
+    public func applyFollowedAppearance(fontAvailable: @escaping (String) -> Bool) async {
+        guard appearanceRole == .follower, let library, let settings = await library.readAppearance() else { return }
+        followedAppearance = settings
+        if settings.apply(to: .standard, fontAvailable: fontAvailable) { defaultsChanged() }
     }
 
     /// The open tab changed (also called when it was set to the same tab again).
@@ -219,4 +242,14 @@ open class AppModelCore {
 
 private extension Double {
     func rounded(toPlaces n: Int) -> Double { let p = pow(10.0, Double(n)); return (self * p).rounded() / p }
+}
+
+/// A device's part in the appearance sync.
+public enum AppearanceRole: Sendable {
+    /// Settings here are this device's own.
+    case independent
+    /// This device's Settings are written to the notebook folder for the others.
+    case source
+    /// This device takes its look from the file the source wrote.
+    case follower
 }
