@@ -17,6 +17,7 @@ public extension EnvironmentValues {
 public struct PageTurnOverlay<Content: View>: View {
     @Environment(\.notebookTheme) private var theme
     @Environment(\.notebookTabEdge) private var tabEdge
+    @Environment(\.notebookMetrics) private var metrics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var isPresented: Bool
     let content: () -> Content
@@ -47,7 +48,7 @@ public struct PageTurnOverlay<Content: View>: View {
                         turn(spineOnRight: spineOnRight, from: edge)
                     }
                     .modifier(PageTurnEffect(angle: angle, spineOnRight: spineOnRight))
-                    .padding(NotebookMetrics.pageInsets(tabsLeft: tabsLeft))
+                    .padding(metrics.pageInsets(tabsLeft: tabsLeft))
                     .padding(.top, windowState.fullScreenTopInset)
             }
             .background {
@@ -70,7 +71,7 @@ public struct PageTurnOverlay<Content: View>: View {
         let slow = ProcessInfo.processInfo.environment["FOOLSCAP_SLOW_OPEN"] != nil ? 4.0 : 1.0
         if let shot = anchor.capture(),
            anchor.curl(shot.image, style: PageCurlStyle.random(from: edge), spineOnRight: spineOnRight,
-                       paper: theme.page.paperColor, duration: 0.55 * slow) {
+                       paper: theme.page.paperColor, duration: 0.55 * slow, facingWidth: metrics.facingWidth) {
             isPresented = false
         } else {
             withAnimation(.timingCurve(0.55, 0.0, 0.25, 1.0, duration: 0.55 * slow)) { angle = spineOnRight ? 150 : -150 }

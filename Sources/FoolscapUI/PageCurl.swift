@@ -89,11 +89,14 @@ public final class PageAnchor {
 
     /// Curl `image` (a photograph of this page) away over the spine, in a
     /// window of its own over the notebook; any turn still going ends first.
-    /// Returns false when there is nothing to draw with yet.
-    func curl(_ image: CGImage, style: PageCurlStyle, spineOnRight: Bool, paper: RGBA, duration: TimeInterval) -> Bool {
+    /// `facingWidth` is how far past the spine the fold travels before the page
+    /// has gone. Returns false when there is nothing to draw with yet.
+    func curl(_ image: CGImage, style: PageCurlStyle, spineOnRight: Bool, paper: RGBA, duration: TimeInterval,
+              facingWidth: CGFloat) -> Bool {
         turn?.finish()
         guard let pipeline = PageCurlRenderer.pipeline, let view, let window = view.window, let content = window.contentView,
-              let started = PageTurnWindow(over: window, pageRect: view.convert(view.bounds, to: content), paper: paper)
+              let started = PageTurnWindow(over: window, pageRect: view.convert(view.bounds, to: content), paper: paper,
+                                           facingWidth: facingWidth)
         else { return false }
         turn = started
         started.play(image, pipeline: pipeline, style: style, spineOnRight: spineOnRight, paper: paper, duration: duration)
@@ -177,15 +180,17 @@ public final class PageTurnWindow: NSWindow {
     private let pageInWindow: NSRect
     private var animator: PageCurlAnimator?
     private weak var notebook: NSWindow?
+    private let facingWidth: CGFloat
     /// Turns under way, held here until they end.
     private static var playing: [PageTurnWindow] = []
 
     /// `pageRect` is the page in `parent`'s content view coordinates.
-    init?(over parent: NSWindow, pageRect: NSRect, paper: RGBA) {
+    init?(over parent: NSWindow, pageRect: NSRect, paper: RGBA, facingWidth: CGFloat) {
         guard let content = parent.contentView, pageRect.width > 1, pageRect.height > 1 else { return nil }
         let size = pageRect.size
+        self.facingWidth = facingWidth
         // Room for the turned flap over the leather, the shadow and the facing side.
-        let padX = NotebookMetrics.facingWidth + 140, padY = size.height * 0.4
+        let padX = facingWidth + 140, padY = size.height * 0.4
         let screenPadded = parent.convertToScreen(content.convert(pageRect.insetBy(dx: -padX, dy: -padY), to: nil))
         let frame = screenPadded.intersection(parent.frame)
         let screenPage = parent.convertToScreen(content.convert(pageRect, to: nil))
@@ -233,7 +238,7 @@ public final class PageTurnWindow: NSWindow {
         let origin = CGPoint(x: pageInWindow.minX, y: metalLayer.bounds.height - pageInWindow.maxY)
         let animator = PageCurlAnimator(pipeline: pipeline, layer: metalLayer, image: image, frame: .init(
             origin: origin, size: pageInWindow.size, scale: scale, spineOnRight: spineOnRight,
-            paper: paper, style: style, duration: duration))
+            paper: paper, style: style, duration: duration, overshoot: facingWidth))
         self.animator = animator
         // The window and its layers reach the window server before the first frame does.
         CATransaction.flush()
@@ -260,18 +265,38 @@ public final class PageTurnWindow: NSWindow {
 
 #else
 
-/// The page's place on screen. The photograph and the curl itself are still to
-/// come on the phone: until then a turn just swaps the page.
+/// The UIKit side of a page: where it is on screen, a photograph of what is
+/// there, and the view over the notebook a turn plays in. Lay `PageSnapshotHost`
+/// over the page; it takes no touches.
 @MainActor
 public final class PageAnchor {
     weak var view: PageSnapshotView?
+    /// The turn under way, if any; it removes itself when done.
+    weak var turn: PageTurnView?
     public init() {}
 
-    func capture() -> (image: CGImage, size: CGSize)? { nil }
+    /// The page as it is on screen right now, and its size in points.
+    func capture() -> (image: CGImage, size: CGSize)? {
+        guard let view, let image = view.capture() else { return nil }
+        return (image, view.bounds.size)
+    }
 
     var pageHeight: CGFloat? { view?.bounds.height }
 
-    func curl(_ image: CGImage, style: PageCurlStyle, spineOnRight: Bool, paper: RGBA, duration: TimeInterval) -> Bool { false }
+    /// Curl `image` (a photograph of this page) away over the spine, in a view
+    /// laid over the whole window; any turn still going ends first. Returns false
+    /// when there is nothing to draw with yet.
+    func curl(_ image: CGImage, style: PageCurlStyle, spineOnRight: Bool, paper: RGBA, duration: TimeInterval,
+              facingWidth: CGFloat) -> Bool {
+        turn?.finish()
+        guard let pipeline = PageCurlRenderer.pipeline, let view, let window = view.window,
+              let started = PageTurnView(over: window, pageRect: view.convert(view.bounds, to: window), paper: paper,
+                                         facingWidth: facingWidth)
+        else { return false }
+        turn = started
+        started.play(image, pipeline: pipeline, style: style, spineOnRight: spineOnRight, paper: paper, duration: duration)
+        return true
+    }
 }
 
 struct PageSnapshotHost: UIViewRepresentable {
@@ -280,6 +305,7 @@ struct PageSnapshotHost: UIViewRepresentable {
     func makeUIView(context: Context) -> PageSnapshotView {
         let view = PageSnapshotView()
         view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
         anchor.view = view
         return view
     }
@@ -287,6 +313,102 @@ struct PageSnapshotHost: UIViewRepresentable {
     func updateUIView(_ view: PageSnapshotView, context: Context) { anchor.view = view }
 }
 
-final class PageSnapshotView: UIView {}
+final class PageSnapshotView: UIView {
+    /// Everything on screen within this view's frame, at the display's scale:
+    /// the window's composited contents drawn into a bitmap clipped to the page.
+    func capture() -> CGImage? {
+        guard let window else { return nil }
+        let rect = convert(bounds, to: window)
+        guard rect.width > 1, rect.height > 1 else { return nil }
+        let started = CACurrentMediaTime()
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = window.traitCollection.displayScale
+        format.opaque = false
+        let shot = UIGraphicsImageRenderer(bounds: rect, format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+        }
+        if pageTurnLogging { NSLog("Foolscap turn: photograph %.1f ms", (CACurrentMediaTime() - started) * 1000) }
+        return shot.cgImage
+    }
+}
+
+/// A page in flight: a transparent view over the notebook, clipped to the
+/// window, that the curl is drawn into from its own thread. Under the curl lies a
+/// blank sheet of the paper, standing in for the new page until the notebook has
+/// drawn it. The view removes itself when the turn ends.
+@MainActor
+public final class PageTurnView: UIView {
+    private let metalLayer = CAMetalLayer()
+    private let blank = CALayer()
+    private let pageInView: CGRect
+    private let facingWidth: CGFloat
+    private var animator: PageCurlAnimator?
+
+    /// `pageRect` is the page in `window`'s coordinates.
+    init?(over window: UIWindow, pageRect: CGRect, paper: RGBA, facingWidth: CGFloat) {
+        guard pageRect.width > 1, pageRect.height > 1 else { return nil }
+        let size = pageRect.size
+        self.facingWidth = facingWidth
+        // Room for the turned flap over the leather, the shadow and the facing side.
+        let padX = facingWidth + 140, padY = size.height * 0.4
+        let frame = pageRect.insetBy(dx: -padX, dy: -padY).intersection(window.bounds)
+        guard frame.width > 1, frame.height > 1 else { return nil }
+        pageInView = CGRect(x: pageRect.minX - frame.minX, y: pageRect.minY - frame.minY, width: size.width, height: size.height)
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isOpaque = false
+        backgroundColor = .clear
+        let scale = window.traitCollection.displayScale
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        blank.frame = pageInView
+        blank.backgroundColor = CGColor(srgbRed: paper.r, green: paper.g, blue: paper.b, alpha: 1)
+        blank.cornerRadius = PageShape.foreRadius
+        metalLayer.frame = bounds
+        metalLayer.contentsScale = scale
+        metalLayer.drawableSize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        metalLayer.pixelFormat = .bgra8Unorm
+        metalLayer.isOpaque = false
+        metalLayer.framebufferOnly = true
+        layer.addSublayer(blank)
+        layer.addSublayer(metalLayer)
+        CATransaction.commit()
+        window.addSubview(self)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    fileprivate func play(_ image: CGImage, pipeline: PageCurlRenderer.Pipeline, style: PageCurlStyle,
+                          spineOnRight: Bool, paper: RGBA, duration: TimeInterval) {
+        // The blank sheet's rounded corners are on the fore edge, away from the spine.
+        blank.maskedCorners = spineOnRight ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        metalLayer.device = pipeline.device
+        metalLayer.colorspace = image.colorSpace
+        let scale = Double(metalLayer.contentsScale)
+        // UIKit and the shader both count from the top-left.
+        let animator = PageCurlAnimator(pipeline: pipeline, layer: metalLayer, image: image, frame: .init(
+            origin: pageInView.origin, size: pageInView.size, scale: scale, spineOnRight: spineOnRight,
+            paper: paper, style: style, duration: duration, overshoot: facingWidth))
+        self.animator = animator
+        // The view and its layers reach the render server before the first frame does.
+        CATransaction.flush()
+        animator.start { [weak self] in self?.finish() }
+        // The notebook swaps the page in this same pass; the blank goes once it has drawn.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+            guard let self else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.blank.isHidden = true
+            CATransaction.commit()
+            if pageTurnLogging { NSLog("Foolscap turn: notebook drew the new page") }
+        }
+    }
+
+    func finish() {
+        animator?.cancel()
+        animator = nil
+        removeFromSuperview()
+    }
+}
 
 #endif

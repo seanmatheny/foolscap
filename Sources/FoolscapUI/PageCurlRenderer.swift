@@ -183,6 +183,9 @@ final class PageCurlAnimator: NSObject, CAMetalDisplayLinkDelegate, @unchecked S
         var paper: RGBA
         var style: PageCurlStyle
         var duration: TimeInterval
+        /// How far past the spine the fold travels before the page has left: the
+        /// facing strip's width.
+        var overshoot: Double
     }
 
     private let pipeline: PageCurlRenderer.Pipeline
@@ -283,7 +286,7 @@ final class PageCurlAnimator: NSObject, CAMetalDisplayLinkDelegate, @unchecked S
         pass.colorAttachments[0].storeAction = .store
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         guard let encoder = command.makeRenderCommandEncoder(descriptor: pass) else { return }
-        let fold = PageCurlGeometry(style: frame.style, size: frame.size, progress: progress, overshoot: NotebookMetrics.facingWidth)
+        let fold = PageCurlGeometry(style: frame.style, size: frame.size, progress: progress, overshoot: frame.overshoot)
         // The last sliver over the facing strip fades rather than vanishing.
         let tail = max(0, min(1, (progress - 0.88) / 0.12))
         var u = PageCurlRenderer.Uniforms(

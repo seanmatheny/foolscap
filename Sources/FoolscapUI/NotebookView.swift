@@ -18,6 +18,7 @@ public enum TabEdge: String, CaseIterable, Sendable {
 
 private struct TabEdgeKey: EnvironmentKey { static let defaultValue: TabEdge = .left }
 private struct ElasticBandKey: EnvironmentKey { static let defaultValue = false }
+private struct MetricsKey: EnvironmentKey { static let defaultValue: NotebookMetrics = .regular }
 
 public extension EnvironmentValues {
     /// Set by the app from Settings; every piece of chrome reads it.
@@ -30,31 +31,71 @@ public extension EnvironmentValues {
         get { self[ElasticBandKey.self] }
         set { self[ElasticBandKey.self] = newValue }
     }
+    /// How much leather surrounds the page: a window's worth on the Mac, a phone's
+    /// worth (with the safe areas folded in) on the iPhone.
+    var notebookMetrics: NotebookMetrics {
+        get { self[MetricsKey.self] }
+        set { self[MetricsKey.self] = newValue }
+    }
 }
 
 /// Cover geometry shared by the views below.
-enum NotebookMetrics {
+public struct NotebookMetrics: Equatable, Sendable {
     static let spineRadius: CGFloat = 6      // the bound edge is nearly square
     static let edgeRadius: CGFloat = 16      // the opening edge is rounded
-    static let topMargin: CGFloat = 30       // leather above the page; hosts the traffic lights
-    static let sideMargin: CGFloat = 50      // leather beside the page on the tab side: hosts the index tabs
-    static let bottomMargin: CGFloat = 20
-    /// Beyond the page's inner edge: the fold, then this much of the facing
-    /// page before the window ends. Nothing sits further in on that side.
-    static let facingWidth: CGFloat = 40
     /// Stitching runs this far inside the cover's edge.
     static let stitchInset: CGFloat = 7
+
+    /// Leather above the page; on the Mac it hosts the traffic lights.
+    public var topMargin: CGFloat
+    /// Leather beside the page on the tab side: hosts the index tabs.
+    public var sideMargin: CGFloat
+    public var bottomMargin: CGFloat
+    /// Beyond the page's inner edge: the fold, then this much of the facing
+    /// page before the window ends. Nothing sits further in on that side.
+    public var facingWidth: CGFloat
     /// The first index tab starts this far below the page's top.
-    static let firstTabOffset: CGFloat = 22
+    public var firstTabOffset: CGFloat
     /// The jester stamped in the leather's corner on the tabs' side.
-    static let stampSize: CGFloat = 32
-    /// Its centre, from the window's top and its tab-side edge: halfway between the
-    /// stitching and the page across, and between the stitching and the first tab down.
-    static let stampCentre = CGPoint(x: (stitchInset + sideMargin) / 2, y: (stitchInset + topMargin + firstTabOffset) / 2)
+    public var stampSize: CGFloat
+    /// Its centre, from the cover's top and its tab-side edge.
+    public var stampCentre: CGPoint
+
+    /// A window on the Mac. The stamp sits halfway between the stitching and the
+    /// page across, and between the stitching and the first tab down.
+    public static let regular = NotebookMetrics(topMargin: 30, sideMargin: 50, bottomMargin: 20, facingWidth: 40,
+                                                firstTabOffset: 22, stampSize: 32)
+
+    /// A phone: the leather trimmed to a few points so the page gets the width, the
+    /// side still wide enough for the tabs (`PaperTab.width` plus a rim).
+    public static let compact = NotebookMetrics(topMargin: 12, sideMargin: 40, bottomMargin: 10, facingWidth: 16,
+                                                firstTabOffset: 18, stampSize: 22)
+
+    public init(topMargin: CGFloat, sideMargin: CGFloat, bottomMargin: CGFloat, facingWidth: CGFloat,
+                firstTabOffset: CGFloat, stampSize: CGFloat, stampCentre: CGPoint? = nil) {
+        self.topMargin = topMargin; self.sideMargin = sideMargin; self.bottomMargin = bottomMargin
+        self.facingWidth = facingWidth; self.firstTabOffset = firstTabOffset; self.stampSize = stampSize
+        self.stampCentre = stampCentre ?? CGPoint(x: (Self.stitchInset + sideMargin) / 2,
+                                                  y: (Self.stitchInset + topMargin + firstTabOffset) / 2)
+    }
+
+    /// The same cover with the screen's safe areas added to the leather, so the
+    /// page keeps clear of the status bar and the home indicator while the leather
+    /// runs under them. The stamp moves down with the page.
+    public func insetBy(safeArea: EdgeInsets, tabsLeft: Bool) -> NotebookMetrics {
+        var m = self
+        m.topMargin += safeArea.top
+        m.bottomMargin += safeArea.bottom
+        m.sideMargin += tabsLeft ? safeArea.leading : safeArea.trailing
+        m.facingWidth += tabsLeft ? safeArea.trailing : safeArea.leading
+        m.stampCentre.y += safeArea.top
+        m.stampCentre.x += tabsLeft ? safeArea.leading : safeArea.trailing
+        return m
+    }
 
     /// Where the page sits inside the cover: the tabs on one side, the fold
     /// and the facing page on the other. Shared with the overlays laid on it.
-    static func pageInsets(tabsLeft: Bool) -> EdgeInsets {
+    public func pageInsets(tabsLeft: Bool) -> EdgeInsets {
         EdgeInsets(top: topMargin, leading: tabsLeft ? sideMargin : facingWidth,
                    bottom: bottomMargin, trailing: tabsLeft ? facingWidth : sideMargin)
     }
@@ -67,6 +108,7 @@ public struct NotebookView<Page: View>: View {
     @Environment(\.notebookTheme) private var theme
     @Environment(\.notebookTabEdge) private var tabEdge
     @Environment(\.showsElasticBand) private var showsBand
+    @Environment(\.notebookMetrics) private var metrics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let tabs: [NotebookTabItem]
     @Binding var selection: String
@@ -96,9 +138,9 @@ public struct NotebookView<Page: View>: View {
             ZStack(alignment: tabsLeft ? .topLeading : .topTrailing) {
                 // The facing page runs from under the page's inner edge to the window edge.
                 FacingPageView(foldOnLeft: tabsLeft)
-                    .frame(width: NotebookMetrics.facingWidth + 12)
-                    .padding(.top, NotebookMetrics.topMargin)
-                    .padding(.bottom, NotebookMetrics.bottomMargin)
+                    .frame(width: metrics.facingWidth + 12)
+                    .padding(.top, metrics.topMargin)
+                    .padding(.bottom, metrics.bottomMargin)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topTrailing : .topLeading)
                 PageView { page(open) }
                     // The drop shadow belongs to a plain shape behind the page: on the page
@@ -128,17 +170,17 @@ public struct NotebookView<Page: View>: View {
                                 selection = id
                             }
                         }
-                        .padding(.top, NotebookMetrics.firstTabOffset)
+                        .padding(.top, metrics.firstTabOffset)
                         .offset(x: tabsLeft ? -PaperTab.width : PaperTab.width)
                     }
                     .coordinateSpace(.named("page"))
-                    .padding(NotebookMetrics.pageInsets(tabsLeft: tabsLeft))
+                    .padding(metrics.pageInsets(tabsLeft: tabsLeft))
                 // The fold: both pages curve down into the spine.
                 FoldShadow()
                     .frame(width: 44)
-                    .padding(.top, NotebookMetrics.topMargin)
-                    .padding(.bottom, NotebookMetrics.bottomMargin)
-                    .padding(tabsLeft ? .trailing : .leading, NotebookMetrics.facingWidth - 22)
+                    .padding(.top, metrics.topMargin)
+                    .padding(.bottom, metrics.bottomMargin)
+                    .padding(tabsLeft ? .trailing : .leading, metrics.facingWidth - 22)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topTrailing : .topLeading)
                 // The band wraps the cover beyond the tabs, so it never crosses the page.
                 if showsBand {
@@ -155,7 +197,7 @@ public struct NotebookView<Page: View>: View {
                 #if canImport(AppKit)
                 // Leather band above the page: reveals the traffic lights and drags the window.
                 TrafficLightHoverZone()
-                    .frame(height: NotebookMetrics.topMargin)
+                    .frame(height: metrics.topMargin)
                     .frame(maxWidth: .infinity)
                     .gesture(WindowDragGesture())
                 #endif
@@ -196,7 +238,7 @@ public struct NotebookView<Page: View>: View {
         guard !reduceMotion else { return }
         let slow = ProcessInfo.processInfo.environment["FOOLSCAP_SLOW_OPEN"] != nil ? 4.0 : 1.0
         _ = anchor.curl(image, style: PageCurlStyle.random(from: edge), spineOnRight: tabEdge == .left,
-                        paper: theme.page.paperColor, duration: 0.55 * slow)
+                        paper: theme.page.paperColor, duration: 0.55 * slow, facingWidth: metrics.facingWidth)
     }
 }
 
@@ -216,13 +258,14 @@ private extension View {
 /// state: a hover over the leather band (the drag handle) flips `trafficLightsShown`,
 /// and that must not re-evaluate the whole notebook down to the editor.
 struct CoverStamp: View {
+    @Environment(\.notebookMetrics) private var metrics
     let tabsLeft: Bool
     var body: some View {
         let shown = WindowState.shared.trafficLightsShown
         Embossed(depth: 0.8) { JesterShape() }
-            .frame(width: NotebookMetrics.stampSize, height: NotebookMetrics.stampSize)
-            .padding(.top, NotebookMetrics.stampCentre.y - NotebookMetrics.stampSize / 2)
-            .padding(tabsLeft ? .leading : .trailing, NotebookMetrics.stampCentre.x - NotebookMetrics.stampSize / 2)
+            .frame(width: metrics.stampSize, height: metrics.stampSize)
+            .padding(.top, metrics.stampCentre.y - metrics.stampSize / 2)
+            .padding(tabsLeft ? .leading : .trailing, metrics.stampCentre.x - metrics.stampSize / 2)
             .opacity(tabsLeft && shown ? 0 : 1)
             .animation(.easeInOut(duration: 0.18), value: shown)
             .allowsHitTesting(false)
@@ -267,6 +310,7 @@ struct CoverShape: Shape {
 struct CoverBlock<Content: View>: View {
     @Environment(\.notebookTheme) private var theme
     @Environment(\.notebookTabEdge) private var tabEdge
+    @Environment(\.notebookMetrics) private var metrics
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -288,7 +332,7 @@ struct CoverBlock<Content: View>: View {
                 // The spine: a ridge in the leather where it folds, in line with the pages' fold.
                 SpineRidge()
                     .frame(width: 10)
-                    .padding(mirrored ? .trailing : .leading, NotebookMetrics.facingWidth - 5)
+                    .padding(mirrored ? .trailing : .leading, metrics.facingWidth - 5)
                     .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
                 // Edge highlight so the cover reads as thick.
                 shape.stroke(Color.white.opacity(0.10), lineWidth: 1)
@@ -427,6 +471,7 @@ struct ElasticBandView: View {
 struct IndexTabsView: View {
     @Environment(\.notebookTheme) private var theme
     @Environment(\.notebookTabEdge) private var tabEdge
+    @Environment(\.notebookMetrics) private var metrics
     let tabs: [NotebookTabItem]
     @Binding var selection: String
     /// A click on a tab: its id and how far down the page's edge it was (0 at
@@ -436,7 +481,7 @@ struct IndexTabsView: View {
     var body: some View {
         // Every tab is as long as the longest label, so the row reads as one set;
         // when the page is too short for them all, every tab shrinks to its icon.
-        let fit = PaperTab.length(for: tabs.map(\.appearance), available: pageHeight - NotebookMetrics.firstTabOffset)
+        let fit = PaperTab.length(for: tabs.map(\.appearance), available: pageHeight - metrics.firstTabOffset)
         VStack(alignment: tabEdge == .left ? .leading : .trailing, spacing: PaperTab.spacing) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
                 PaperTab(appearance: tab.appearance,

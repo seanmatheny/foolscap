@@ -2,21 +2,45 @@ import SwiftUI
 import FoolscapCore
 import FoolscapUI
 
-/// The iPhone app. Phase 1 shows the closed cover and the version: enough to prove that
-/// the free-team signature is renewed by `Tools/ios-refresh.sh` before its seven days
-/// run out. The notebook itself follows once the packages compile for iOS.
+/// The iPhone app. For now the notebook chrome around placeholder pages: the
+/// leather, the index tabs, the page and its curl, sized for a phone, until the
+/// editor and the sections compile for iOS. The version shows on the page so a
+/// glance tells whether the latest refresh landed.
 @main
 struct FoolscapMobileApp: App {
     var body: some Scene {
         WindowGroup {
-            ClosedCoverPage()
+            RootView()
         }
     }
 }
 
-/// Leather and a wordmark, the way the Mac app opens; the version line is what a glance
-/// at the phone needs to tell whether the latest refresh landed.
-struct ClosedCoverPage: View {
+struct RootView: View {
+    private let theme = NotebookTheme.classicBlack
+    private let tabs = [
+        NotebookTabItem(id: "daily", appearance: TabAppearance(label: "Daily Notes", systemImage: "calendar")),
+        NotebookTabItem(id: "tasks", appearance: TabAppearance(label: "Tasks", systemImage: "checklist")),
+    ]
+    @State private var selection = "daily"
+
+    var body: some View {
+        GeometryReader { geo in
+            NotebookView(tabs: tabs, selection: $selection) { id in
+                PlaceholderPage(title: tabs.first { $0.id == id }?.appearance.label ?? id)
+            }
+            // The leather runs under the status bar and the home indicator; the page does not.
+            .environment(\.notebookMetrics, NotebookMetrics.compact.insetBy(safeArea: geo.safeAreaInsets, tabsLeft: true))
+        }
+        .environment(\.notebookTheme, theme)
+        .environment(\.notebookTabEdge, .left)
+    }
+}
+
+/// Stands in for a section's page.
+struct PlaceholderPage: View {
+    @Environment(\.notebookTheme) private var theme
+    let title: String
+
     private var version: String {
         let info = Bundle.main.infoDictionary ?? [:]
         let short = info["CFBundleShortVersionString"] as? String ?? "?"
@@ -24,21 +48,18 @@ struct ClosedCoverPage: View {
         return "Version \(short) (\(build))"
     }
 
-    private let theme = NotebookTheme.classicBlack
-
     var body: some View {
-        ZStack {
-            theme.cover.baseColor.color.ignoresSafeArea()
-            TextureOverlay(tile: theme.cover.textureTile, opacity: theme.cover.grainOpacity).ignoresSafeArea()
-            VStack(spacing: 14) {
-                Text("Foolscap")
-                    .font(.system(size: 30, weight: .semibold, design: .serif))
-                    .kerning(2)
-                Text(version)
-                    .font(.footnote)
-                    .opacity(0.7)
-            }
-            .foregroundStyle(Color(red: 0.96, green: 0.94, blue: 0.87).opacity(0.75))
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(theme.type.heading.face(22, weight: .bold))
+                .foregroundStyle(theme.accent.color)
+            Text(version)
+                .font(theme.type.body.face(15))
+                .foregroundStyle(theme.dimInk.color)
+            Spacer()
         }
+        .padding(.leading, 36)
+        .padding(.top, 40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
