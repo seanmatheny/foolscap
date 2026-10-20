@@ -52,6 +52,7 @@ public final class TasksSection: NotebookSection {
 struct TasksPage: View {
     @Environment(\.notebookTheme) private var theme
     @Environment(\.taskPens) private var pens
+    @Environment(\.compactPage) private var compact
     @Bindable var section: TasksSection
     @State private var newTaskText = ""
     @FocusState private var newTaskFocused: Bool
@@ -93,18 +94,24 @@ struct TasksPage: View {
                         Spacer().frame(height: pitch / 2 - Self.fieldGap)
                         // The desk: what is in hand across the top, then what is
                         // next beside what is parked, and the done pile folded away.
+                        // A phone's page is one column: next, then parked, then done.
                         group(.today, symbol: "sun.max")
-                        HStack(alignment: .top, spacing: 0) {
+                        if compact {
                             group(.notStarted)
-                            Rectangle().fill(theme.ink.color.opacity(0.12)).frame(width: 0.5)
-                                .padding(.horizontal, 14).padding(.vertical, 4)
                             group(.someday)
+                        } else {
+                            HStack(alignment: .top, spacing: 0) {
+                                group(.notStarted)
+                                Rectangle().fill(theme.ink.color.opacity(0.12)).frame(width: 0.5)
+                                    .padding(.horizontal, 14).padding(.vertical, 4)
+                                group(.someday)
+                            }
                         }
                         group(.completed)
                         Spacer(minLength: pitch * 2)
                     }
                     .padding(.leading, PageRuling.textLeft)
-                    .padding(.trailing, 44)
+                    .padding(.trailing, compact ? PageRuling.textRight : 44)
                     .padding(.top, pitch + PageRuling.rowShift(palette))
                 }
             }
@@ -177,9 +184,9 @@ struct TasksPage: View {
     private var newTaskPrompt: String {
         if !section.selectedTags.isEmpty {
             let tags = section.selectedTags.map { "#" + $0 }.joined(separator: " ")
-            return "Add a task tagged \(tags); more #tags, or start with ! for priority"
+            return compact ? "Add a task tagged \(tags)" : "Add a task tagged \(tags); more #tags, or start with ! for priority"
         }
-        return "Add a task, with #tags; start with !! or !!! to raise its priority"
+        return compact ? "Add a task, #tags, !! for priority" : "Add a task, with #tags; start with !! or !!! to raise its priority"
     }
 
     /// Tags of tasks still to do, the penned ones leading in pen order; the chosen
@@ -266,6 +273,7 @@ struct CategoryChip: View {
 
 struct TaskSectionView: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.compactPage) private var compact
     let status: TaskStatus
     /// A symbol beside the heading (the sun on Today, as on the daily page).
     let symbol: String?
@@ -343,18 +351,23 @@ struct TaskSectionView: View {
                 }
                 ForEach(visibleTasks) { task in
                     let group = movingGroup(for: task)
-                    TaskRow(task: task, pitch: pitch, allTags: allTags,
-                            isSelected: selection.contains(task.id), groupCount: group.count,
-                            onSelect: { select(task) },
-                            onToggle: { onToggle(task) }, onOpen: { onOpen(task) },
-                            onSetStatus: { onMove(group, $0) },
-                            onUpdate: { onUpdate(task, $0, $1) }, onAddTag: { onAddTag(task, $0) },
-                            onRemoveTag: { onRemoveTag(task, $0) },
-                            onSetPriority: { onSetPriority(task, $0) })
-                        .draggable(TaskDrag(tasks: group)) {
+                    let row = TaskRow(task: task, pitch: pitch, allTags: allTags,
+                                      isSelected: selection.contains(task.id), groupCount: group.count,
+                                      onSelect: { select(task) },
+                                      onToggle: { onToggle(task) }, onOpen: { onOpen(task) },
+                                      onSetStatus: { onMove(group, $0) },
+                                      onUpdate: { onUpdate(task, $0, $1) }, onAddTag: { onAddTag(task, $0) },
+                                      onRemoveTag: { onRemoveTag(task, $0) },
+                                      onSetPriority: { onSetPriority(task, $0) })
+                    if compact {
+                        // A long press is the menu on a phone; a drag would fight it. The menu moves tasks.
+                        row
+                    } else {
+                        row.draggable(TaskDrag(tasks: group)) {
                             Text(group.count > 1 ? "\(group.count) tasks" : task.displayTitle).font(theme.type.body.face(14))
                                 .padding(6).background(theme.page.paperColor.color).cornerRadius(4)
                         }
+                    }
                 }
                 if status == .completed, tasks.count > Self.recentLimit {
                     Button(showAll ? "Show only the last \(Self.recentLimit)" : "Show all \(tasks.count) completed") {
@@ -435,6 +448,7 @@ struct TaskSectionView: View {
 struct TaskRow: View {
     @Environment(\.notebookTheme) private var theme
     @Environment(\.taskPens) private var pens
+    @Environment(\.compactPage) private var compact
     let task: TaskItem
     let pitch: CGFloat
     let allTags: [String]
@@ -457,20 +471,114 @@ struct TaskRow: View {
     @State private var hovering = false
     @State private var editing = false
     @State private var askTag = false
+    /// On a phone, the title's measured height: a long one takes two ruled lines.
+    @State private var titleHeight: CGFloat = 0
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Button(action: onToggle) {
-                Image(systemName: symbol)
-                    .font(.system(size: 14 * scale, weight: .regular))
-                    .foregroundStyle(task.status == .notStarted || task.status == .someday ? theme.dimInk.color : theme.accent.color)
-                    .frame(width: 20)
+        Group {
+            if compact { compactRow } else { wideRow }
+        }
+        // Done rows lie faded under their strikethrough.
+        .opacity(task.status == .completed ? 0.55 : 1)
+        .padding(.leading, 8)
+        .background(RoundedRectangle(cornerRadius: 5).fill(theme.accent.color.opacity(isSelected ? 0.16 : 0)).padding(.vertical, 2))
+        .contentShape(Rectangle())
+        // A click selects at once; a second click edits (the buttons in the row keep their own clicks).
+        .gesture(TapGesture(count: 2).onEnded { if !task.isReadOnly { editing = true } }
+            .simultaneously(with: TapGesture().onEnded { onSelect() }))
+        .onHover { hovering = $0 }
+        .contextMenu { menuItems }
+    }
+
+    /// The phone's row: the title may wrap onto a second ruled line, and the tags
+    /// (the pen's in its colour) and the notes and link marks take a line of their
+    /// own under it when there are any. Nothing here waits for a pointer: the long
+    /// press menu moves, edits and tags, a double tap edits, the tick ticks.
+    private var compactRow: some View {
+        let face = FontSpec(family: theme.type.body.family, size: 14.5 * scale, design: theme.type.body.design).platformFont
+        let lineHeight = face.ascender - face.descender + face.leading
+        let titleLines: CGFloat = titleHeight > lineHeight * 1.5 ? 2 : 1
+        let chips = task.tags
+        let secondLine = !chips.isEmpty || task.notes != nil || task.firstLink != nil
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 8) {
+                tick.frame(height: pitch)
+                PriorityLight(priority: task.priority, onSet: onSetPriority)
+                    .disabled(task.isReadOnly)
+                    .frame(height: pitch)
+                Group {
+                    if let onOpenIssue {
+                        Button(action: onOpenIssue) { title(lines: 2, lineHeight: lineHeight) }.buttonStyle(.plain)
+                    } else {
+                        title(lines: 2, lineHeight: lineHeight)
+                    }
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { titleHeight = $0 }
+                .frame(minHeight: pitch * titleLines, alignment: .center)
+                Spacer(minLength: 4)
+                if task.isReadOnly {
+                    Image(systemName: "lock").font(.system(size: 10)).foregroundStyle(theme.dimInk.color).frame(height: pitch)
+                }
+                if let day = task.source.day.flatMap(DayKey.init) {
+                    Button(action: onOpen) {
+                        Text(day.shortTitle).font(theme.type.body.face(11 * scale)).foregroundStyle(theme.dimInk.color)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(height: pitch)
+                }
             }
-            .buttonStyle(.plain)
-            .linkPointer()
-            .help(task.isReadOnly ? "" : (task.status == .completed ? "Mark not done" : "Mark done"))
-            .disabled(task.isReadOnly)
+            if secondLine {
+                HStack(spacing: 6) {
+                    ForEach(chips, id: \.self) { tag in
+                        let tint = tag == pen?.tag ? pen?.colour.rgba(onDark: theme.isDark) : nil
+                        // A tap cannot strip a tag here; the menu's Remove Tag can.
+                        TagChip(tag: tag, scale: scale, removable: false, tint: tint) {}
+                    }
+                    if let notes = task.notes {
+                        Button { editing = true } label: { Image(systemName: "text.alignleft").font(.system(size: 11)) }
+                            .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help(notes)
+                    }
+                    if let link = task.firstLink {
+                        Button { Platform.openURL(link) } label: { Image(systemName: "link").font(.system(size: 11)) }
+                            .buttonStyle(.plain).foregroundStyle(theme.accent.color)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(height: pitch)
+                .padding(.leading, 20 + 8 + 14 + 8)
+            }
+        }
+        .frame(height: pitch * (titleLines + (secondLine ? 1 : 0)))
+        .sheet(isPresented: $editing) {
+            TaskEditPopover(task: task, allTags: allTags, onSave: { title, notes in onUpdate(title, notes); editing = false })
+                .environment(\.notebookTheme, theme)
+                .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $askTag) {
+            TagPopover(allTags: allTags, existing: task.tags) { onAddTag($0); askTag = false }
+                .environment(\.notebookTheme, theme)
+                .presentationDetents([.medium])
+        }
+    }
+
+    private var tick: some View {
+        Button(action: onToggle) {
+            Image(systemName: symbol)
+                .font(.system(size: 14 * scale, weight: .regular))
+                .foregroundStyle(task.status == .notStarted || task.status == .someday ? theme.dimInk.color : theme.accent.color)
+                .frame(width: 20)
+        }
+        .buttonStyle(.plain)
+        .linkPointer()
+        .help(task.isReadOnly ? "" : (task.status == .completed ? "Mark not done" : "Mark done"))
+        .disabled(task.isReadOnly)
+    }
+
+    /// The Mac's row: one ruled line, the actions showing under the pointer.
+    private var wideRow: some View {
+        HStack(alignment: .center, spacing: 8) {
+            tick
             PriorityLight(priority: task.priority, onSet: onSetPriority)
                 .disabled(task.isReadOnly)
             if let onOpenIssue {
@@ -538,17 +646,11 @@ struct TaskRow: View {
                 Text(task.source.path).font(theme.type.body.face(11 * scale)).foregroundStyle(theme.dimInk.color)
             }
         }
-        // Done rows lie faded under their strikethrough.
-        .opacity(task.status == .completed ? 0.55 : 1)
         .frame(height: pitch)
-        .padding(.leading, 8)
-        .background(RoundedRectangle(cornerRadius: 5).fill(theme.accent.color.opacity(isSelected ? 0.16 : 0)).padding(.vertical, 2))
-        .contentShape(Rectangle())
-        // A click selects at once; a second click edits (the buttons in the row keep their own clicks).
-        .gesture(TapGesture(count: 2).onEnded { if !task.isReadOnly { editing = true } }
-            .simultaneously(with: TapGesture().onEnded { onSelect() }))
-        .onHover { hovering = $0 }
-        .contextMenu {
+    }
+
+    @ViewBuilder
+    private var menuItems: some View {
             if !task.isReadOnly {
                 Button("Edit Task…") { editing = true }
                 Menu("Add Tag") {
@@ -577,15 +679,21 @@ struct TaskRow: View {
             }
             if task.source.day != nil { Button("Open in Daily Note") { onOpen() } }
             if let onOpenIssue { Button("Open in Jira Tab") { onOpenIssue() } }
-        }
     }
 
-    private var title: some View {
+    private var title: some View { title(lines: 1, lineHeight: 0) }
+
+    /// The title set to the ruling: with `lines` above one, each line of the text
+    /// is `pitch` tall (the spacing makes up the difference), so a wrapped title
+    /// sits on two rules as two rows would.
+    private func title(lines: Int, lineHeight: CGFloat) -> some View {
         Text(task.displayTitle)
             .font(theme.type.body.face(14.5 * scale))
             .strikethrough(task.status == .completed, color: theme.dimInk.color)
             .foregroundStyle(task.status == .completed ? theme.dimInk.color : theme.ink.color)
-            .lineLimit(1)
+            .lineLimit(lines)
+            .lineSpacing(lines > 1 ? max(0, pitch - lineHeight) : 0)
+            .fixedSize(horizontal: false, vertical: lines > 1)
             .highlighted(stroke)
     }
 

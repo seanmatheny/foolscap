@@ -40,9 +40,10 @@ public struct AppearanceSettings: Codable, Equatable, Sendable {
 
     /// Write these into `defaults`, only the keys that differ (so observers fire
     /// once per real change). A font family this device lacks falls back to the
-    /// theme's own face. Returns whether anything changed.
+    /// theme's own face; with `textSize` false the text scale is left alone (a phone
+    /// keeps its own). Returns whether anything changed.
     @discardableResult
-    public func apply(to defaults: UserDefaults = .standard, fontAvailable: (String) -> Bool) -> Bool {
+    public func apply(to defaults: UserDefaults = .standard, fontAvailable: (String) -> Bool, textSize: Bool = true) -> Bool {
         var changed = false
         func set(_ value: String, _ key: String) {
             if defaults.string(forKey: key) ?? "" != value { defaults.set(value, forKey: key); changed = true }
@@ -52,7 +53,7 @@ public struct AppearanceSettings: Codable, Equatable, Sendable {
         }
         func font(_ family: String) -> String { family.isEmpty || fontAvailable(family) ? family : "" }
         set(themeID, PreferenceKeys.themeID)
-        if (defaults.object(forKey: PreferenceKeys.textScale) as? Double ?? 1.0) != textScale {
+        if textSize, (defaults.object(forKey: PreferenceKeys.textScale) as? Double ?? 1.0) != textScale {
             defaults.set(textScale, forKey: PreferenceKeys.textScale); changed = true
         }
         set(openingAnimation, PreferenceKeys.openingAnimation, default: true)

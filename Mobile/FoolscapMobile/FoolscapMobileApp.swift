@@ -12,9 +12,16 @@ import FoolscapSections
 @main
 struct FoolscapMobileApp: App {
     init() {
-        // The page's text column: narrower leather on a phone leaves it this much.
-        PageRuling.textLeft = 36
-        PageRuling.textRight = 16
+        // The page's text column: narrower leather on a phone leaves it this much
+        // (the margin rule sits 16 pt left of the text, still clear of the page edge).
+        PageRuling.textLeft = 28
+        PageRuling.textRight = 14
+        // The text scale once followed the Mac's; it is the phone's own now, and the
+        // Mac's 0.85 that may already be here goes back to full size, once.
+        if !UserDefaults.standard.bool(forKey: "phoneTextScaleReset") {
+            UserDefaults.standard.set(1.0, forKey: PreferenceKeys.textScale)
+            UserDefaults.standard.set(true, forKey: "phoneTextScaleReset")
+        }
     }
 
     var body: some Scene {
@@ -51,8 +58,9 @@ final class PhoneModel: AppModelCore {
 
     /// Take the look from the file: at launch, when the app comes to the front and
     /// whenever the folder changes (iCloud landing the Mac's new file among them).
+    /// The text size is the phone's own: a window's scale is not a phone's.
     func applyMacAppearance() async {
-        await applyFollowedAppearance(fontAvailable: { UIFont.familyNames.contains($0) })
+        await applyFollowedAppearance(fontAvailable: { UIFont.familyNames.contains($0) }, textSize: false)
     }
 
     private func watchForChanges() {
@@ -113,6 +121,7 @@ struct RootView: View {
         .environment(\.notebookTabEdge, model.tabEdge)
         .environment(\.showsElasticBand, model.elasticBand)
         .environment(\.taskPens, model.pens)
+        .environment(\.compactPage, true)
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result { model.useFolder(url) }
         }
@@ -144,6 +153,7 @@ struct PhoneSettingsPage: View {
     }
 
     @AppStorage(PhoneModel.followKey) private var followsMac = true
+    @AppStorage(PreferenceKeys.textScale) private var textScale = 1.0
 
     var body: some View {
         Form {
@@ -155,6 +165,13 @@ struct PhoneSettingsPage: View {
                         : "Theme, paper, type and pens are the Mac's; turn this off to choose them here.")
                      : "This phone keeps a look of its own.")
                     .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Text size") {
+                    HStack {
+                        Slider(value: $textScale, in: 0.8...1.6, step: 0.05)
+                        Text("\(Int((textScale * 100).rounded()))%").monospacedDigit().frame(width: 44, alignment: .trailing)
+                    }
+                }
+                Text("The phone's own, whatever the Mac uses.").font(.caption).foregroundStyle(.secondary)
             }
             Group {
                 NotebookSettingsSections(themeID: $model.themeID)

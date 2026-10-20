@@ -580,4 +580,17 @@
   on) is on: it applies the file at launch, on coming to the front and on every folder change,
   only the keys that differ, a font family the phone lacks falling back to the theme's face;
   its own appearance controls are disabled meanwhile. `PreferenceKeys` lives in Core
-  (Preferences.swift) so the store can name the keys. One direction only.
+  (Preferences.swift) so the store can name the keys. One direction only. The text scale is
+  the exception (since 0.8.0): a window's scale is not a phone's, so `apply(textSize: false)`
+  leaves it alone and the phone has its own slider in Settings ▸ Appearance.
+- Compact pages (since 0.8.0): the phone sets `\.compactPage` (FoolscapUI, beside
+  `notebookMetrics`); the Mac never does, macOS having no size classes. On a compact page the
+  Tasks lanes stack in one column, the trailing inset is `PageRuling.textRight` (the Mac keeps
+  44), `TaskRow` is `compactRow`: the title may wrap onto a second ruled line (each line `pitch`
+  tall through `lineSpacing`, the row's height a whole number of pitches from the measured
+  title), tags (the pen's in its colour, not removable by tap) and the notes/link marks on a
+  line of their own, no hover cluster, no drag (a long press is the context menu, which moves,
+  edits and tags; a double tap edits in a sheet). The daily page's search capsule is the
+  magnifier alone and the iCloud banners (`NoteBanner`, a `ViewThatFits`) wrap their buttons.
+  The Today panel is handed `taskPens` and `compactPage` explicitly, since its hosting view
+  inherits no environment. The phone's text column is 28/14.

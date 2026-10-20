@@ -43,4 +43,16 @@ import Testing
         #expect(phone.bool(forKey: PreferenceKeys.marginRule))
         #expect(!settings.apply(to: phone, fontAvailable: { $0 == "Charter" }), "applied again, nothing changes")
     }
+
+    @Test func aDeviceCanKeepItsOwnTextSize() {
+        let source = scratchDefaults()
+        source.set(0.85, forKey: PreferenceKeys.textScale)
+        source.set("kraft", forKey: PreferenceKeys.themeID)
+        let settings = AppearanceSettings(defaults: source)
+        let phone = scratchDefaults()
+        phone.set(1.1, forKey: PreferenceKeys.textScale)
+        #expect(settings.apply(to: phone, fontAvailable: { _ in true }, textSize: false))
+        #expect(phone.string(forKey: PreferenceKeys.themeID) == "kraft")
+        #expect(phone.double(forKey: PreferenceKeys.textScale) == 1.1, "the phone's own size stays")
+    }
 }

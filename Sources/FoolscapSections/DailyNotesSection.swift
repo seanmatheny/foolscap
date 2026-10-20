@@ -94,6 +94,8 @@ final class DailyNotesTaskProvider: TaskProvider {
 
 struct DailyNotesPage: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.taskPens) private var pens
+    @Environment(\.compactPage) private var compact
     @Bindable var section: DailyNotesSection
     @State private var showCalendar = false
     /// The day's note, set from `.task` rather than fetched in `body`: opening
@@ -104,7 +106,10 @@ struct DailyNotesPage: View {
     /// were written, under its date.
     private var todayHeader: AnyView? {
         guard section.selectedDay == .today, let aggregator = section.taskAggregator else { return nil }
-        return AnyView(TodayTasksPanel(section: section, aggregator: aggregator))
+        // The panel is hosted in a view of its own, which inherits none of this environment.
+        return AnyView(TodayTasksPanel(section: section, aggregator: aggregator)
+            .environment(\.taskPens, pens)
+            .environment(\.compactPage, compact))
     }
 
     /// The day's handwritten pages, after the note.
@@ -130,11 +135,11 @@ struct DailyNotesPage: View {
                                             removal: .opacity))
             }
             HStack(spacing: 8) {
-                SearchCapsule { section.openSearch?() }
+                SearchCapsule(compact: compact) { section.openSearch?() }
                 DayNavigator(section: section, showCalendar: $showCalendar)
             }
             .padding(.top, 8)
-            .padding(.trailing, 44)
+            .padding(.trailing, compact ? PageRuling.textRight : 44)
             if let document {
                 if document.isDownloading {
                     Text("Downloading from iCloud…")
@@ -144,10 +149,10 @@ struct DailyNotesPage: View {
                 }
                 if document.externalChangePending {
                     ExternalChangeBanner(document: document)
-                        .padding(.top, 44).padding(.trailing, 44)
+                        .padding(.top, 44).padding(.trailing, compact ? PageRuling.textRight : 44)
                 } else if !document.conflictVersions.isEmpty {
                     ConflictBanner(document: document)
-                        .padding(.top, 44).padding(.trailing, 44)
+                        .padding(.top, 44).padding(.trailing, compact ? PageRuling.textRight : 44)
                 }
             }
         }
@@ -168,6 +173,8 @@ struct DailyNotesPage: View {
 /// the real one: words and `#tags` across every day's note and task.
 struct SearchCapsule: View {
     @Environment(\.notebookTheme) private var theme
+    /// The magnifier alone, for a phone's page.
+    var compact = false
     let action: () -> Void
     @State private var hovering = false
 
@@ -175,7 +182,7 @@ struct SearchCapsule: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold))
-                Text("Search notes and #tags").font(theme.type.body.face(12))
+                if !compact { Text("Search notes and #tags").font(theme.type.body.face(12)) }
             }
             .foregroundStyle(theme.ink.color.opacity(hovering ? 0.75 : 0.5))
             .padding(.horizontal, 10).frame(height: 24)
@@ -256,33 +263,51 @@ struct ConflictBanner: View {
     @Environment(\.notebookTheme) private var theme
     let document: NoteDocument
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "arrow.triangle.branch")
-            Text("iCloud has \(document.conflictVersions.count) conflicting cop\(document.conflictVersions.count == 1 ? "y" : "ies") of this note.")
+        let count = document.conflictVersions.count
+        NoteBanner(symbol: "arrow.triangle.branch", text: "iCloud has \(count) conflicting cop\(count == 1 ? "y" : "ies") of this note.") {
             Button("Keep mine") { try? document.resolveConflicts(.keepMine) }
             Button("Take theirs") { try? document.resolveConflicts(.takeTheirs) }
             Button("Keep both") { try? document.resolveConflicts(.keepBoth) }
         }
-        .font(theme.type.body.face(12))
-        .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(Capsule().fill(theme.accent.color.opacity(0.18)))
-        .foregroundStyle(theme.ink.color)
     }
 }
 
 struct ExternalChangeBanner: View {
-    @Environment(\.notebookTheme) private var theme
     let document: NoteDocument
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.icloud")
-            Text("This note changed on another device.")
+        NoteBanner(symbol: "exclamationmark.icloud", text: "This note changed on another device.") {
             Button("Keep mine") { document.keepLocalVersion() }
             Button("Take theirs") { document.takeExternalVersion() }
         }
+    }
+}
+
+/// A capsule over the note with a message and its buttons in one row where they
+/// fit (a window), the buttons under the message where they do not (a phone).
+struct NoteBanner<Buttons: View>: View {
+    @Environment(\.notebookTheme) private var theme
+    let symbol: String
+    let text: String
+    @ViewBuilder let buttons: Buttons
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                Text(text)
+                buttons
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: symbol)
+                    Text(text)
+                }
+                HStack(spacing: 8) { buttons }
+            }
+        }
         .font(theme.type.body.face(12))
         .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(Capsule().fill(theme.accent.color.opacity(0.18)))
+        .background(RoundedRectangle(cornerRadius: 14).fill(theme.accent.color.opacity(0.18)))
         .foregroundStyle(theme.ink.color)
     }
 }

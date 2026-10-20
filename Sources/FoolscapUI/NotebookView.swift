@@ -19,6 +19,7 @@ public enum TabEdge: String, CaseIterable, Sendable {
 private struct TabEdgeKey: EnvironmentKey { static let defaultValue: TabEdge = .left }
 private struct ElasticBandKey: EnvironmentKey { static let defaultValue = false }
 private struct MetricsKey: EnvironmentKey { static let defaultValue: NotebookMetrics = .regular }
+private struct CompactPageKey: EnvironmentKey { static let defaultValue = false }
 
 public extension EnvironmentValues {
     /// Set by the app from Settings; every piece of chrome reads it.
@@ -36,6 +37,12 @@ public extension EnvironmentValues {
     var notebookMetrics: NotebookMetrics {
         get { self[MetricsKey.self] }
         set { self[MetricsKey.self] = newValue }
+    }
+    /// A phone's page: one column of lanes, rows that wrap, no pointer-only controls.
+    /// The Mac never sets it (macOS has no size classes to read instead).
+    var compactPage: Bool {
+        get { self[CompactPageKey.self] }
+        set { self[CompactPageKey.self] = newValue }
     }
 }
 

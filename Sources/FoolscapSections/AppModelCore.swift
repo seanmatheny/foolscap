@@ -125,10 +125,10 @@ open class AppModelCore {
 
     /// As a follower, take the look from the file (when there is one). `fontAvailable`
     /// says which families this device has; others fall back to the theme's face.
-    public func applyFollowedAppearance(fontAvailable: @escaping (String) -> Bool) async {
+    public func applyFollowedAppearance(fontAvailable: @escaping (String) -> Bool, textSize: Bool = true) async {
         guard appearanceRole == .follower, let library, let settings = await library.readAppearance() else { return }
         followedAppearance = settings
-        if settings.apply(to: .standard, fontAvailable: fontAvailable) { defaultsChanged() }
+        if settings.apply(to: .standard, fontAvailable: fontAvailable, textSize: textSize) { defaultsChanged() }
     }
 
     /// The open tab changed (also called when it was set to the same tab again).
