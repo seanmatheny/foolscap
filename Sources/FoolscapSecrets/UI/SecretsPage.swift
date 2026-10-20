@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import FoolscapCore
 import FoolscapStore
 import FoolscapEditor
@@ -64,6 +63,7 @@ struct SecretsPage: View {
         }
         .foregroundStyle(theme.ink.color)
         .focusable()
+        .reportsActivity(to: section)
         .focusEffectDisabled()
         .onKeyPress(characters: .alphanumerics.union(CharacterSet(charactersIn: "#")), phases: .down) { press in
             guard section.isUnlocked, !section.isEditing, !searchFocused, press.modifiers.isEmpty else { return .ignored }
@@ -87,7 +87,7 @@ struct SecretsPage: View {
                     .foregroundStyle(unlocked ? theme.accent.color : theme.dimInk.color)
             }
             .buttonStyle(.plain)
-            .pointerStyle(.link)
+            .linkPointer()
             .help(unlocked ? "Lock (⌃⌘L)" : "Unlock with Touch ID")
             status
                 .font(theme.type.body.face(12.5 * scale))
@@ -233,5 +233,18 @@ struct SecretsPage: View {
         let where_ = letters.map(\.description).joined(separator: ", ")
         return tags.isEmpty ? "Nothing filed under \(where_) yet. New (⌘N) adds a card here."
             : "Nothing under \(where_) carries \(tags); the brighter letters do, and \(tags) in the strip lists them all."
+    }
+}
+
+private extension View {
+    /// On the phone every tap and drag on the page keeps the vault open; the Mac's
+    /// auto-lock watches the app's events itself.
+    @ViewBuilder
+    func reportsActivity(to section: SecretsSection) -> some View {
+        #if canImport(AppKit)
+        self
+        #else
+        simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in section.noteActivity() })
+        #endif
     }
 }

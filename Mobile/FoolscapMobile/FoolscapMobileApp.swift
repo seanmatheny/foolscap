@@ -6,6 +6,7 @@ import FoolscapEditor
 import FoolscapUI
 import FoolscapSections
 import FoolscapJira
+import FoolscapSecrets
 
 /// The iPhone app: the shared app model over the notebook folder the Files picker
 /// granted (the app's own Documents until one is chosen), the Daily Notes and
@@ -42,6 +43,9 @@ final class PhoneModel: AppModelCore {
     /// The Jira tab is a hard toggle, as on the Mac: off means no section, no requests.
     private(set) var jiraEnabled = false
     private(set) var jiraSection: JiraSection?
+    /// The Secrets tab likewise: off means no section, no vault read.
+    private(set) var secretsEnabled = false
+    private(set) var secretsSection: SecretsSection?
 
     init() {
         let bookmarked = BookmarkedFolder.resolve()
@@ -50,6 +54,7 @@ final class PhoneModel: AppModelCore {
         followSettingChanged()
         watchForChanges()
         setJiraEnabled(UserDefaults.standard.bool(forKey: "jiraEnabled"))
+        setSecretsEnabled(UserDefaults.standard.bool(forKey: SecretsSection.enabledKey))
         // The Jira page's "Open Settings…" turns to the Settings tab.
         JiraSection.openSettings = { [weak self] in self?.selectedSectionID = RootView.settingsTab.id }
     }
@@ -99,12 +104,49 @@ final class PhoneModel: AppModelCore {
         }
     }
 
+    /// Add or remove the Secrets section at runtime (`rewireSections` puts it last).
+    /// Nothing is indexed: the vault never enters the library.
+    func setSecretsEnabled(_ on: Bool) {
+        guard on != secretsEnabled, let library else { return }
+        secretsEnabled = on
+        if on {
+            let secrets = SecretsSection(library: library)
+            sections.append(secrets)
+            secretsSection = secrets
+            secrets.start()
+        } else {
+            secretsSection?.stop()
+            secretsSection = nil
+            sections.removeAll { $0.id == SecretsSection.sectionID }
+            if selectedSectionID == SecretsSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
+        }
+        rewireSections()
+    }
+
     override func defaultsChanged() {
         super.defaultsChanged()
         let role: AppearanceRole = followsMac ? .follower : .independent
         if role != appearanceRole { followSettingChanged() }
         let jira = UserDefaults.standard.bool(forKey: "jiraEnabled")
         if jira != jiraEnabled { setJiraEnabled(jira) }
+        let secrets = UserDefaults.standard.bool(forKey: SecretsSection.enabledKey)
+        if secrets != secretsEnabled { setSecretsEnabled(secrets) }
+    }
+
+    override func sectionSelectionChanged(from old: String) {
+        if old == SecretsSection.sectionID, selectedSectionID != old { secretsSection?.didLeaveTab() }
+        if selectedSectionID == SecretsSection.sectionID, selectedSectionID != old { secretsSection?.didEnterTab() }
+    }
+
+    /// Going to the background: the vault locks (and saves) first.
+    override func flush() {
+        secretsSection?.lockNow()
+        super.flush()
+    }
+
+    override func save() {
+        secretsSection?.saveIfDirty()
+        super.save()
     }
 
     /// Keep the folder the picker granted and open the notebook there.
@@ -183,6 +225,7 @@ struct PhoneSettingsPage: View {
     @AppStorage(PhoneModel.followKey) private var followsMac = true
     @AppStorage(PreferenceKeys.textScale) private var textScale = 1.0
     @AppStorage("jiraEnabled") private var jiraEnabled = false
+    @AppStorage(SecretsSection.enabledKey) private var secretsEnabled = false
 
     var body: some View {
         Form {
@@ -213,6 +256,12 @@ struct PhoneSettingsPage: View {
                 Text("Adds a Jira tab listing the issues assigned to you. Off, nothing runs: no requests, no tab. The token is this phone's own, kept in its Keychain.")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(model.sectionSettingsPanes.filter { $0.id == JiraSection.sectionID }) { pane in pane.view }
+            }
+            Section("Secrets") {
+                Toggle("Keep secrets in the notebook", isOn: $secretsEnabled)
+                Text("Adds a padlocked Secrets tab: the vault file in the notebook folder, opened on the phone with its recovery passphrase. Nothing in it is indexed or searchable from the other tabs.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(model.sectionSettingsPanes.filter { $0.id == SecretsSection.sectionID }) { pane in pane.view }
             }
             Section("Notebook folder") {
                 Text(model.usingLocalFolder ? "This phone's own copy (not synced)" : model.notesFolderPath)

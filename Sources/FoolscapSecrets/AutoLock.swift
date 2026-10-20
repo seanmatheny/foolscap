@@ -1,5 +1,9 @@
-import AppKit
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// When an unlocked vault locks itself: after `lockAfter` without a key or mouse
 /// event in Foolscap. Pure, so the clock can be faked in tests.
@@ -15,7 +19,10 @@ public struct IdleLockPolicy: Sendable, Equatable {
 }
 
 /// Watches for idleness, sleep and the screen locking while the vault is open,
-/// and calls `onLock` once. `start` after unlocking, `stop` on lock.
+/// and calls `onLock` once. `start` after unlocking, `stop` on lock. On the Mac
+/// every key and click in Foolscap counts as activity; on the phone the page
+/// reports taps and drags (`noteActivity`), and the app going to the background
+/// or the device locking locks the vault at once.
 @MainActor
 public final class AutoLock {
     public var lockAfter: TimeInterval {
@@ -48,16 +55,17 @@ public final class AutoLock {
         stop()
         isRunning = true
         policy.lastActivity = clock()
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .magnify]) { [weak self] event in
-            self?.noteActivity()
-            return event
-        }
         let t = Timer(timeInterval: 10, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.tick() }
         }
         t.tolerance = 2
         RunLoop.main.add(t, forMode: .common)
         timer = t
+        #if canImport(AppKit)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .magnify]) { [weak self] event in
+            self?.noteActivity()
+            return event
+        }
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
             observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -67,18 +75,29 @@ public final class AutoLock {
         distributedObservers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.fire() }
         })
+        #else
+        for name in [UIApplication.didEnterBackgroundNotification, UIApplication.protectedDataWillBecomeUnavailableNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.fire() }
+            })
+        }
+        #endif
     }
 
     public func stop() {
         isRunning = false
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
         timer?.invalidate()
         timer = nil
+        #if canImport(AppKit)
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
         for o in observers { NSWorkspace.shared.notificationCenter.removeObserver(o) }
-        observers = []
         for o in distributedObservers { DistributedNotificationCenter.default().removeObserver(o) }
         distributedObservers = []
+        #else
+        for o in observers { NotificationCenter.default.removeObserver(o) }
+        #endif
+        observers = []
     }
 
     func tick() {

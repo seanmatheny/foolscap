@@ -318,9 +318,23 @@ public final class SecretsVault {
         try write()
     }
 
+    /// Whether this device may take the vault's one device slot. The phone may not:
+    /// the slot holds the Mac's key, and a phone's would replace it (per-device
+    /// slots are a format change still to come), so the phone opens with the passphrase.
+    public static var allowsDeviceEnrolment: Bool {
+        #if os(iOS)
+        false
+        #else
+        true
+        #endif
+    }
+
     /// Make a new device key on this Mac and wrap the vault key with it (a first
     /// enrolment after a passphrase-only unlock on a new Mac, or a fresh key).
     public func enrolDevice() throws {
+        guard Self.allowsDeviceEnrolment else {
+            throw NSError(domain: "FoolscapSecrets", code: 2, userInfo: [NSLocalizedDescriptionKey: "Face ID is not set up for the vault on the phone yet; the recovery passphrase opens it."])
+        }
         guard state == .unlocked, let key, var header else { throw VaultError.locked }
         for store in deviceStores { try? store.destroy() }
         guard let (store, wrapped) = enrolAnyDevice(key) else {

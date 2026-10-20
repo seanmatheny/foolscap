@@ -1,5 +1,7 @@
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 import FoolscapCore
 
 /// The Secrets group in Settings, under the master toggle.
@@ -25,20 +27,27 @@ struct SecretsSettingsPane: View {
             }
         }
         .onChange(of: lockMinutes) { _, _ in section.settingsChanged() }
-        Text("Minutes without a keystroke or click in Foolscap before the vault locks. It also locks at once when the Mac sleeps, the screen locks and Foolscap quits.")
+        Text(SecretsVault.allowsDeviceEnrolment
+             ? "Minutes without a keystroke or click in Foolscap before the vault locks. It also locks at once when the Mac sleeps, the screen locks and Foolscap quits."
+             : "Minutes without a tap on the page before the vault locks. It also locks at once when Foolscap goes to the background or the phone locks.")
             .font(.caption).foregroundStyle(.secondary)
         Toggle("Lock when I turn to another tab", isOn: $lockOnLeave)
-        Toggle("Ask for Touch ID when I turn to the tab", isOn: $autoUnlock)
-            .disabled(!section.vault.hasDeviceWrap)
-        LabeledContent("Touch ID") {
-            HStack {
-                Text(deviceStatus).foregroundStyle(.secondary)
-                Button(section.vault.hasDeviceWrap ? "Re-enrol…" : "Enrol…") { enrol() }
-                    .disabled(!section.isUnlocked)
+        if SecretsVault.allowsDeviceEnrolment {
+            Toggle("Ask for Touch ID when I turn to the tab", isOn: $autoUnlock)
+                .disabled(!section.vault.hasDeviceWrap)
+            LabeledContent("Touch ID") {
+                HStack {
+                    Text(deviceStatus).foregroundStyle(.secondary)
+                    Button(section.vault.hasDeviceWrap ? "Re-enrol…" : "Enrol…") { enrol() }
+                        .disabled(!section.isUnlocked)
+                }
             }
-        }
-        if let why = section.vault.deviceEnrolError {
-            Text(why).font(.caption).foregroundStyle(.secondary)
+            if let why = section.vault.deviceEnrolError {
+                Text(why).font(.caption).foregroundStyle(.secondary)
+            }
+        } else {
+            Text("The vault opens with the recovery passphrase on the phone; Face ID for it is still to come.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         LabeledContent("Recovery passphrase") {
             Button(showPassphraseChange ? "Keep the current one" : "Change…") { showPassphraseChange.toggle(); newPassphrase = ""; confirmation = "" }
@@ -50,6 +59,7 @@ struct SecretsSettingsPane: View {
             Button("Save passphrase") { changePassphrase() }
                 .disabled(newPassphrase.count < 8 || newPassphrase != confirmation)
         }
+        #if canImport(AppKit)
         LabeledContent("Markdown") {
             HStack {
                 Button("Import…") { importFile() }.disabled(!section.isUnlocked)
@@ -60,6 +70,11 @@ struct SecretsSettingsPane: View {
              ? "Import adds the entries of a markdown file in the vault's own format: a heading per entry (`## Title #tags`; any heading level is taken), then `- label: value` lines, a value in backticks kept secret. Entries already in the vault are skipped. (The same text pasted into a new card does the same.) Export writes the vault's markdown as a plain, readable file: for moving on, not for keeping."
              : "Unlock Secrets in the notebook first to enrol Touch ID, change the passphrase, import or export.")
             .font(.caption).foregroundStyle(.secondary)
+        #else
+        if !section.isUnlocked {
+            Text("Unlock Secrets in the notebook first to change the passphrase.").font(.caption).foregroundStyle(.secondary)
+        }
+        #endif
         Text(vaultStatus).font(.caption).foregroundStyle(.secondary)
         if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
     }
@@ -103,6 +118,7 @@ struct SecretsSettingsPane: View {
         }
     }
 
+    #if canImport(AppKit)
     private func importFile() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.plainText, .text]
@@ -140,4 +156,5 @@ struct SecretsSettingsPane: View {
             message = "Could not export: \(error.localizedDescription)"
         }
     }
+    #endif
 }

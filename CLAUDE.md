@@ -601,3 +601,14 @@
   the phone's Settings tab, the token in the phone's own Keychain (entered once there; the Mac's
   is not synced). Sync on the phone runs only while the app is in front (`PeriodicScheduler`'s
   iOS branch) plus the pass 3 s after launch.
+- Secrets on the phone (since 0.10.0): the vault opens with the recovery passphrase only.
+  `SecretsVault.allowsDeviceEnrolment` is false on iOS and `enrolDevice()` refuses there, since
+  the header's one `device` slot holds the Mac's key and a phone's would replace it (the
+  2026-10-10 orphaning again); per-device slots are a format change still to come, and the
+  locked view and the settings pane say so. `hasDeviceWrap` is false on the phone anyway (its
+  enclave store has no blob), so nothing asks for Face ID. `AutoLock` on iOS counts taps and
+  drags the page reports (`SecretsSection.noteActivity`, a zero-distance drag gesture on the
+  page) and locks at once on `didEnterBackground` and when protected data goes away; the phone
+  model also locks in `flush()`. `ConcealedPasteboard` on iOS is a local-only pasteboard item
+  with a 30 s expiry. Import and export stay Mac-only (panels); `Color(nsColor:)` is
+  `Color(_:)`, which takes either toolkit's colour.

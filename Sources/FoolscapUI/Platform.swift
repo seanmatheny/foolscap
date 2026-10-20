@@ -75,6 +75,18 @@ public extension PlatformFont { typealias Descriptor = NSFontDescriptor }
 public extension PlatformFont { typealias Descriptor = UIFontDescriptor }
 #endif
 
+public extension View {
+    /// The pointing hand over a button on the Mac; a phone has no pointer.
+    @ViewBuilder
+    func linkPointer() -> some View {
+        #if canImport(AppKit)
+        pointerStyle(.link)
+        #else
+        self
+        #endif
+    }
+}
+
 /// The handful of system calls the shared views make that have no SwiftUI form.
 public enum Platform {
     @MainActor

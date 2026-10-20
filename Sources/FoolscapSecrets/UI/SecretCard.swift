@@ -1,5 +1,7 @@
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 import FoolscapCore
 import FoolscapStore
 import FoolscapEditor
@@ -148,7 +150,7 @@ struct FieldRow: View {
                     .foregroundStyle(shown ? theme.accent.color : theme.ink.color.opacity(0.55))
                 copyButton
             } else if field.isURL, let url = URL(string: field.value.hasPrefix("www.") ? "https://" + field.value : field.value) {
-                Button { NSWorkspace.shared.open(url) } label: {
+                Button { Platform.openURL(url) } label: {
                     Text(field.value)
                         .font(theme.monoFont(13 * scale))
                         .foregroundStyle(theme.accent.color)
@@ -244,7 +246,7 @@ struct BlockView: View {
             }
             .padding(8)
         }
-        .background(RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: palette.codeBlockBackground)))
+        .background(RoundedRectangle(cornerRadius: 5).fill(Color(palette.codeBlockBackground)))
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(theme.dimInk.color.opacity(0.18), lineWidth: 0.5))
         .padding(.horizontal, 10)
     }
@@ -320,11 +322,13 @@ struct SecretEntryEditor: View {
         .onAppear {
             // A new card's caret belongs after "## ", where the title goes.
             guard section.editingID == SecretsSection.newEntryID else { return }
+            #if canImport(AppKit)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 if let view = NSApp.keyWindow?.firstResponder as? MarkdownTextView, view.string.hasPrefix("## ") {
                     view.setSelectedRange(NSRange(location: 3, length: 0))
                 }
             }
+            #endif
         }
     }
 }

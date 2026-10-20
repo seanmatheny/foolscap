@@ -1,5 +1,7 @@
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 import FoolscapCore
 import FoolscapStore
 import FoolscapEditor
@@ -118,6 +120,9 @@ public final class SecretsSection: NotebookSection {
 
     /// `applicationDidResignActive`: write pending edits without locking.
     public func saveIfDirty() { vault.saveNow() }
+
+    /// The phone's page reports taps and drags: the Mac's auto-lock sees every event itself.
+    public func noteActivity() { autoLock.noteActivity() }
 
     /// The tab was turned away from; locks only when the setting asks for it.
     public func didLeaveTab() {

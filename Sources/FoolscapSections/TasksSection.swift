@@ -795,15 +795,3 @@ struct PriorityLight: View {
         .help("\(priority.title) priority")
     }
 }
-
-private extension View {
-    /// The pointing hand over the tick on the Mac; a phone has no pointer.
-    @ViewBuilder
-    func linkPointer() -> some View {
-        #if canImport(AppKit)
-        pointerStyle(.link)
-        #else
-        self
-        #endif
-    }
-}

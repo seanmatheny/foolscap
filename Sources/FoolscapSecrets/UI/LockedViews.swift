@@ -22,7 +22,9 @@ struct LockedView: View {
                 .foregroundStyle(theme.ink.color.opacity(0.45))
                 .padding(.bottom, 6)
             Text("Secrets are locked").font(theme.type.heading.font).fontWeight(.bold)
-            Text("Nothing on this page can be read until you unlock it. It locks itself again after \(section.lockMinutes) minute\(section.lockMinutes == 1 ? "" : "s") without a keystroke, when the Mac sleeps or the screen locks.")
+            Text(SecretsVault.allowsDeviceEnrolment
+                 ? "Nothing on this page can be read until you unlock it. It locks itself again after \(section.lockMinutes) minute\(section.lockMinutes == 1 ? "" : "s") without a keystroke, when the Mac sleeps or the screen locks."
+                 : "Nothing on this page can be read until you unlock it. It locks itself again after \(section.lockMinutes) minute\(section.lockMinutes == 1 ? "" : "s") without a tap, when Foolscap goes to the background or the phone locks.")
                 .font(theme.type.body.face(13.5 * scale))
                 .foregroundStyle(theme.dimInk.color)
                 .multilineTextAlignment(.center)
@@ -69,7 +71,9 @@ struct LockedView: View {
                 }
                 .colorScheme(theme.isDark ? .dark : .light)
                 if !hasDevice {
-                    Text(section.vault.deviceStore.map { "\($0.displayName) is not set up for this vault on this Mac. Once it is open, Settings ▸ Secrets can enrol it." } ?? "")
+                    Text(SecretsVault.allowsDeviceEnrolment
+                         ? (section.vault.deviceStore.map { "\($0.displayName) is not set up for this vault on this Mac. Once it is open, Settings ▸ Secrets can enrol it." } ?? "")
+                         : "On the phone the vault opens with the recovery passphrase; Face ID for it is still to come.")
                         .font(theme.type.body.face(12 * scale))
                         .foregroundStyle(theme.dimInk.color)
                         .multilineTextAlignment(.center)

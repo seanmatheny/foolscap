@@ -39,6 +39,8 @@ targets:
         product: FoolscapSections
       - package: foolscap
         product: FoolscapJira
+      - package: foolscap
+        product: FoolscapSecrets
     settings:
       base:
         PRODUCT_NAME: Foolscap
