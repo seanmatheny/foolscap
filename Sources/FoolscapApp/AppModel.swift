@@ -47,8 +47,11 @@ final class AppModel: AppModelCore {
         let defaults = UserDefaults.standard
         let root = defaults.string(forKey: "notesFolder").map { URL(fileURLWithPath: $0) } ?? NotesFolder.defaultRoot
         super.init(notesFolder: root)
-        // The Mac's Settings are the notebook's look; the phone follows them.
+        // The Mac's Settings are the notebook's look; the phone follows them. The
+        // property observer does not run for assignments inside init, so the first
+        // write is asked for by hand.
         appearanceRole = .source
+        syncAppearance()
         if let library {
             let backup = BackupManager(library: library)
             backup.onRestored = { [weak self] in self?.reloadAfterRestore() }
