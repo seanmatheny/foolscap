@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 import FoolscapCore
 
@@ -26,3 +27,4 @@ extension MarkdownTextView {
         invalidate(lines: changed)
     }
 }
+#endif

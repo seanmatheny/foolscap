@@ -1,6 +1,24 @@
-import AppKit
 import FoolscapCore
 import FoolscapStore
+import FoolscapUI
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
+
+#if canImport(AppKit)
+typealias TextStorageEditActions = NSTextStorageEditActions
+#else
+typealias TextStorageEditActions = NSTextStorage.EditActions
+#endif
+
+/// The view whose selection decides which lines show their syntax: the Mac's
+/// text view, or the phone's.
+@MainActor
+protocol StylerHost: AnyObject {
+    var selectedCharacterRanges: [NSRange] { get }
+}
 
 /// Applies display attributes to the markdown text storage as it changes.
 /// The characters are never touched: only fonts, colours and paragraph styles.
@@ -18,7 +36,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     /// Called after every styling pass, outside the storage edit.
     var onStyled: (() -> Void)?
     /// The view whose selection decides which lines show their syntax.
-    weak var textView: NSTextView?
+    weak var host: StylerHost?
     private var activeLines: Set<Int> = []
     /// An image/URL line whose markdown was revealed from its hover badge.
     /// It collapses again as soon as the selection leaves it.
@@ -140,10 +158,9 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
 
     /// Lines intersecting the current selection: their markdown syntax stays visible.
     private func linesUnderSelection(_ map: BlockMap) -> Set<Int> {
-        guard let textView else { return [] }
+        guard let host else { return [] }
         var out: Set<Int> = []
-        for value in textView.selectedRanges {
-            let r = value.rangeValue
+        for r in host.selectedCharacterRanges {
             guard let first = map.line(at: r.location), let last = map.line(at: r.location + r.length) else { continue }
             for i in first.index...last.index { out.insert(i) }
         }
@@ -183,7 +200,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
 
     // MARK: NSTextStorageDelegate
 
-    nonisolated func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
+    nonisolated func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: TextStorageEditActions,
                                  range editedRange: NSRange, changeInLength delta: Int) {
         MainActor.assumeIsolated {
             guard editedMask.contains(.editedCharacters), !isRestyling, let textStorage = storage else { return }
@@ -317,7 +334,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             ps.paragraphSpacing = 0
             var hidden = p.hiddenAttributes
             hidden[.paragraphStyle] = ps
-            hidden[.backgroundColor] = NSColor.clear
+            hidden[.backgroundColor] = PlatformColor.clear
             hidden[.strikethroughStyle] = 0
             hidden[.underlineStyle] = 0
             storage.setAttributes(hidden, range: para)
@@ -332,7 +349,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             ps.paragraphSpacing = max(0, total - (collapsed ? 1 : p.pitch))
         }
         var base: [NSAttributedString.Key: Any] = [.font: p.body, .foregroundColor: p.ink, .paragraphStyle: ps,
-                                                    .backgroundColor: NSColor.clear, .strikethroughStyle: 0, .underlineStyle: 0]
+                                                    .backgroundColor: PlatformColor.clear, .strikethroughStyle: 0, .underlineStyle: 0]
         base[.link] = nil
         let text = line.text as NSString
         func abs(_ r: NSRange) -> NSRange { NSRange(location: line.range.location + r.location, length: r.length) }
@@ -393,8 +410,10 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             if let parsed = TaskLineParser.parse(line.text) {
                 let prefix = NSRange(location: 0, length: parsed.markOffset + 2)
                 set([.font: p.mono, .foregroundColor: status == .notStarted || status == .someday ? p.dimInk : p.accent], prefix)
+                #if canImport(AppKit)
                 // The `[ ]` is a button: a click cycles the status (`MarkdownTextView.mouseDown`).
                 set([.cursor: NSCursor.pointingHand], NSRange(location: parsed.markOffset - 1, length: 3))
+                #endif
                 let titleStart = prefix.location + prefix.length
                 let title = NSRange(location: titleStart, length: text.length - titleStart)
                 // The priority marker (`!`, `!!`, `!!!`) shows in its light's colour.
@@ -407,7 +426,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
                     set([.foregroundColor: p.dimInk, .strikethroughStyle: NSUnderlineStyle.single.rawValue,
                          .strikethroughColor: p.dimInk], title)
                 }
-                if let hl = p.highlighter[status], hl.alphaComponent > 0 {
+                if let hl = p.highlighter[status], hl.cgColor.alpha > 0 {
                     let trimmed = NSRange(location: titleStart + 1, length: max(0, title.length - 1))
                     set([.backgroundColor: hl], trimmed)
                 }
@@ -427,7 +446,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
                 // character itself shows, dimmed, only while the caret is on the line.
                 if let prefix, case .bullet = prefix.kind {
                     let marker = NSRange(location: (prefix.indent as NSString).length, length: 1)
-                    set(reveal ? [.foregroundColor: p.dimInk] : [.foregroundColor: NSColor.clear], marker)
+                    set(reveal ? [.foregroundColor: p.dimInk] : [.foregroundColor: PlatformColor.clear], marker)
                 }
                 inlineRange = NSRange(location: bullet.length, length: text.length - bullet.length)
             }
@@ -464,7 +483,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             switch t.kind {
             case .bold: set([.font: p.bold], sh(t.content))
             case .italic: set([.font: p.italic], sh(t.content))
-            case .boldItalic: set([.font: NSFontManager.shared.convert(p.bold, toHaveTrait: .italicFontMask)], sh(t.content))
+            case .boldItalic: set([.font: p.boldItalic], sh(t.content))
             case .code: set([.font: p.mono, .backgroundColor: p.codeBackground], sh(t.content))
             case .strikethrough: set([.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: p.dimInk], sh(t.content))
             case .link(let url):
@@ -479,13 +498,13 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
 }
 
 extension EditorPalette {
-    func codeColor(for token: CodeHighlighter.Token) -> NSColor {
+    func codeColor(for token: CodeHighlighter.Token) -> PlatformColor {
         switch token {
         case .keyword: return accent
-        case .string: return isDark ? NSColor(srgbRed: 0.70, green: 0.82, blue: 0.55, alpha: 1) : NSColor(srgbRed: 0.30, green: 0.50, blue: 0.22, alpha: 1)
+        case .string: return (isDark ? RGBA(0.70, 0.82, 0.55) : RGBA(0.30, 0.50, 0.22)).platformColor
         case .comment: return dimInk
-        case .number: return isDark ? NSColor(srgbRed: 0.75, green: 0.65, blue: 0.95, alpha: 1) : NSColor(srgbRed: 0.42, green: 0.30, blue: 0.65, alpha: 1)
-        case .type: return isDark ? NSColor(srgbRed: 0.55, green: 0.78, blue: 0.90, alpha: 1) : NSColor(srgbRed: 0.15, green: 0.42, blue: 0.62, alpha: 1)
+        case .number: return (isDark ? RGBA(0.75, 0.65, 0.95) : RGBA(0.42, 0.30, 0.65)).platformColor
+        case .type: return (isDark ? RGBA(0.55, 0.78, 0.90) : RGBA(0.15, 0.42, 0.62)).platformColor
         }
     }
 }

@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 import UniformTypeIdentifiers
 import FoolscapCore
@@ -62,3 +63,4 @@ enum AttachmentImporter {
         return imageTypes.contains { type.conforms(to: $0) }
     }
 }
+#endif

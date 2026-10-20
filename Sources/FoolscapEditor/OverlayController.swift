@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 import LinkPresentation
 import UniformTypeIdentifiers
@@ -667,3 +668,4 @@ final class ResizableImageView: NSView {
         override func mouseUp(with event: NSEvent) { if onClick == nil { superview?.mouseUp(with: event) } }
     }
 }
+#endif

@@ -96,6 +96,16 @@ public enum Platform {
         #endif
     }
 
+    /// The clipboard's text, if it holds any.
+    @MainActor
+    public static func pasteboardString() -> String? {
+        #if canImport(AppKit)
+        NSPasteboard.general.string(forType: .string)
+        #else
+        UIPasteboard.general.string
+        #endif
+    }
+
     public static func beep() {
         #if canImport(AppKit)
         NSSound.beep()

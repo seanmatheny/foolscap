@@ -1,24 +1,31 @@
-import AppKit
 import UniformTypeIdentifiers
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Editor geometry.
 enum EditorMetrics {
-    static let leftInset: CGFloat = PageRuling.textLeft
-    static let rightInset: CGFloat = 36
+    static var leftInset: CGFloat { PageRuling.textLeft }
+    static var rightInset: CGFloat { PageRuling.textRight }
     static let marginRuleOffset: CGFloat = RulingView.marginRuleOffset   // red line sits this far left of the text
     static let topLines: CGFloat = 1            // ruled lines above the first text line
     /// The header (today's tasks) ends where the Tasks tab's rows do.
-    static let headerRightInset: CGFloat = 44
+    static var headerRightInset: CGFloat { PageRuling.textRight + 8 }
 }
 
 /// Where the ruled lines fall on a page, shared by the editor and the SwiftUI
 /// pages (the Tasks tab) so the ruling does not move between tabs.
 public enum PageRuling {
     /// Left edge of the text column; the margin rule sits `RulingView.marginRuleOffset` left of it.
-    public static let textLeft: CGFloat = 58
+    /// A window's worth on the Mac; the phone app narrows it at launch, before any page is laid out.
+    nonisolated(unsafe) public static var textLeft: CGFloat = 58
+    /// Paper left clear on the right of the text.
+    nonisolated(unsafe) public static var textRight: CGFloat = 36
 
     /// From the top of a line's band to its rule: just under the baseline of a
     /// line set in the top heading (a daily note's date), whose lower baseline
@@ -34,7 +41,7 @@ public enum PageRuling {
         content.textStorage = storage
         let layout = NSTextLayoutManager()
         content.addTextLayoutManager(layout)
-        let container = NSTextContainer(size: NSSize(width: 1000, height: CGFloat.greatestFiniteMagnitude))
+        let container = NSTextContainer(size: CGSize(width: 1000, height: CGFloat.greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
         layout.textContainer = container
         var baseline = palette.pitch * 0.78
@@ -73,6 +80,8 @@ public struct EditorFeatures: OptionSet, Sendable {
     public static let textChecking = EditorFeatures(rawValue: 1 << 3)
     public static let all: EditorFeatures = [.attachments, .linkPreviews, .foldMemory, .textChecking]
 }
+
+#if canImport(AppKit)
 
 public final class MarkdownTextView: NSTextView {
     var palette: EditorPalette
@@ -114,7 +123,7 @@ public final class MarkdownTextView: NSTextView {
         super.init(frame: .zero, textContainer: container)
         configure()
         styler.onStyled = { [weak self] in self?.overlaysChanged() }
-        styler.textView = self
+        styler.host = self
         // Sections folded on an earlier visit stay folded; toggles are remembered by
         // the note's path and the heading's text (never written into the file).
         if features.contains(.foldMemory) { styler.foldedHeadings = FoldMemory.folded(for: document.path) }
@@ -505,26 +514,7 @@ public final class MarkdownTextView: NSTextView {
         return false
     }
 
-    /// Insert text at the selection; `ownLine` puts it on a line of its own.
-    func insertMarkdown(_ text: String, ownLine: Bool) {
-        guard let storage = textStorage else { return }
-        let ns = storage.string as NSString
-        var range = selectedRange()
-        var insert = text
-        if ownLine {
-            let before = range.location > 0 ? ns.substring(with: NSRange(location: range.location - 1, length: 1)) : "\n"
-            let afterIndex = range.location + range.length
-            let after = afterIndex < ns.length ? ns.substring(with: NSRange(location: afterIndex, length: 1)) : "\n"
-            if before != "\n" { insert = "\n" + insert }
-            // Always leave a line after a block so its overlay has a paragraph to reserve space in.
-            if after != "\n" || afterIndex >= ns.length { insert += "\n" }
-            range = NSRange(location: afterIndex, length: 0)
-        }
-        guard shouldChangeText(in: range, replacementString: insert) else { return }
-        storage.replaceCharacters(in: range, with: insert)
-        didChangeText()
-        setSelectedRange(NSRange(location: range.location + (insert as NSString).length, length: 0))
-    }
+    // `insertMarkdown(_:ownLine:)` is the shared one in MarkdownCommands.swift.
 
     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         if droppableImageURLs(sender) != nil { return .copy }
@@ -675,3 +665,9 @@ extension MarkdownTextView: DecorationGeometry {
     var textOrigin: CGPoint { CGPoint(x: textContainerInset.width, y: textContainerInset.height) }
     var viewWidth: CGFloat { bounds.width }
 }
+
+extension MarkdownTextView: StylerHost {
+    var selectedCharacterRanges: [NSRange] { selectedRanges.map(\.rangeValue) }
+}
+
+#endif

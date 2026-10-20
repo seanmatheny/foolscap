@@ -1,65 +1,88 @@
-import AppKit
 import FoolscapCore
 import FoolscapUI
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
-/// Everything the text view needs from a theme, resolved to AppKit types once.
+/// Everything the text view needs from a theme, resolved to the toolkit's types once.
 public struct EditorPalette {
     /// The theme itself, for SwiftUI chrome drawn over the text (the tag list).
     public var theme: NotebookTheme
-    public var ink: NSColor
-    public var dimInk: NSColor
-    public var accent: NSColor
-    public var paper: NSColor
-    public var ruleColor: NSColor
-    public var marginRuleColor: NSColor
+    public var ink: PlatformColor
+    public var dimInk: PlatformColor
+    public var accent: PlatformColor
+    public var paper: PlatformColor
+    public var ruleColor: PlatformColor
+    public var marginRuleColor: PlatformColor
     public var ruling: Ruling
     public var showMarginRule: Bool
-    public var body: NSFont
-    public var mono: NSFont
-    public var headings: [NSFont]   // index 0 = h1
-    public var bold: NSFont
-    public var italic: NSFont
-    public var codeBackground: NSColor
+    public var body: PlatformFont
+    public var mono: PlatformFont
+    public var headings: [PlatformFont]   // index 0 = h1
+    public var bold: PlatformFont
+    public var italic: PlatformFont
+    public var boldItalic: PlatformFont
+    public var codeBackground: PlatformColor
     /// Opaque backdrop for fenced code blocks (hides the ruling).
-    public var codeBlockBackground: NSColor
-    public var tagBackground: NSColor
-    public var selection: NSColor
-    public var highlighter: [TaskStatus: NSColor]
+    public var codeBlockBackground: PlatformColor
+    public var tagBackground: PlatformColor
+    public var selection: PlatformColor
+    public var highlighter: [TaskStatus: PlatformColor]
     /// Colours of the `!` priority markers on task lines.
-    public var priorityColors: [TaskPriority: NSColor]
+    public var priorityColors: [TaskPriority: PlatformColor]
     /// Line pitch: every body line is exactly this tall so text sits on the ruling.
     public var pitch: CGFloat
     public var isDark: Bool
 
     public init(theme: NotebookTheme) {
         self.theme = theme
-        ink = theme.ink.nsColor
-        dimInk = theme.dimInk.nsColor
-        accent = theme.accent.nsColor
-        paper = theme.page.paperColor.nsColor
-        ruleColor = theme.page.ruleColor.nsColor
-        marginRuleColor = theme.page.marginRuleColor.nsColor
+        ink = theme.ink.platformColor
+        dimInk = theme.dimInk.platformColor
+        accent = theme.accent.platformColor
+        paper = theme.page.paperColor.platformColor
+        ruleColor = theme.page.ruleColor.platformColor
+        marginRuleColor = theme.page.marginRuleColor.platformColor
         ruling = theme.page.ruling
         showMarginRule = theme.page.marginRule
-        body = theme.type.body.nsFont
-        mono = theme.type.mono.nsFont
+        body = theme.type.body.platformFont
+        mono = theme.type.mono.platformFont
         let h = theme.type.heading
         let bodySize = theme.type.body.size
         headings = [1.6, 1.33, 1.17, 1.07, 1.03, 1.0].map { ratio in
-            FontSpec(family: h.family, size: (bodySize * ratio).rounded(), design: h.design, bold: true).nsFont
+            FontSpec(family: h.family, size: (bodySize * ratio).rounded(), design: h.design, bold: true).platformFont
         }
-        let fm = NSFontManager.shared
-        bold = fm.convert(body, toHaveTrait: .boldFontMask)
-        italic = fm.convert(body, toHaveTrait: .italicFontMask)
-        codeBackground = theme.isDark ? NSColor.white.withAlphaComponent(0.06) : NSColor.black.withAlphaComponent(0.05)
-        codeBlockBackground = theme.page.paperColor.nsColor.blended(withFraction: theme.isDark ? 0.08 : 0.055,
-                                                                     of: theme.isDark ? .white : .black) ?? paper
-        tagBackground = theme.accent.nsColor.withAlphaComponent(0.14)
-        selection = theme.accent.nsColor.withAlphaComponent(theme.isDark ? 0.35 : 0.22)
-        highlighter = theme.highlighter.mapValues { $0.nsColor }
-        priorityColors = Dictionary(uniqueKeysWithValues: TaskPriority.allCases.map { ($0, $0.color.nsColor) })
+        bold = Self.face(body, bold: true, italic: false)
+        italic = Self.face(body, bold: false, italic: true)
+        boldItalic = Self.face(body, bold: true, italic: true)
+        codeBackground = theme.isDark ? PlatformColor.white.withAlphaComponent(0.06) : PlatformColor.black.withAlphaComponent(0.05)
+        codeBlockBackground = theme.page.paperColor
+            .mixed(with: theme.isDark ? .hex(0xFFFFFF) : .hex(0x000000), fraction: theme.isDark ? 0.08 : 0.055).platformColor
+        tagBackground = theme.accent.platformColor.withAlphaComponent(0.14)
+        selection = theme.accent.platformColor.withAlphaComponent(theme.isDark ? 0.35 : 0.22)
+        highlighter = theme.highlighter.mapValues { $0.platformColor }
+        priorityColors = Dictionary(uniqueKeysWithValues: TaskPriority.allCases.map { ($0, $0.color.platformColor) })
         pitch = theme.linePitch
         isDark = theme.isDark
+    }
+
+    /// `font` with the bold and italic faces of its family. The Mac's font manager
+    /// finds the family's real faces; UIKit's descriptor traits do the same there.
+    static func face(_ font: PlatformFont, bold: Bool, italic: Bool) -> PlatformFont {
+        #if canImport(AppKit)
+        let fm = NSFontManager.shared
+        var f = font
+        if bold { f = fm.convert(f, toHaveTrait: .boldFontMask) }
+        if italic { f = fm.convert(f, toHaveTrait: .italicFontMask) }
+        return f
+        #else
+        var traits = font.fontDescriptor.symbolicTraits
+        if bold { traits.insert(.traitBold) }
+        if italic { traits.insert(.traitItalic) }
+        guard let d = font.fontDescriptor.withSymbolicTraits(traits) else { return font }
+        return UIFont(descriptor: d, size: font.pointSize)
+        #endif
     }
 
     /// Attributes that make syntax characters take (almost) no space and no ink.
@@ -67,7 +90,7 @@ public struct EditorPalette {
 
     // Immutable after creation; built once instead of on every styled line.
     nonisolated(unsafe) private static let hidden: [NSAttributedString.Key: Any] =
-        [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
+        [.font: PlatformFont.systemFont(ofSize: 0.01), .foregroundColor: PlatformColor.clear]
 
     public var baseParagraphStyle: NSParagraphStyle {
         let p = NSMutableParagraphStyle()

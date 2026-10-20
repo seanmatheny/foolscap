@@ -1,5 +1,8 @@
-import AppKit
+import Foundation
 import FoolscapCore
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Which sections of which notes are folded shut, remembered across launches.
 /// Keyed on the note's path and the heading line's own text: the file never
@@ -23,6 +26,7 @@ enum FoldMemory {
 
 // MARK: - Fold controls in the margin
 
+#if canImport(AppKit)
 extension MarkdownTextView {
     /// The heading whose chevron or "n lines" pill is under `point`, if any.
     func foldControl(at point: NSPoint) -> Int? {
@@ -138,3 +142,4 @@ extension MarkdownTextView {
         hoverHeading = index
     }
 }
+#endif

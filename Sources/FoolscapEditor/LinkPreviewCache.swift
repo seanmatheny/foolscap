@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 import LinkPresentation
 import CryptoKit
@@ -88,3 +89,4 @@ public final class LinkPreviewCache {
         pump()
     }
 }
+#endif

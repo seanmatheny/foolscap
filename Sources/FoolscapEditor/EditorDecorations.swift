@@ -1,14 +1,11 @@
 import Foundation
 import CoreGraphics
 import FoolscapCore
+import FoolscapUI
 #if canImport(AppKit)
 import AppKit
-typealias PlatformColor = NSColor
-typealias PlatformFont = NSFont
 #elseif canImport(UIKit)
 import UIKit
-typealias PlatformColor = UIColor
-typealias PlatformFont = UIFont
 #endif
 
 // The page's own drawing (ruling, code backdrops, quote bars, bullets, task-mark
@@ -187,7 +184,7 @@ struct EditorDecorations {
     }
 
     /// The chevron sits between the margin rule and the text.
-    static let foldChevronX: CGFloat = EditorMetrics.leftInset - 9
+    static var foldChevronX: CGFloat { EditorMetrics.leftInset - 9 }
 
     let geometry: any DecorationGeometry
 

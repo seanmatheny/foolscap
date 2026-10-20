@@ -16,6 +16,12 @@ public struct RGBA: Codable, Hashable, Sendable {
              alpha)
     }
 
+    /// This colour moved `fraction` of the way towards `other` (0 is this colour, 1 is the other).
+    public func mixed(with other: RGBA, fraction: Double) -> RGBA {
+        let f = min(1, max(0, fraction))
+        return RGBA(r + (other.r - r) * f, g + (other.g - g) * f, b + (other.b - b) * f, a + (other.a - a) * f)
+    }
+
     public func opacity(_ alpha: Double) -> RGBA { RGBA(r, g, b, alpha) }
 }
 

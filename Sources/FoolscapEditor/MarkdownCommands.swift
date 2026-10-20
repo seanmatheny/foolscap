@@ -1,5 +1,11 @@
-import AppKit
+import Foundation
 import FoolscapCore
+import FoolscapUI
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// What markdown puts in front of a paragraph's text: a list bullet, a numbered
 /// marker, a task mark or a quote mark, after any indent. Pure string work,
@@ -87,7 +93,8 @@ public enum LinePrefix {
 }
 
 /// The Format menu's commands, sent down the key window's responder chain to the
-/// note being edited (`MarkdownTextView` implements them).
+/// note being edited (`MarkdownTextView` implements them on both platforms; the
+/// phone's keyboard bar sends them straight to its view).
 public enum EditorCommand: CaseIterable, Sendable {
     case bold, italic, strikethrough, code, link
     case heading1, heading2, heading3, heading4, heading5, heading6
@@ -149,35 +156,48 @@ public enum EditorCommand: CaseIterable, Sendable {
         }
     }
 
+    #if canImport(AppKit)
     /// Send the command to the note being edited; beeps when no note has the focus.
     @MainActor public func perform() {
         if !NSApp.sendAction(selector, to: nil, from: nil) { NSSound.beep() }
     }
+    #endif
 }
 
-// MARK: - Return, Tab and the Format menu
+// MARK: - The editing itself, over either toolkit's text view
 
-extension MarkdownTextView {
-    /// One undoable replacement through the text view's own change hooks.
+/// What Return, Tab and the Format commands need from a text view, so the editing
+/// is written once: the storage and the selection, one undoable replacement through
+/// the view's own change hooks, an undo group, and the clipboard.
+@MainActor
+protocol MarkdownEditing: AnyObject {
+    var styler: MarkdownStyler { get }
+    var markdownStorage: NSTextStorage? { get }
+    /// The selection as a character range (a caret when its length is 0).
+    var markdownSelection: NSRange { get set }
+    /// One undoable replacement; false when the view refused it.
     @discardableResult
-    func replace(_ range: NSRange, with text: String) -> Bool {
-        guard let storage = textStorage, shouldChangeText(in: range, replacementString: text) else { return false }
-        storage.replaceCharacters(in: range, with: text)
-        didChangeText()
-        return true
-    }
-
+    func replace(_ range: NSRange, with text: String) -> Bool
+    /// The selection the toolkit would make for a double-click at `location`.
+    func proposedWordRange(at location: Int) -> NSRange?
     /// Several replacements that undo as one.
+    func beginUndoGroup()
+    func endUndoGroup()
+    func clipboardString() -> String?
+}
+
+extension MarkdownEditing {
+    var markdownText: NSString { (markdownStorage?.string ?? "") as NSString }
+
     private func grouped(_ edits: () -> Void) {
-        breakUndoCoalescing()
-        undoManager?.beginUndoGrouping()
+        beginUndoGroup()
         edits()
-        undoManager?.endUndoGrouping()
+        endUndoGroup()
     }
 
     /// The lines the selection touches (a caret's own line when nothing is selected).
     private var selectedLines: [ScannedLine] {
-        let r = selectedRange()
+        let r = markdownSelection
         let map = styler.blockMap
         guard let first = map.line(at: r.location), let last = map.line(at: r.location + r.length) else { return [] }
         // A selection ending at the very start of a line does not take that line in.
@@ -185,7 +205,7 @@ extension MarkdownTextView {
         return Array(map.lines[first.index...end])
     }
 
-    private func isCode(_ line: ScannedLine) -> Bool {
+    private func isCodeLine(_ line: ScannedLine) -> Bool {
         switch line.kind { case .fenceOpen, .fenceInside, .fenceClose: return true; default: return false }
     }
 
@@ -193,52 +213,41 @@ extension MarkdownTextView {
 
     /// Return inside a list item, task or quote starts the next one with the same
     /// marker (numbers count on); on an empty item it ends the list instead, or
-    /// steps a nested item out a level. ⇧↩ and ⌥↩ give a plain newline.
-    public override func insertNewline(_ sender: Any?) {
-        let flags = NSApp.currentEvent?.modifierFlags ?? []
-        let caret = selectedRange()
-        guard !flags.contains(.shift), !flags.contains(.option), caret.length == 0,
-              let line = styler.blockMap.line(at: caret.location) else { super.insertNewline(sender); return }
+    /// steps a nested item out a level. False when a plain newline is wanted.
+    func returnPressed() -> Bool {
+        let caret = markdownSelection
+        guard caret.length == 0, let line = styler.blockMap.line(at: caret.location) else { return false }
         // Return on a folded heading opens a line below the folded section, not inside it.
         if case .heading = line.kind, styler.isFolded(heading: line.index) {
             let lastHidden = styler.blockMap.lines[styler.sectionEnd(afterHeading: line.index) - 1]
             let target = lastHidden.range.location + lastHidden.range.length
             replace(NSRange(location: target, length: 0), with: "\n")
-            setSelectedRange(NSRange(location: target + 1, length: 0))
-            return
+            markdownSelection = NSRange(location: target + 1, length: 0)
+            return true
         }
-        if case .rule = line.kind { super.insertNewline(sender); return }
-        guard !isCode(line), let prefix = LinePrefix.parse(line.text),
-              caret.location >= line.range.location + prefix.length else { super.insertNewline(sender); return }
+        if case .rule = line.kind { return false }
+        guard !isCodeLine(line), let prefix = LinePrefix.parse(line.text),
+              caret.location >= line.range.location + prefix.length else { return false }
         if prefix.length >= line.range.length {
             // An empty item: step out a level, or end the list.
             if prefix.indent.isEmpty {
                 replace(line.range, with: "")
-                setSelectedRange(NSRange(location: line.range.location, length: 0))
+                markdownSelection = NSRange(location: line.range.location, length: 0)
             } else {
                 let indentLength = (prefix.indent as NSString).length
                 let outdented = LinePrefix.outdented(prefix.indent)
                 replace(NSRange(location: line.range.location, length: indentLength), with: outdented)
-                setSelectedRange(NSRange(location: line.range.location + line.range.length - indentLength + (outdented as NSString).length, length: 0))
+                markdownSelection = NSRange(location: line.range.location + line.range.length - indentLength + (outdented as NSString).length, length: 0)
             }
-            return
+            return true
         }
         let insert = "\n" + LinePrefix.continuation(of: prefix)
         replace(caret, with: insert)
-        setSelectedRange(NSRange(location: caret.location + (insert as NSString).length, length: 0))
+        markdownSelection = NSRange(location: caret.location + (insert as NSString).length, length: 0)
+        return true
     }
 
     // MARK: Tab
-
-    /// Tab and ⇧Tab move list items and tasks in and out a level; elsewhere they
-    /// insert a tab as usual.
-    public override func insertTab(_ sender: Any?) {
-        if !indentListLines(by: 1) { super.insertTab(sender) }
-    }
-
-    public override func insertBacktab(_ sender: Any?) {
-        if !indentListLines(by: -1) { super.insertBacktab(sender) }
-    }
 
     /// Indent (+1) or outdent (-1) every list or task line the selection touches.
     /// False when none of them is one.
@@ -246,12 +255,12 @@ extension MarkdownTextView {
     func indentListLines(by delta: Int) -> Bool {
         let lines = selectedLines.filter { line in
             if case .rule = line.kind { return false }
-            guard !isCode(line), let p = LinePrefix.parse(line.text) else { return false }
+            guard !isCodeLine(line), let p = LinePrefix.parse(line.text) else { return false }
             if case .quote = p.kind { return false }
             return true
         }
         guard !lines.isEmpty else { return false }
-        let selection = selectedRange()
+        let selection = markdownSelection
         var caret = selection.location
         var coveredStart = lines[0].range.location, coveredEnd = lines[lines.count - 1].range.location + lines[lines.count - 1].range.length
         grouped {
@@ -266,26 +275,20 @@ extension MarkdownTextView {
             }
         }
         if selection.length == 0 {
-            setSelectedRange(NSRange(location: caret, length: 0))
+            markdownSelection = NSRange(location: caret, length: 0)
         } else {
-            setSelectedRange(NSRange(location: coveredStart, length: coveredEnd - coveredStart))
+            markdownSelection = NSRange(location: coveredStart, length: coveredEnd - coveredStart)
         }
         return true
     }
 
     // MARK: Inline styles
 
-    @objc func toggleBold(_ sender: Any?) { toggleInline("**") }
-    @objc func toggleItalic(_ sender: Any?) { toggleInline("*") }
-    @objc func toggleStrikethrough(_ sender: Any?) { toggleInline("~~") }
-    @objc func toggleInlineCode(_ sender: Any?) { toggleInline("`") }
-
     /// The word under a caret, or an empty range at the caret when it is not on one.
-    private func wordRange(at location: Int) -> NSRange {
-        let ns = string as NSString
-        guard ns.length > 0 else { return NSRange(location: location, length: 0) }
-        let proposed = selectionRange(forProposedRange: NSRange(location: location, length: 0), granularity: .selectByWord)
-        guard proposed.length > 0, proposed.location + proposed.length <= ns.length else { return NSRange(location: location, length: 0) }
+    func wordRange(at location: Int) -> NSRange {
+        let ns = markdownText
+        guard ns.length > 0, let proposed = proposedWordRange(at: location),
+              proposed.length > 0, proposed.location + proposed.length <= ns.length else { return NSRange(location: location, length: 0) }
         let word = ns.substring(with: proposed)
         let letters = word.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
         guard letters, word.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return NSRange(location: location, length: 0) }
@@ -295,8 +298,8 @@ extension MarkdownTextView {
     /// Wrap the selection (or the word at the caret) in `marker`, or unwrap it
     /// when the markers are already there.
     func toggleInline(_ marker: String) {
-        let ns = string as NSString
-        var range = selectedRange()
+        let ns = markdownText
+        var range = markdownSelection
         if range.length == 0 { range = wordRange(at: range.location) }
         let m = (marker as NSString).length
         // Markers just outside the selection.
@@ -305,7 +308,7 @@ extension MarkdownTextView {
            ns.substring(with: NSRange(location: range.location + range.length, length: m)) == marker {
             let inner = ns.substring(with: range)
             replace(NSRange(location: range.location - m, length: range.length + 2 * m), with: inner)
-            setSelectedRange(NSRange(location: range.location - m, length: range.length))
+            markdownSelection = NSRange(location: range.location - m, length: range.length)
             return
         }
         // Markers inside the selection.
@@ -313,75 +316,54 @@ extension MarkdownTextView {
         if range.length >= 2 * m, text.hasPrefix(marker), text.hasSuffix(marker) {
             let inner = (text as NSString).substring(with: NSRange(location: m, length: range.length - 2 * m))
             replace(range, with: inner)
-            setSelectedRange(NSRange(location: range.location, length: range.length - 2 * m))
+            markdownSelection = NSRange(location: range.location, length: range.length - 2 * m)
             return
         }
         replace(range, with: marker + text + marker)
-        setSelectedRange(NSRange(location: range.location + m, length: range.length))
+        markdownSelection = NSRange(location: range.location + m, length: range.length)
     }
 
     /// `[text](url)`: the selection (or word) becomes the text, a URL on the
     /// clipboard the address; otherwise the caret lands where the address goes.
-    @objc func insertLink(_ sender: Any?) {
-        let ns = string as NSString
-        var range = selectedRange()
+    func insertLinkMarkdown() {
+        let ns = markdownText
+        var range = markdownSelection
         if range.length == 0 { range = wordRange(at: range.location) }
         let text = ns.substring(with: range)
-        let clipboard = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let clipboardURL = Self.isWebAddress(clipboard) ? clipboard : nil
-        if Self.isWebAddress(text) {
+        let clipboard = clipboardString()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let clipboardURL = isWebAddress(clipboard) ? clipboard : nil
+        if isWebAddress(text) {
             // The selection is the address: name it.
             replace(range, with: "[](\(text))")
-            setSelectedRange(NSRange(location: range.location + 1, length: 0))
+            markdownSelection = NSRange(location: range.location + 1, length: 0)
             return
         }
         let url = clipboardURL ?? ""
         replace(range, with: "[\(text)](\(url))")
         if clipboardURL != nil {
-            setSelectedRange(NSRange(location: range.location + 1 + range.length + 2 + (url as NSString).length + 1, length: 0))
+            markdownSelection = NSRange(location: range.location + 1 + range.length + 2 + (url as NSString).length + 1, length: 0)
         } else {
-            setSelectedRange(NSRange(location: range.location + 1 + range.length + 2, length: 0))
+            markdownSelection = NSRange(location: range.location + 1 + range.length + 2, length: 0)
         }
-    }
-
-    private static func isWebAddress(_ s: String) -> Bool {
-        guard !s.isEmpty, !s.contains(" "), let url = URL(string: s), let scheme = url.scheme else { return false }
-        return ["http", "https"].contains(scheme)
     }
 
     // MARK: Headings
 
-    @objc func heading1(_ sender: Any?) { setHeading(level: 1) }
-    @objc func heading2(_ sender: Any?) { setHeading(level: 2) }
-    @objc func heading3(_ sender: Any?) { setHeading(level: 3) }
-    @objc func heading4(_ sender: Any?) { setHeading(level: 4) }
-    @objc func heading5(_ sender: Any?) { setHeading(level: 5) }
-    @objc func heading6(_ sender: Any?) { setHeading(level: 6) }
-
     /// Make the selected lines headings of `level`; lines already at that level go back to plain text.
     func setHeading(level: Int) {
-        let lines = selectedLines.filter { !isCode($0) }
+        let lines = selectedLines.filter { !isCodeLine($0) }
         guard !lines.isEmpty else { return }
         let marker = String(repeating: "#", count: level) + " "
         let allAtLevel = lines.allSatisfy { if case .heading(let l) = $0.kind { return l == level }; return false }
         rewriteLines(lines) { line in
-            let stripped = Self.strippingBlockPrefix(line.text)
+            let stripped = strippingBlockPrefix(line.text)
             return allAtLevel ? stripped : marker + stripped
         }
     }
 
-    /// A line without its heading marker or list/task/quote prefix (indent kept for lists).
-    private static func strippingBlockPrefix(_ text: String) -> String {
-        let ns = text as NSString
-        let heading = LinePrefix.headingMarkerLength(text)
-        if heading > 0 { return ns.substring(from: heading) }
-        if let p = LinePrefix.parse(text) { return ns.substring(from: p.length) }
-        return text
-    }
-
     /// Replace each line's text, then select the rewritten lines (or keep a lone caret on its line).
     private func rewriteLines(_ lines: [ScannedLine], _ transform: (ScannedLine) -> String) {
-        let selection = selectedRange()
+        let selection = markdownSelection
         var caret = selection.location
         var start = lines[0].range.location
         var end = lines[lines.count - 1].range.location + lines[lines.count - 1].range.length
@@ -393,46 +375,34 @@ extension MarkdownTextView {
                 end += change
                 if caret > line.range.location + line.range.length { caret += change }
                 else if caret > line.range.location { caret = min(max(line.range.location, caret + change), line.range.location + (text as NSString).length) }
-                else if caret == line.range.location, lines.count == 1 { caret = line.range.location + (text as NSString).length - (Self.strippingBlockPrefix(text) as NSString).length }
+                else if caret == line.range.location, lines.count == 1 { caret = line.range.location + (text as NSString).length - (strippingBlockPrefix(text) as NSString).length }
             }
         }
         start = min(start, end)
         if selection.length == 0 {
-            setSelectedRange(NSRange(location: min(caret, (string as NSString).length), length: 0))
+            markdownSelection = NSRange(location: min(caret, markdownText.length), length: 0)
         } else {
-            setSelectedRange(NSRange(location: start, length: end - start))
+            markdownSelection = NSRange(location: start, length: end - start)
         }
     }
 
     // MARK: Lists, tasks and quotes
 
-    @objc func toggleBulletList(_ sender: Any?) { setPrefix(.bullet("-")) }
-    @objc func toggleNumberedList(_ sender: Any?) { setPrefix(.numbered(1, ".")) }
-    @objc func toggleTask(_ sender: Any?) { setPrefix(.task(bullet: "-", status: .notStarted)) }
-    @objc func toggleQuote(_ sender: Any?) { setPrefix(.quote) }
-
-    private static func sameKind(_ a: LinePrefix.Kind, _ b: LinePrefix.Kind) -> Bool {
-        switch (a, b) {
-        case (.bullet, .bullet), (.numbered, .numbered), (.task, .task), (.quote, .quote): return true
-        default: return false
-        }
-    }
-
     /// Give the selected lines this prefix; when every one already has it, take it off.
     /// Blank lines inside a multi-line selection are left alone.
     func setPrefix(_ kind: LinePrefix.Kind) {
-        var lines = selectedLines.filter { !isCode($0) }
+        var lines = selectedLines.filter { !isCodeLine($0) }
         if lines.count > 1 { lines = lines.filter { if case .blank = $0.kind { return false }; return true } }
         guard !lines.isEmpty else { return }
         let allHave = lines.allSatisfy { line in
             guard let p = LinePrefix.parse(line.text) else { return false }
-            return Self.sameKind(p.kind, kind)
+            return sameKind(p.kind, kind)
         }
         // Lines are rewritten bottom-up, so numbers come from position, not visit order.
         let position = Dictionary(uniqueKeysWithValues: lines.enumerated().map { ($1.index, $0 + 1) })
         rewriteLines(lines) { line in
             let existing = LinePrefix.parse(line.text)
-            let rest = Self.strippingBlockPrefix(line.text)
+            let rest = strippingBlockPrefix(line.text)
             if allHave { return (existing?.indent ?? "") + rest }
             let indent: String = { if case .quote = kind { return "" }; return existing?.indent ?? "" }()
             var marker = kind
@@ -449,8 +419,8 @@ extension MarkdownTextView {
     }
 
     /// Tick the selected tasks (done ↔ not started); a line that is not a task becomes one.
-    @objc func toggleTaskDone(_ sender: Any?) {
-        let lines = selectedLines.filter { !isCode($0) }
+    func toggleTaskDoneLines() {
+        let lines = selectedLines.filter { !isCodeLine($0) }
         guard !lines.isEmpty else { return }
         let tasks = lines.filter { if case .task = $0.kind { return true }; return false }
         if tasks.isEmpty { setPrefix(.task(bullet: "-", status: .notStarted)); return }
@@ -464,27 +434,27 @@ extension MarkdownTextView {
     // MARK: Blocks
 
     /// Fence the selected lines as a code block; inside a fenced block, the fences go.
-    @objc func toggleCodeBlock(_ sender: Any?) {
+    func toggleCodeBlockLines() {
         let lines = selectedLines
         guard let first = lines.first, let last = lines.last else { return }
         let map = styler.blockMap
         // Inside a block already: remove its fences.
-        if isCode(first) {
+        if isCodeLine(first) {
             var open = first.index, close = first.index
             while open > 0, !isFenceOpen(map.lines[open]) { open -= 1 }
             while close < map.lines.count - 1, map.lines[close].kind != .fenceClose { close += 1 }
             guard isFenceOpen(map.lines[open]), map.lines[close].kind == .fenceClose else { return }
             let openRange = NSRange(location: map.lines[open].range.location, length: map.lines[open].range.length + 1)
             let closeLine = map.lines[close]
-            let closeRange = NSRange(location: max(0, closeLine.range.location - 1), length: min((string as NSString).length - max(0, closeLine.range.location - 1), closeLine.range.length + 1))
+            let closeRange = NSRange(location: max(0, closeLine.range.location - 1), length: min(markdownText.length - max(0, closeLine.range.location - 1), closeLine.range.length + 1))
             grouped {
                 replace(closeRange, with: "")
                 replace(openRange, with: "")
             }
-            setSelectedRange(NSRange(location: openRange.location, length: 0))
+            markdownSelection = NSRange(location: openRange.location, length: 0)
             return
         }
-        let ns = string as NSString
+        let ns = markdownText
         let start = first.range.location
         let end = last.range.location + last.range.length
         let body = ns.substring(with: NSRange(location: start, length: end - start))
@@ -494,19 +464,125 @@ extension MarkdownTextView {
             let insert = before + "```\n\n```"
             let after = end < ns.length && ns.substring(with: NSRange(location: end, length: 1)) != "\n" ? "\n" : ""
             replace(NSRange(location: start, length: end - start), with: insert + after)
-            setSelectedRange(NSRange(location: start + (before as NSString).length + 4, length: 0))
+            markdownSelection = NSRange(location: start + (before as NSString).length + 4, length: 0)
             return
         }
         replace(NSRange(location: start, length: end - start), with: "```\n" + body + "\n```")
-        setSelectedRange(NSRange(location: start, length: (body as NSString).length + 8))
+        markdownSelection = NSRange(location: start, length: (body as NSString).length + 8)
     }
 
-    private func isFenceOpen(_ line: ScannedLine) -> Bool {
-        if case .fenceOpen = line.kind { return true }
-        return false
-    }
-
-    @objc func insertHorizontalRule(_ sender: Any?) {
-        insertMarkdown("---", ownLine: true)
+    /// Insert text at the selection; `ownLine` puts it on a line of its own.
+    func insertMarkdown(_ text: String, ownLine: Bool) {
+        let ns = markdownText
+        var range = markdownSelection
+        var insert = text
+        if ownLine {
+            let before = range.location > 0 ? ns.substring(with: NSRange(location: range.location - 1, length: 1)) : "\n"
+            let afterIndex = range.location + range.length
+            let after = afterIndex < ns.length ? ns.substring(with: NSRange(location: afterIndex, length: 1)) : "\n"
+            if before != "\n" { insert = "\n" + insert }
+            // Always leave a line after a block so its overlay has a paragraph to reserve space in.
+            if after != "\n" || afterIndex >= ns.length { insert += "\n" }
+            range = NSRange(location: afterIndex, length: 0)
+        }
+        guard replace(range, with: insert) else { return }
+        markdownSelection = NSRange(location: range.location + (insert as NSString).length, length: 0)
     }
 }
+
+/// A line without its heading marker or list/task/quote prefix (indent kept for lists).
+private func strippingBlockPrefix(_ text: String) -> String {
+    let ns = text as NSString
+    let heading = LinePrefix.headingMarkerLength(text)
+    if heading > 0 { return ns.substring(from: heading) }
+    if let p = LinePrefix.parse(text) { return ns.substring(from: p.length) }
+    return text
+}
+
+private func sameKind(_ a: LinePrefix.Kind, _ b: LinePrefix.Kind) -> Bool {
+    switch (a, b) {
+    case (.bullet, .bullet), (.numbered, .numbered), (.task, .task), (.quote, .quote): return true
+    default: return false
+    }
+}
+
+private func isFenceOpen(_ line: ScannedLine) -> Bool {
+    if case .fenceOpen = line.kind { return true }
+    return false
+}
+
+private func isWebAddress(_ s: String) -> Bool {
+    guard !s.isEmpty, !s.contains(" "), let url = URL(string: s), let scheme = url.scheme else { return false }
+    return ["http", "https"].contains(scheme)
+}
+
+#if canImport(AppKit)
+// MARK: - The Mac view: Return, Tab and the Format menu
+
+extension MarkdownTextView: MarkdownEditing {
+    var markdownStorage: NSTextStorage? { textStorage }
+
+    var markdownSelection: NSRange {
+        get { selectedRange() }
+        set { setSelectedRange(newValue) }
+    }
+
+    /// One undoable replacement through the text view's own change hooks.
+    @discardableResult
+    func replace(_ range: NSRange, with text: String) -> Bool {
+        guard let storage = textStorage, shouldChangeText(in: range, replacementString: text) else { return false }
+        storage.replaceCharacters(in: range, with: text)
+        didChangeText()
+        return true
+    }
+
+    func proposedWordRange(at location: Int) -> NSRange? {
+        selectionRange(forProposedRange: NSRange(location: location, length: 0), granularity: .selectByWord)
+    }
+
+    func beginUndoGroup() {
+        breakUndoCoalescing()
+        undoManager?.beginUndoGrouping()
+    }
+
+    func endUndoGroup() { undoManager?.endUndoGrouping() }
+
+    func clipboardString() -> String? { NSPasteboard.general.string(forType: .string) }
+
+    /// ⇧↩ and ⌥↩ give a plain newline; Return continues lists, tasks and quotes.
+    public override func insertNewline(_ sender: Any?) {
+        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        if !flags.contains(.shift), !flags.contains(.option), returnPressed() { return }
+        super.insertNewline(sender)
+    }
+
+    /// Tab and ⇧Tab move list items and tasks in and out a level; elsewhere they
+    /// insert a tab as usual.
+    public override func insertTab(_ sender: Any?) {
+        if !indentListLines(by: 1) { super.insertTab(sender) }
+    }
+
+    public override func insertBacktab(_ sender: Any?) {
+        if !indentListLines(by: -1) { super.insertBacktab(sender) }
+    }
+
+    @objc func toggleBold(_ sender: Any?) { toggleInline("**") }
+    @objc func toggleItalic(_ sender: Any?) { toggleInline("*") }
+    @objc func toggleStrikethrough(_ sender: Any?) { toggleInline("~~") }
+    @objc func toggleInlineCode(_ sender: Any?) { toggleInline("`") }
+    @objc func insertLink(_ sender: Any?) { insertLinkMarkdown() }
+    @objc func heading1(_ sender: Any?) { setHeading(level: 1) }
+    @objc func heading2(_ sender: Any?) { setHeading(level: 2) }
+    @objc func heading3(_ sender: Any?) { setHeading(level: 3) }
+    @objc func heading4(_ sender: Any?) { setHeading(level: 4) }
+    @objc func heading5(_ sender: Any?) { setHeading(level: 5) }
+    @objc func heading6(_ sender: Any?) { setHeading(level: 6) }
+    @objc func toggleBulletList(_ sender: Any?) { setPrefix(.bullet("-")) }
+    @objc func toggleNumberedList(_ sender: Any?) { setPrefix(.numbered(1, ".")) }
+    @objc func toggleTask(_ sender: Any?) { setPrefix(.task(bullet: "-", status: .notStarted)) }
+    @objc func toggleQuote(_ sender: Any?) { setPrefix(.quote) }
+    @objc func toggleTaskDone(_ sender: Any?) { toggleTaskDoneLines() }
+    @objc func toggleCodeBlock(_ sender: Any?) { toggleCodeBlockLines() }
+    @objc func insertHorizontalRule(_ sender: Any?) { insertMarkdown("---", ownLine: true) }
+}
+#endif

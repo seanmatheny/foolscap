@@ -542,3 +542,18 @@
   build are the Mac app's. Only Sean can: sign the Apple ID into Xcode, run the first
   `make ios` with the phone cabled, turn on Developer Mode, tick "Connect via network" in
   Xcode ▸ Devices. Never run the refresh script while a build is up.
+- The editor on both platforms (since 0.5.0): `EditorPalette`, `MarkdownStyler`, `EditorDecorations`
+  and the editing in `MarkdownCommands.swift` (`MarkdownEditing`: Return, Tab, the Format
+  commands, `insertMarkdown`) are shared, typed with FoolscapUI's `PlatformColor`/`PlatformFont`;
+  the two `MarkdownTextView`s (NSTextView in `MarkdownTextView.swift`, UITextView in
+  `MarkdownTextView+iOS.swift`) and `MarkdownEditor` wrappers carry the same names and `init`,
+  so pages are written once. The styler reads the selection through `StylerHost`. On the phone a
+  TextKit 2 UITextView draws its text in subviews, so the ruling, backdrops and chevrons are
+  painted by a `DecorationView` kept under them (and the bullets by one over them), each sized to
+  the visible part plus a screen either way and moved along in `layoutSubviews`; a programmatic
+  `replace` selects then `insertText`s so undo and the delegate see it as typing; Return and Tab
+  are caught in `shouldChangeTextIn`; tags and the Format commands live in the bar above the
+  keyboard (`EditorAccessoryBar`); a tap cycles a task mark or toggles a fold and then puts the
+  caret back. `PageRuling.textLeft`/`textRight` are vars the phone app narrows at launch
+  (36/16 against the Mac's 58/36). Pictures, link cards, drag-and-drop, find and the spell-check
+  filter are Mac-only for now (`OverlayController` and friends are gated whole).

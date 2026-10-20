@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import SwiftUI
 import AppKit
 import FoolscapCore
@@ -182,3 +183,4 @@ public struct MarkdownEditor: NSViewRepresentable {
         }
     }
 }
+#endif

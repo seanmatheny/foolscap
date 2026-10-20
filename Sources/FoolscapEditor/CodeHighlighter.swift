@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// Tiny regex highlighter for fenced code: comments, strings, numbers, keywords.
 /// No external grammar files; good enough for scraps of code in a notebook.
