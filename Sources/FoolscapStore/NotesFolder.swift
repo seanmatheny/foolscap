@@ -123,14 +123,21 @@ public struct NotesFolder: Hashable, Sendable {
         return out.sorted { $0.1 < $1.1 }
     }
 
-    /// The default location: iCloud Drive when it exists, else ~/Documents.
+    /// The default location: iCloud Drive when it exists, else ~/Documents. On the
+    /// phone the app's own Documents folder, until the user picks the iCloud one
+    /// (`BookmarkedFolder`); the sandbox has no path to iCloud Drive of its own.
     public static var defaultRoot: URL {
+        #if os(macOS)
         let home = FileManager.default.homeDirectoryForCurrentUser
         let icloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs", isDirectory: true)
         if FileManager.default.fileExists(atPath: icloud.path) {
             return icloud.appendingPathComponent("Foolscap", isDirectory: true)
         }
         return home.appendingPathComponent("Documents/Foolscap", isDirectory: true)
+        #else
+        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Foolscap", isDirectory: true)
+        #endif
     }
 
     /// A daily note present on disk, or an iCloud placeholder not yet downloaded.
@@ -177,8 +184,17 @@ public enum ICloudPlaceholders {
         return info.st_flags & UInt32(SF_DATALESS) != 0
     }
 
-    /// Either kind of iCloud file that is not on this Mac yet.
-    public static func needsDownload(_ url: URL) -> Bool { isPlaceholder(url) || isDataless(url) }
+    /// What iCloud itself says: a file reached through the Files provider on the
+    /// phone keeps its own name while its bytes are still in the cloud, so neither
+    /// the stub nor the dataless flag need show.
+    public static func isNotDownloaded(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]),
+              let status = values.ubiquitousItemDownloadingStatus else { return false }
+        return status == .notDownloaded
+    }
+
+    /// Any kind of iCloud file that is not on this device yet.
+    public static func needsDownload(_ url: URL) -> Bool { isPlaceholder(url) || isDataless(url) || isNotDownloaded(url) }
 
     public static func startDownload(_ url: URL) {
         try? FileManager.default.startDownloadingUbiquitousItem(at: url)

@@ -152,17 +152,19 @@ public struct NotebookView<Page: View>: View {
                     CoverStamp(tabsLeft: tabsLeft)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topLeading : .topTrailing)
                 }
+                #if canImport(AppKit)
                 // Leather band above the page: reveals the traffic lights and drags the window.
                 TrafficLightHoverZone()
                     .frame(height: NotebookMetrics.topMargin)
                     .frame(maxWidth: .infinity)
                     .gesture(WindowDragGesture())
+                #endif
             }
             // In full screen on a notched display the cover runs under the camera housing;
             // the page stays below it.
             .modifier(FullScreenTopInset())
         }
-        .background(NotebookWindowChrome(shapeVersion: "\(selection)-\(tabEdge.rawValue)", coverColor: theme.cover.baseColor.nsColor))
+        .notebookWindowChrome(version: "\(selection)-\(tabEdge.rawValue)", cover: theme.cover.baseColor)
         .ignoresSafeArea()
         .onAppear {
             if shown == nil { shown = selection }
@@ -195,6 +197,18 @@ public struct NotebookView<Page: View>: View {
         let slow = ProcessInfo.processInfo.environment["FOOLSCAP_SLOW_OPEN"] != nil ? 4.0 : 1.0
         _ = anchor.curl(image, style: PageCurlStyle.random(from: edge), spineOnRight: tabEdge == .left,
                         paper: theme.page.paperColor, duration: 0.55 * slow)
+    }
+}
+
+private extension View {
+    /// The hosting window shaped to the notebook on the Mac; a phone has no window to shape.
+    @ViewBuilder
+    func notebookWindowChrome(version: String, cover: RGBA) -> some View {
+        #if canImport(AppKit)
+        background(NotebookWindowChrome(shapeVersion: version, coverColor: cover.nsColor))
+        #else
+        self
+        #endif
     }
 }
 

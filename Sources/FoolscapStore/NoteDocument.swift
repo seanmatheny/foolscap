@@ -1,4 +1,8 @@
+#if canImport(AppKit)
 import AppKit
+#else
+import UIKit
+#endif
 import FoolscapCore
 
 /// One open note. The `NSTextStorage` is the single in-memory copy of the file:

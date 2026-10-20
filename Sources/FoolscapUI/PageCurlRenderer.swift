@@ -1,4 +1,5 @@
-import AppKit
+import Foundation
+import QuartzCore
 import MetalKit
 import FoolscapCore
 

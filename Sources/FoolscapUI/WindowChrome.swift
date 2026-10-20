@@ -1,4 +1,6 @@
 import SwiftUI
+
+#if canImport(AppKit)
 import AppKit
 
 /// Turns the hosting window into a transparent, shadow-casting shape so the
@@ -230,3 +232,18 @@ final class FullScreenMenuBar {
         }
     }
 }
+
+#else
+
+/// Window facts the chrome reads at layout time. A phone has no window to shape:
+/// never full screen in the Mac sense, no window buttons to make room for.
+@MainActor
+@Observable
+public final class WindowState {
+    public static let shared = WindowState()
+    public var fullScreenTopInset: CGFloat = 0
+    public var isFullScreen = false
+    public var trafficLightsShown = false
+}
+
+#endif

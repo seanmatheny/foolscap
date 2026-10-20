@@ -5,9 +5,17 @@ import SwiftUI
 /// task moves, ticks and Jira suns the same way as through typing.
 @MainActor
 public enum TaskUndo {
-    public static var manager: UndoManager? {
+    /// Whose undo manager that is. On the Mac the main (else key) window's; the
+    /// iPhone app, which has no windows to ask, points it at its editor's.
+    public static var provider: @MainActor () -> UndoManager? = {
+        #if canImport(AppKit)
         NSApp?.mainWindow?.undoManager ?? NSApp?.keyWindow?.undoManager
+        #else
+        nil
+        #endif
     }
+
+    public static var manager: UndoManager? { provider() }
 
     /// The Edit menu's wording for a move into `status`.
     public static func actionName(for status: TaskStatus, from previous: TaskStatus? = nil) -> String {

@@ -1,6 +1,10 @@
 import SwiftUI
-import AppKit
 import FoolscapCore
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Where a page curls from and how tightly. Drawn afresh for every turn, so no
 /// two turns are quite alike; a click near a corner curls the page from there.
@@ -62,6 +66,8 @@ enum PageTurnPace {
 
 /// Whether turn timings are logged (`FOOLSCAP_TURN_LOG=1`).
 let pageTurnLogging = ProcessInfo.processInfo.environment["FOOLSCAP_TURN_LOG"] != nil
+
+#if canImport(AppKit)
 
 /// The AppKit side of a page: where it is in the window, a photograph of what
 /// is on screen there, and the child window a turn plays in. Lay
@@ -251,3 +257,36 @@ public final class PageTurnWindow: NSWindow {
         Self.playing.removeAll { $0 === self }
     }
 }
+
+#else
+
+/// The page's place on screen. The photograph and the curl itself are still to
+/// come on the phone: until then a turn just swaps the page.
+@MainActor
+public final class PageAnchor {
+    weak var view: PageSnapshotView?
+    public init() {}
+
+    func capture() -> (image: CGImage, size: CGSize)? { nil }
+
+    var pageHeight: CGFloat? { view?.bounds.height }
+
+    func curl(_ image: CGImage, style: PageCurlStyle, spineOnRight: Bool, paper: RGBA, duration: TimeInterval) -> Bool { false }
+}
+
+struct PageSnapshotHost: UIViewRepresentable {
+    let anchor: PageAnchor
+
+    func makeUIView(context: Context) -> PageSnapshotView {
+        let view = PageSnapshotView()
+        view.isUserInteractionEnabled = false
+        anchor.view = view
+        return view
+    }
+
+    func updateUIView(_ view: PageSnapshotView, context: Context) { anchor.view = view }
+}
+
+final class PageSnapshotView: UIView {}
+
+#endif

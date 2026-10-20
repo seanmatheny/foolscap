@@ -1,3 +1,6 @@
+// Backups are a Mac feature: zips made with /usr/bin/ditto through `Process`,
+// which the phone has not got; its notebook is backed up by the Mac's copy.
+#if canImport(AppKit)
 import Foundation
 import FoolscapCore
 
@@ -468,3 +471,4 @@ public final class BackupManager {
             ?? "Restored the backup from \(when)."
     }
 }
+#endif

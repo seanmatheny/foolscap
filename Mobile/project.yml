@@ -16,6 +16,9 @@ settings:
     SWIFT_VERSION: "6.0"
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+packages:
+  foolscap:
+    path: ..
 targets:
   FoolscapMobile:
     type: application
@@ -23,6 +26,13 @@ targets:
     sources:
       - path: FoolscapMobile
       - path: Assets.xcassets
+    dependencies:
+      - package: foolscap
+        product: FoolscapCore
+      - package: foolscap
+        product: FoolscapStore
+      - package: foolscap
+        product: FoolscapUI
     settings:
       base:
         PRODUCT_NAME: Foolscap

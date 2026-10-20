@@ -1,4 +1,6 @@
 import SwiftUI
+import FoolscapCore
+import FoolscapUI
 
 /// The iPhone app. Phase 1 shows the closed cover and the version: enough to prove that
 /// the free-team signature is renewed by `Tools/ios-refresh.sh` before its seven days
@@ -22,9 +24,12 @@ struct ClosedCoverPage: View {
         return "Version \(short) (\(build))"
     }
 
+    private let theme = NotebookTheme.classicBlack
+
     var body: some View {
         ZStack {
-            Color("CoverColor").ignoresSafeArea()
+            theme.cover.baseColor.color.ignoresSafeArea()
+            TextureOverlay(tile: theme.cover.textureTile, opacity: theme.cover.grainOpacity).ignoresSafeArea()
             VStack(spacing: 14) {
                 Text("Foolscap")
                     .font(.system(size: 30, weight: .semibold, design: .serif))

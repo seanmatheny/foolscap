@@ -1,4 +1,8 @@
+#if canImport(AppKit)
 import AppKit
+#else
+import UIKit
+#endif
 import FoolscapCore
 
 /// The store's front door: the folder, the index, the open documents and the
@@ -300,6 +304,10 @@ public final class NotebookLibrary {
     }
 
     // MARK: Scanning
+
+    /// Look for changes the watcher may not have reported: the phone calls this
+    /// when it comes to the front, since iCloud can land files while it is away.
+    public func checkForExternalChanges() async { await externalChange() }
 
     /// Something changed in the folder. Every open document is checked off the
     /// main actor (a stat first, a coordinated read only when it moved), then

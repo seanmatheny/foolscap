@@ -1,31 +1,18 @@
 import SwiftUI
-import AppKit
+import ImageIO
 import FoolscapCore
 
+#if canImport(AppKit)
+import AppKit
+
 public extension RGBA {
-    var nsColor: NSColor { NSColor(srgbRed: r, green: g, blue: b, alpha: a) }
+    var nsColor: NSColor { platformColor }
 }
 
 public extension FontSpec {
-    var nsFont: NSFont {
-        let weight: NSFont.Weight = bold ? .bold : .regular
-        if let family, let f = NSFont(name: family, size: size) {
-            if bold, let b = NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask) as NSFont? { return b }
-            return f
-        }
-        switch design {
-        case .mono: return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
-        case .serif:
-            let d = NSFont.systemFont(ofSize: size, weight: weight).fontDescriptor.withDesign(.serif)
-            return d.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size, weight: weight)
-        case .rounded:
-            let d = NSFont.systemFont(ofSize: size, weight: weight).fontDescriptor.withDesign(.rounded)
-            return d.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size, weight: weight)
-        case .sans: return NSFont.systemFont(ofSize: size, weight: weight)
-        }
-    }
-    var font: Font { Font(nsFont) }
+    var nsFont: NSFont { platformFont }
 }
+#endif
 
 /// Finds this package's resource bundle both under `swift run` and inside the
 /// hand-assembled Foolscap.app (where bundles live in Contents/Resources).
@@ -36,8 +23,32 @@ public enum FoolscapUIResources {
         return Bundle.module
     }()
 
+    /// A texture tile as decoded pixels plus the scale its file claims (its DPI
+    /// over 72), so a Retina tile covers the same points as an `NSImage` of it would.
+    public struct Tile {
+        public let image: CGImage
+        public let scale: CGFloat
+    }
+
+    nonisolated(unsafe) private static var tiles: [String: Tile] = [:]
+
+    @MainActor
+    public static func tile(_ name: String) -> Tile? {
+        if let tile = tiles[name] { return tile }
+        guard let url = bundle.url(forResource: name, withExtension: "png", subdirectory: "Textures"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let dpi = properties?[kCGImagePropertyDPIWidth] as? CGFloat ?? 72
+        let tile = Tile(image: image, scale: dpi > 0 ? dpi / 72 : 1)
+        tiles[name] = tile
+        return tile
+    }
+
+    #if canImport(AppKit)
     nonisolated(unsafe) private static var cache: [String: NSImage] = [:]
 
+    /// The tile as an `NSImage`, for AppKit views that draw it themselves.
     @MainActor
     public static func texture(_ name: String) -> NSImage? {
         if let img = cache[name] { return img }
@@ -46,6 +57,7 @@ public enum FoolscapUIResources {
         cache[name] = img
         return img
     }
+    #endif
 }
 
 /// A tiled greyscale texture multiplied over whatever is underneath.
@@ -64,10 +76,10 @@ public struct TextureOverlay: View {
         }
     }
     public var body: some View {
-        if !tile.isEmpty, opacity > 0, let img = FoolscapUIResources.texture(tile) {
+        if !tile.isEmpty, opacity > 0, let tile = FoolscapUIResources.tile(tile) {
             // `blendMode` has to be the outermost modifier: opacity or clipping
             // applied after it would flatten the view into a normal composite.
-            Image(nsImage: img)
+            Image(decorative: tile.image, scale: tile.scale)
                 .resizable(resizingMode: .tile)
                 .opacity(opacity)
                 .blendMode(blendMode)
