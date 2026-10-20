@@ -423,7 +423,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             let bullet = Self.match(Self.listMarker, in: line.text)
             if bullet.location != NSNotFound {
                 set([.foregroundColor: p.accent], bullet)
-                // A dash, star or plus is drawn as a dot by the view (see `drawBullets`); the
+                // A dash, star or plus is drawn as a dot over the text (`EditorDecorations.drawBullets`); the
                 // character itself shows, dimmed, only while the caret is on the line.
                 if let prefix, case .bullet = prefix.kind {
                     let marker = NSRange(location: (prefix.indent as NSString).length, length: 1)

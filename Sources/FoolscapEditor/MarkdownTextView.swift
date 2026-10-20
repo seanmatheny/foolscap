@@ -638,19 +638,18 @@ public final class MarkdownTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
-    // MARK: Ruling
+    // MARK: Ruling and the other decorations
 
+    /// Ruling, backdrops, quote bars, the task-mark tint and the fold chevrons go
+    /// before the text: TextKit leaves the context clipped to the text container,
+    /// and the chevrons sit in the margin outside it. The bullets go after it, over
+    /// the `-` they stand for.
     public override func draw(_ dirtyRect: NSRect) {
-        drawRuling(in: dirtyRect)
-        let visible = decorations(in: dirtyRect)
-        drawCodeBlocks(visible)
-        drawQuoteBars(visible)
-        drawTaskMarkHover(in: dirtyRect)
-        // Before the text: TextKit leaves the context clipped to the text container,
-        // and the chevrons sit in the margin outside it.
-        drawFoldControls(in: dirtyRect)
+        let ctx = NSGraphicsContext.current?.cgContext
+        let decorator = EditorDecorations(geometry: self)
+        if let ctx { decorator.drawUnderText(in: ctx, rect: dirtyRect) }
         super.draw(dirtyRect)
-        drawBullets(in: dirtyRect)
+        if let ctx { decorator.drawOverText(in: ctx, rect: dirtyRect) }
     }
 
     /// Redraw whole line bands (margin included) for lines whose look changed
@@ -663,257 +662,16 @@ public final class MarkdownTextView: NSTextView {
         }
     }
 
-    // MARK: List bullets
-
-    /// The dot standing in for a `-`, `*` or `+` (drawn as text in the body font so
-    /// it shares the line's baseline); nested items get a ring, then a small square.
-    private func drawBullets(in rect: NSRect) {
-        guard let span = characterSpan(under: rect) else { return }
-        let lines = styler.blockMap.lines
-        let ps = NSMutableParagraphStyle()
-        ps.minimumLineHeight = palette.pitch; ps.maximumLineHeight = palette.pitch
-        ps.alignment = .center
-        var i = styler.blockMap.line(at: span.first)?.index ?? 0
-        while i < lines.count, lines[i].range.location <= span.last {
-            defer { i += 1 }
-            let line = lines[i]
-            guard case .listItem = line.kind, !styler.isHidden(line: i), !styler.isRevealed(line: i),
-                  let prefix = LinePrefix.parse(line.text), case .bullet = prefix.kind else { continue }
-            let marker = NSRange(location: line.range.location + (prefix.indent as NSString).length, length: 1)
-            guard let glyph = characterRect(for: marker), glyph.intersects(rect) else { continue }
-            let level = prefix.indent.reduce(0) { $0 + ($1 == "\t" ? 2 : 1) } / 2
-            let dot = level == 0 ? "•" : level == 1 ? "◦" : "▪"
-            let attrs: [NSAttributedString.Key: Any] = [.font: palette.body, .foregroundColor: palette.accent, .paragraphStyle: ps]
-            let width = (dot as NSString).size(withAttributes: [.font: palette.body]).width + 2
-            NSAttributedString(string: dot, attributes: attrs)
-                .draw(in: NSRect(x: glyph.midX - width / 2, y: glyph.minY, width: width, height: glyph.height))
-        }
-    }
-
-    /// The frame of one character (in view coordinates), from the existing layout.
-    func characterRect(for range: NSRange) -> NSRect? {
-        guard let tlm = textLayoutManager, let cm = tlm.textContentManager,
-              let start = cm.location(tlm.documentRange.location, offsetBy: range.location),
-              let end = cm.location(start, offsetBy: range.length),
-              let textRange = NSTextRange(location: start, end: end) else { return nil }
-        var rect: NSRect?
-        tlm.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
-            rect = frame
-            return false
-        }
-        guard var r = rect else { return nil }
-        r.origin.x += textContainerInset.width
-        r.origin.y += textContainerInset.height
-        return r
-    }
-
-    /// The UTF-16 offsets whose laid-out text lies under `rect` (plus a margin),
-    /// looked up in the existing layout so drawing never lays out the rest of the note.
-    func characterSpan(under rect: NSRect) -> (first: Int, last: Int)? {
-        guard let tlm = textLayoutManager, let cm = tlm.textContentManager, !styler.blockMap.lines.isEmpty else { return nil }
-        let doc = tlm.documentRange
-        let margin = palette.pitch * 2
-        let top = CGPoint(x: 0, y: max(0, rect.minY - margin - textContainerInset.height))
-        let bottom = CGPoint(x: 0, y: rect.maxY + margin - textContainerInset.height)
-        let first = tlm.textLayoutFragment(for: top).map { cm.offset(from: doc.location, to: $0.rangeInElement.location) } ?? 0
-        let last = tlm.textLayoutFragment(for: bottom).map { cm.offset(from: doc.location, to: $0.rangeInElement.endLocation) }
-            ?? cm.offset(from: doc.location, to: doc.endLocation)
-        guard first <= last else { return nil }
-        return (first, last)
-    }
-
-    // MARK: Code backdrops and quote bars
-
-    struct Decoration: Equatable {
-        enum Kind: Equatable {
-            /// `language` is nil when the fence line lies outside the measured text.
-            case code(language: String?)
-            case quote
-        }
-        var kind: Kind
-        /// The block's layout fragments, in view coordinates.
-        var rect: NSRect
-    }
+    // MARK: Decorations
 
     /// The backdrops visible at the last layout pass: layout() redraws only when they change.
-    private var laidOutDecorations: [Decoration] = []
+    private var laidOutDecorations: [EditorDecorations.Decoration] = []
     private var laidOutSize: NSSize = .zero
-
-    /// Code blocks and quotes whose text lies under `rect`. Only the characters
-    /// under the rect (plus a margin) are measured, so drawing never lays out the
-    /// rest of the document; a block that runs on past them is extended beyond it.
-    func decorations(in rect: NSRect) -> [Decoration] {
-        let lines = styler.blockMap.lines
-        guard let (first, last) = characterSpan(under: rect) else { return [] }
-        let pitch = palette.pitch
-
-        var out: [Decoration] = []
-        func add(from i: Int, to j: Int, code: String?) {
-            // A block inside a folded section is hidden with it (folds end only at headings, so blocks are never cut).
-            guard !styler.isHidden(line: i) else { return }
-            let start = lines[i].range.location, end = lines[j].range.location + lines[j].range.length
-            guard end >= first, start <= last else { return }
-            let clipStart = max(start, first), clipEnd = min(end, last)
-            guard var r = fragmentRect(for: NSRange(location: clipStart, length: clipEnd - clipStart)) else { return }
-            if start < first { r.origin.y -= pitch; r.size.height += pitch }
-            if end > last { r.size.height += pitch }
-            guard r.intersects(rect) else { return }
-            if let code {
-                out.append(Decoration(kind: .code(language: start < first ? nil : code), rect: r))
-            } else {
-                out.append(Decoration(kind: .quote, rect: r))
-            }
-        }
-        // Back up to the start of a block that begins above the measured span.
-        var i = styler.blockMap.line(at: first)?.index ?? 0
-        backUp: while i > 0 {
-            switch lines[i].kind {
-            case .fenceInside, .fenceClose: i -= 1
-            case .quote where lines[i - 1].kind == .quote: i -= 1
-            default: break backUp
-            }
-        }
-        while i < lines.count, lines[i].range.location <= last {
-            switch lines[i].kind {
-            case .fenceOpen(let language):
-                var j = i
-                while j + 1 < lines.count, lines[j].kind != .fenceClose { j += 1 }
-                add(from: i, to: j, code: language)
-                i = j + 1
-            case .quote:
-                var j = i
-                while j + 1 < lines.count, lines[j + 1].kind == .quote { j += 1 }
-                add(from: i, to: j, code: nil)
-                i = j + 1
-            default:
-                i += 1
-            }
-        }
-        return out
-    }
-
-    private func drawQuoteBars(_ decorations: [Decoration]) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        for d in decorations where d.kind == .quote {
-            let r = d.rect
-            let bar = NSRect(x: textContainerInset.width + 2, y: r.minY + 3, width: 3, height: r.height - 6)
-            ctx.setFillColor(palette.accent.withAlphaComponent(0.55).cgColor)
-            ctx.addPath(NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).cgPath); ctx.fillPath()
-        }
-    }
-
-    /// Bottom of the last text line of the paragraph at `range` (excludes paragraph spacing).
-    /// The document's last paragraph, when the text ends with a newline, also carries
-    /// the empty line after it (TextKit's extra line fragment); that one is skipped, or
-    /// an image on the last line is drawn over the empty line below its reserved space.
-    func lineBottom(for range: NSRange) -> CGFloat? {
-        guard let tlm = textLayoutManager, let cm = tlm.textContentManager,
-              let start = cm.location(tlm.documentRange.location, offsetBy: range.location) else { return nil }
-        var bottom: CGFloat?
-        tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
-            let lines = fragment.textLineFragments
-            if let last = lines.last(where: { $0.characterRange.length > 0 }) ?? lines.last {
-                bottom = fragment.layoutFragmentFrame.minY + last.typographicBounds.maxY + textContainerInset.height
-            }
-            return false
-        }
-        return bottom
-    }
-
-    /// Frames (in view coordinates) of the layout fragments covering a character range.
-    func fragmentRect(for range: NSRange) -> NSRect? {
-        guard let tlm = textLayoutManager, let cm = tlm.textContentManager else { return nil }
-        let doc = tlm.documentRange
-        guard let start = cm.location(doc.location, offsetBy: range.location) else { return nil }
-        let endOffset = range.location + range.length
-        var rect: NSRect?
-        tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
-            let fStart = cm.offset(from: doc.location, to: fragment.rangeInElement.location)
-            if fStart >= endOffset && range.length > 0 { return false }
-            var f = fragment.layoutFragmentFrame
-            f.origin.x += textContainerInset.width
-            f.origin.y += textContainerInset.height
-            rect = rect.map { $0.union(f) } ?? f
-            let fEnd = cm.offset(from: doc.location, to: fragment.rangeInElement.endLocation)
-            return fEnd < endOffset
-        }
-        return rect
-    }
-
-    private func drawCodeBlocks(_ decorations: [Decoration]) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        for d in decorations {
-            guard case .code(let language) = d.kind else { continue }
-            let r = d.rect
-            let block = NSRect(x: textContainerInset.width - 10, y: r.minY - 2,
-                               width: bounds.width - textContainerInset.width * 2 + 20, height: r.height + 4)
-            let path = NSBezierPath(roundedRect: block, xRadius: 5, yRadius: 5)
-            ctx.setFillColor(palette.codeBlockBackground.cgColor)
-            ctx.addPath(path.cgPath); ctx.fillPath()
-            ctx.setStrokeColor(palette.dimInk.withAlphaComponent(0.18).cgColor); ctx.setLineWidth(0.5)
-            ctx.addPath(path.cgPath); ctx.strokePath()
-            if let language, !language.isEmpty {
-                let label = NSAttributedString(string: language, attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
-                    .foregroundColor: palette.dimInk.withAlphaComponent(0.6)])
-                let size = label.size()
-                label.draw(at: NSPoint(x: block.maxX - size.width - 8, y: block.minY + 5))
-            }
-        }
-    }
-
-    private func drawRuling(in rect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let pitch = palette.pitch
-        // Fixed to the page, not the text: a header above the text moves the text by whole lines.
-        let top = pitch * EditorMetrics.topLines
-        // Rules sit just under the baseline of each line.
-        let ruleOffset = PageRuling.ruleOffset(palette)
-        ctx.saveGState()
-        ctx.setLineWidth(0.8)
-        let rule = palette.ruleColor.cgColor
-        let firstLine = max(0, Int((rect.minY - top - ruleOffset) / pitch) - 1)
-        let lastLine = Int((rect.maxY - top - ruleOffset) / pitch) + 1
-        // Empty (not a trap) when the dirty rect lies wholly above the first rule,
-        // as it does while a scroll bounces past the top of the page.
-        let lines = stride(from: firstLine, through: lastLine, by: 1)
-        switch palette.ruling {
-        case .blank: break
-        case .lined:
-            ctx.setStrokeColor(rule)
-            for i in lines {
-                let y = top + ruleOffset + CGFloat(i) * pitch
-                ctx.move(to: CGPoint(x: rect.minX, y: y)); ctx.addLine(to: CGPoint(x: rect.maxX, y: y))
-            }
-            ctx.strokePath()
-        case .grid:
-            ctx.setStrokeColor(rule); ctx.setLineWidth(0.5)
-            for i in lines {
-                let y = top + ruleOffset + CGFloat(i) * pitch
-                ctx.move(to: CGPoint(x: rect.minX, y: y)); ctx.addLine(to: CGPoint(x: rect.maxX, y: y))
-            }
-            var x = EditorMetrics.leftInset.truncatingRemainder(dividingBy: pitch) + 0.5
-            while x < bounds.maxX {
-                if x >= rect.minX - pitch { ctx.move(to: CGPoint(x: x, y: rect.minY)); ctx.addLine(to: CGPoint(x: x, y: rect.maxY)) }
-                x += pitch
-            }
-            ctx.strokePath()
-        case .dotted:
-            ctx.setFillColor(rule)
-            for i in lines {
-                let y = top + ruleOffset + CGFloat(i) * pitch
-                var x = EditorMetrics.leftInset.truncatingRemainder(dividingBy: pitch)
-                while x < bounds.maxX {
-                    ctx.fillEllipse(in: CGRect(x: x - 1, y: y - 1, width: 2, height: 2)); x += pitch
-                }
-            }
-        }
-        if palette.showMarginRule {
-            ctx.setStrokeColor(palette.marginRuleColor.cgColor); ctx.setLineWidth(1)
-            let x = EditorMetrics.leftInset - EditorMetrics.marginRuleOffset + 0.5
-            ctx.move(to: CGPoint(x: x, y: rect.minY)); ctx.addLine(to: CGPoint(x: x, y: rect.maxY)); ctx.strokePath()
-        }
-        ctx.restoreGState()
-    }
 }
 
+/// The page's drawing lives in `EditorDecorations`; it reads the layout and the
+/// hover state through this.
+extension MarkdownTextView: DecorationGeometry {
+    var textOrigin: CGPoint { CGPoint(x: textContainerInset.width, y: textContainerInset.height) }
+    var viewWidth: CGFloat { bounds.width }
+}

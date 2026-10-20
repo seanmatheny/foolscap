@@ -2,7 +2,8 @@ import AppKit
 import FoolscapCore
 
 /// The task mark under the pointer: a tint behind the `[ ]` says it can be
-/// clicked (the click itself is handled in `mouseDown`).
+/// clicked (the click itself is handled in `mouseDown`; the tint is drawn by
+/// `EditorDecorations`).
 extension MarkdownTextView {
     /// The `[ ]` of a task line, as a character range, when the point is on it.
     func taskMarkRange(at point: NSPoint) -> (line: Int, range: NSRange)? {
@@ -23,16 +24,5 @@ extension MarkdownTextView {
         if let line { changed.insert(line) }
         hoverTaskMark = line
         invalidate(lines: changed)
-    }
-
-    /// Drawn before the text, so the glyphs sit on the tint.
-    func drawTaskMarkHover(in rect: NSRect) {
-        guard let i = hoverTaskMark, i < styler.blockMap.lines.count else { return }
-        let line = styler.blockMap.lines[i]
-        guard case .task = line.kind, let parsed = TaskLineParser.parse(line.text),
-              let glyphs = characterRect(for: NSRange(location: line.range.location + parsed.markOffset - 1, length: 3)),
-              glyphs.intersects(rect) else { return }
-        palette.accent.withAlphaComponent(0.14).setFill()
-        NSBezierPath(roundedRect: glyphs.insetBy(dx: -3, dy: -1), xRadius: 3, yRadius: 3).fill()
     }
 }
