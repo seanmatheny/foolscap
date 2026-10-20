@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import FoolscapCore
 import FoolscapStore
 import FoolscapEditor
@@ -176,8 +175,7 @@ struct JiraPage: View {
                 .font(theme.type.body.face(14 * scale)).opacity(0.75)
                 .frame(maxWidth: 520, alignment: .leading)
             Button {
-                UserDefaults.standard.set("jira", forKey: "settingsTab")
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                JiraSection.openSettings?()
             } label: {
                 Text("Open Settings…")
                     .font(theme.type.body.face(13, weight: .semibold))
@@ -287,10 +285,7 @@ struct JiraIssueRow: View {
             Button("Add Comment…") { commenting = true }
             Divider()
             Button("Open in Jira") { section.open(issue) }
-            Button("Copy Key") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(issue.key, forType: .string)
-            }
+            Button("Copy Key") { Platform.copyText(issue.key) }
         }
     }
 

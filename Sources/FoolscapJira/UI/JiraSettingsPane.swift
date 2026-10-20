@@ -28,10 +28,12 @@ struct JiraSettingsPane: View {
 
     var body: some View {
         TextField("Site", text: $site, prompt: Text("https://your-site.atlassian.net"))
+            .typedAsAddress()
         TextField("Email", text: $email, prompt: Text("you@example.com"))
+            .typedAsEmail()
         SecureField("API token", text: $token,
                     prompt: Text(section.credentials == nil ? "Paste a token; it goes into your Keychain" : "In your Keychain; paste to replace"))
-        Text("Save puts the token in the macOS login Keychain and keeps no copy: not in Foolscap's settings, its files or its backups. Foolscap reads it from the Keychain each time it syncs.")
+        Text("Save puts the token in this device's Keychain and keeps no copy: not in Foolscap's settings, its files or its backups. Foolscap reads it from the Keychain each time it syncs.")
             .font(.caption).foregroundStyle(.secondary)
         HStack {
             Button("Save") {
@@ -84,5 +86,26 @@ struct JiraSettingsPane: View {
             site = section.site
             email = section.email
         }
+    }
+}
+
+private extension View {
+    /// A phone's keyboard for a web address: no capitals, no corrections.
+    @ViewBuilder
+    func typedAsAddress() -> some View {
+        #if canImport(UIKit)
+        keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func typedAsEmail() -> some View {
+        #if canImport(UIKit)
+        keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
+        #else
+        self
+        #endif
     }
 }

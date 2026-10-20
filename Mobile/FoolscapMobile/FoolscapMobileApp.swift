@@ -5,6 +5,7 @@ import FoolscapStore
 import FoolscapEditor
 import FoolscapUI
 import FoolscapSections
+import FoolscapJira
 
 /// The iPhone app: the shared app model over the notebook folder the Files picker
 /// granted (the app's own Documents until one is chosen), the Daily Notes and
@@ -38,6 +39,9 @@ final class PhoneModel: AppModelCore {
     /// No folder has been chosen yet: the notebook is the app's own Documents.
     private(set) var usingLocalFolder: Bool
     @ObservationIgnored private var changeWatch: Task<Void, Never>?
+    /// The Jira tab is a hard toggle, as on the Mac: off means no section, no requests.
+    private(set) var jiraEnabled = false
+    private(set) var jiraSection: JiraSection?
 
     init() {
         let bookmarked = BookmarkedFolder.resolve()
@@ -45,6 +49,28 @@ final class PhoneModel: AppModelCore {
         super.init(notesFolder: bookmarked ?? NotesFolder.defaultRoot)
         followSettingChanged()
         watchForChanges()
+        setJiraEnabled(UserDefaults.standard.bool(forKey: "jiraEnabled"))
+        // The Jira page's "Open Settings…" turns to the Settings tab.
+        JiraSection.openSettings = { [weak self] in self?.selectedSectionID = RootView.settingsTab.id }
+    }
+
+    /// Add or remove the Jira section at runtime (`rewireSections` places it after Tasks).
+    /// Nothing is indexed: it writes only task lines, through the library.
+    func setJiraEnabled(_ on: Bool) {
+        guard on != jiraEnabled, let library else { return }
+        jiraEnabled = on
+        if on {
+            let jira = JiraSection(library: library)
+            sections.append(jira)
+            jiraSection = jira
+            jira.start()
+        } else {
+            jiraSection?.stop()
+            jiraSection = nil
+            sections.removeAll { $0.id == JiraSection.sectionID }
+            if selectedSectionID == JiraSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
+        }
+        rewireSections()
     }
 
     /// "Follow the Mac's appearance" (on unless turned off): the look comes from
@@ -77,6 +103,8 @@ final class PhoneModel: AppModelCore {
         super.defaultsChanged()
         let role: AppearanceRole = followsMac ? .follower : .independent
         if role != appearanceRole { followSettingChanged() }
+        let jira = UserDefaults.standard.bool(forKey: "jiraEnabled")
+        if jira != jiraEnabled { setJiraEnabled(jira) }
     }
 
     /// Keep the folder the picker granted and open the notebook there.
@@ -98,7 +126,7 @@ struct RootView: View {
     @State private var offeringFolder = false
     /// The first-run offer to pick the iCloud folder has been shown.
     @AppStorage("folderOffered") private var folderOffered = false
-    private static let settingsTab = NotebookTabItem(id: "settings", appearance: TabAppearance(label: "Settings", systemImage: "gearshape", colorIndex: 5))
+    static let settingsTab = NotebookTabItem(id: "settings", appearance: TabAppearance(label: "Settings", systemImage: "gearshape", colorIndex: 5))
 
     var body: some View {
         @Bindable var model = model
@@ -154,6 +182,7 @@ struct PhoneSettingsPage: View {
 
     @AppStorage(PhoneModel.followKey) private var followsMac = true
     @AppStorage(PreferenceKeys.textScale) private var textScale = 1.0
+    @AppStorage("jiraEnabled") private var jiraEnabled = false
 
     var body: some View {
         Form {
@@ -179,6 +208,12 @@ struct PhoneSettingsPage: View {
             }
             .disabled(followsMac)
             .opacity(followsMac ? 0.55 : 1)
+            Section("Jira") {
+                Toggle("Connect to Jira Cloud", isOn: $jiraEnabled)
+                Text("Adds a Jira tab listing the issues assigned to you. Off, nothing runs: no requests, no tab. The token is this phone's own, kept in its Keychain.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(model.sectionSettingsPanes.filter { $0.id == JiraSection.sectionID }) { pane in pane.view }
+            }
             Section("Notebook folder") {
                 Text(model.usingLocalFolder ? "This phone's own copy (not synced)" : model.notesFolderPath)
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)

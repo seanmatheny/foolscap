@@ -52,6 +52,11 @@ final class AppModel: AppModelCore {
         // write is asked for by hand.
         appearanceRole = .source
         syncAppearance()
+        // The Jira page's "Open Settings…": the Settings window, on the Jira tab.
+        JiraSection.openSettings = {
+            UserDefaults.standard.set("jira", forKey: "settingsTab")
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        }
         if let library {
             let backup = BackupManager(library: library)
             backup.onRestored = { [weak self] in self?.reloadAfterRestore() }

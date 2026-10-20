@@ -2,6 +2,7 @@ import SwiftUI
 import Network
 import FoolscapCore
 import FoolscapStore
+import FoolscapUI
 
 /// Sync progress and outcome, for the page and the settings pane.
 @MainActor
@@ -466,8 +467,12 @@ public final class JiraSection: NotebookSection {
 
     public func open(_ issue: JiraIssue) {
         guard let site = credentials?.site ?? URL(string: self.site) else { return }
-        NSWorkspace.shared.open(issue.url(site: site))
+        Platform.openURL(issue.url(site: site))
     }
+
+    /// How the page's "Open Settings…" reaches the Jira settings: the Mac opens its
+    /// Settings window on the Jira tab, the phone turns to its Settings tab.
+    nonisolated(unsafe) public static var openSettings: (@MainActor () -> Void)?
 
     public struct Group: Identifiable, Equatable {
         public var name: String

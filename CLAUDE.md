@@ -594,3 +594,10 @@
   magnifier alone and the iCloud banners (`NoteBanner`, a `ViewThatFits`) wrap their buttons.
   The Today panel is handed `taskPens` and `compactPage` explicitly, since its hosting view
   inherits no environment. The phone's text column is 28/14.
+- Jira on the phone (since 0.9.0): FoolscapJira compiles for iOS as it is bar three spots
+  (`Platform.openURL`, `Platform.copyText`, and `JiraSection.openSettings`, a hook each app sets:
+  the Mac opens its Settings window on the Jira tab, the phone turns to its Settings tab). The
+  phone's `PhoneModel.setJiraEnabled` mirrors the Mac's; the toggle and `JiraSettingsPane` sit on
+  the phone's Settings tab, the token in the phone's own Keychain (entered once there; the Mac's
+  is not synced). Sync on the phone runs only while the app is in front (`PeriodicScheduler`'s
+  iOS branch) plus the pass 3 s after launch.
