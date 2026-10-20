@@ -160,8 +160,11 @@ IOS_ICON_SRC  := Icon/Foolscap.iconset/icon_512x512@2x.png
 IOS_ICON      := $(IOS_DIR)/Assets.xcassets/AppIcon.appiconset/icon-1024.png
 APP_VERSION   := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' $(PLIST_SRC))
 GIT_COUNT     := $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
+# The first signed build must target the cabled phone itself (`make ios IOS_DESTINATION=id=$(IOS_UDID)`):
+# a free team has no devices until a build registers one, and only a device destination does that.
+IOS_DESTINATION ?= generic/platform=iOS
 IOS_XCODEBUILD := xcodebuild build -project $(IOS_PROJECT) -scheme $(IOS_SCHEME) -configuration $(IOS_CONFIG) \
-  -destination 'generic/platform=iOS' -derivedDataPath "$(abspath $(IOS_DERIVED))" \
+  -destination '$(IOS_DESTINATION)' -derivedDataPath "$(abspath $(IOS_DERIVED))" \
   MARKETING_VERSION=$(APP_VERSION) CURRENT_PROJECT_VERSION=$(GIT_COUNT) -quiet
 
 xcodegen:
@@ -177,10 +180,14 @@ $(IOS_ICON_SRC):
 ios-project: xcodegen ios-icon
 	cd $(IOS_DIR) && xcodegen generate --quiet
 
-# Prints the Personal Team id Xcode knows, for Mobile/team.xcconfig.
+# Fills Mobile/team.xcconfig with the Personal Team id. Xcode 27 keeps the signed-in
+# teams only in its own account store, so the id is read from the generated project
+# after the team has been picked once in Xcode ▸ target ▸ Signing & Capabilities.
 ios-team:
-	@defaults read com.apple.dt.Xcode IDEProvisioningTeams 2>/dev/null \
-	  || echo "No team yet: sign your Apple ID into Xcode ▸ Settings ▸ Accounts first."
+	@if [ -f "$(IOS_DIR)/team.xcconfig" ]; then cat "$(IOS_DIR)/team.xcconfig"; \
+	elif id=$$(grep -o 'DEVELOPMENT_TEAM = [A-Z0-9]*' "$(IOS_PROJECT)/project.pbxproj" 2>/dev/null | head -1 | awk '{print $$3}'); [ -n "$$id" ]; then \
+	  echo "DEVELOPMENT_TEAM = $$id" > "$(IOS_DIR)/team.xcconfig"; echo "wrote $(IOS_DIR)/team.xcconfig: DEVELOPMENT_TEAM = $$id"; \
+	else echo "No team yet: open $(IOS_PROJECT) in Xcode, pick your Personal Team under FoolscapMobile ▸ Signing & Capabilities, then run make ios-team again."; fi
 
 ios: ios-project
 	@if [ -z "$(IOS_TEAM)" ]; then \
