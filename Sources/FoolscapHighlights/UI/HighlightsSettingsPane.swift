@@ -15,6 +15,11 @@ struct HighlightsSettingsPane: View {
         .onChange(of: picksRefresh) { _, _ in section.picksRefreshChanged() }
         Text("The three highlights on the Highlights tab and the flyleaf. The timed choices count from the last change, so this morning's three stay up until the same time tomorrow.")
             .font(.caption).foregroundStyle(.secondary)
+        if !HighlightsSection.imports {
+            Text("Highlights are read from the Kindle app on the Mac into Highlights/ in the notebook folder; the phone shows what has arrived, with a draw of its own for the day's three.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        #if canImport(AppKit)
         Picker("Check for new highlights", selection: $schedule) {
             ForEach(HighlightsImportSchedule.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
         }
@@ -46,8 +51,10 @@ struct HighlightsSettingsPane: View {
         Text(kfxText).font(.caption).foregroundStyle(.secondary)
         Text("Highlights are saved as one markdown file per book in Highlights/ inside your notebook folder, its cover beside it. Tags, ♥ and “hidden” live on each quote's last line. Everything is read from the Kindle app on this Mac, so only books downloaded there can be read.")
             .font(.caption).foregroundStyle(.secondary)
+        #endif
     }
 
+    #if canImport(AppKit)
     private var kfxText: String {
         switch section.kfxAvailability {
         case .ready: return "Newer (KFX) books are decoded with Calibre's KFX Input plugin, found on this Mac."
@@ -63,4 +70,5 @@ struct HighlightsSettingsPane: View {
         if let r = section.status.lastReport { text += " · " + r.summary }
         return text
     }
+    #endif
 }

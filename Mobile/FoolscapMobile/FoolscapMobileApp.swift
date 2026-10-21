@@ -7,6 +7,7 @@ import FoolscapUI
 import FoolscapSections
 import FoolscapJira
 import FoolscapSecrets
+import FoolscapHighlights
 
 /// The iPhone app: the shared app model over the notebook folder the Files picker
 /// granted (the app's own Documents until one is chosen), the Daily Notes and
@@ -46,6 +47,11 @@ final class PhoneModel: AppModelCore {
     /// The Secrets tab likewise: off means no section, no vault read.
     private(set) var secretsEnabled = false
     private(set) var secretsSection: SecretsSection?
+    /// The Highlights tab: reading only on the phone (the Mac imports from the Kindle app).
+    private(set) var highlightsEnabled = false
+    private(set) var highlightsSection: HighlightsSection?
+    /// The day's highlights lie on a loose page over the notebook until tapped away.
+    var flyleafPresented = false
 
     init() {
         let bookmarked = BookmarkedFolder.resolve()
@@ -55,6 +61,8 @@ final class PhoneModel: AppModelCore {
         watchForChanges()
         setJiraEnabled(UserDefaults.standard.bool(forKey: "jiraEnabled"))
         setSecretsEnabled(UserDefaults.standard.bool(forKey: SecretsSection.enabledKey))
+        setHighlightsEnabled(UserDefaults.standard.bool(forKey: "highlightsEnabled"))
+        flyleafPresented = highlightsEnabled && UserDefaults.standard.bool(forKey: "flyleafOnOpen")
         // The Jira page's "Open Settings…" turns to the Settings tab.
         JiraSection.openSettings = { [weak self] in self?.selectedSectionID = RootView.settingsTab.id }
     }
@@ -123,6 +131,32 @@ final class PhoneModel: AppModelCore {
         rewireSections()
     }
 
+    /// Add or remove the Highlights section at runtime (`rewireSections` places it).
+    func setHighlightsEnabled(_ on: Bool) {
+        guard on != highlightsEnabled, let library else { return }
+        highlightsEnabled = on
+        if on {
+            let highlights = HighlightsSection(library: library)
+            highlights.turnToTab = { [weak self] in
+                guard let self, self.selectedSectionID != HighlightsSection.sectionID else { return false }
+                self.selectedSectionID = HighlightsSection.sectionID
+                return true
+            }
+            sections.append(highlights)
+            highlightsSection = highlights
+            library.indexesHighlights = true
+            highlights.start()
+        } else {
+            highlightsSection?.stop()
+            highlightsSection = nil
+            sections.removeAll { $0.id == HighlightsSection.sectionID }
+            library.indexesHighlights = false
+            flyleafPresented = false
+            if selectedSectionID == HighlightsSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
+        }
+        rewireSections()
+    }
+
     override func defaultsChanged() {
         super.defaultsChanged()
         let role: AppearanceRole = followsMac ? .follower : .independent
@@ -131,16 +165,21 @@ final class PhoneModel: AppModelCore {
         if jira != jiraEnabled { setJiraEnabled(jira) }
         let secrets = UserDefaults.standard.bool(forKey: SecretsSection.enabledKey)
         if secrets != secretsEnabled { setSecretsEnabled(secrets) }
+        let highlights = UserDefaults.standard.bool(forKey: "highlightsEnabled")
+        if highlights != highlightsEnabled { setHighlightsEnabled(highlights) }
     }
 
     override func sectionSelectionChanged(from old: String) {
         if old == SecretsSection.sectionID, selectedSectionID != old { secretsSection?.didLeaveTab() }
         if selectedSectionID == SecretsSection.sectionID, selectedSectionID != old { secretsSection?.didEnterTab() }
+        // Going somewhere turns the flyleaf away.
+        if flyleafPresented { flyleafPresented = false }
     }
 
     /// Going to the background: the vault locks (and saves) first.
     override func flush() {
         secretsSection?.lockNow()
+        highlightsSection?.stop()
         super.flush()
     }
 
@@ -174,13 +213,19 @@ struct RootView: View {
         @Bindable var model = model
         let tabsLeft = model.tabEdge == .left
         GeometryReader { geo in
-            NotebookView(tabs: model.tabs + [Self.settingsTab], selection: $model.selectedSectionID) { id in
+            NotebookView(tabs: model.tabs + [Self.settingsTab], selection: $model.selectedSectionID, looseLeaf: $model.flyleafPresented) { id in
                 if id == Self.settingsTab.id {
                     PhoneSettingsPage(model: model, choosingFolder: $choosingFolder)
                 } else if let section = model.section(id: id) {
                     section.makeRootView()
                 } else {
                     Text("No section").foregroundStyle(.secondary)
+                }
+            }
+            // The flyleaf (the day's three highlights) lies on the notebook until tapped away.
+            .overlay {
+                if model.flyleafPresented, let highlights = model.highlightsSection {
+                    PageTurnOverlay(isPresented: $model.flyleafPresented) { highlights.makeFlyleafView() }
                 }
             }
             // The leather runs under the status bar and the home indicator; the page does not.
@@ -226,6 +271,8 @@ struct PhoneSettingsPage: View {
     @AppStorage(PreferenceKeys.textScale) private var textScale = 1.0
     @AppStorage("jiraEnabled") private var jiraEnabled = false
     @AppStorage(SecretsSection.enabledKey) private var secretsEnabled = false
+    @AppStorage("highlightsEnabled") private var highlightsEnabled = false
+    @AppStorage("flyleafOnOpen") private var flyleafOnOpen = false
 
     var body: some View {
         Form {
@@ -256,6 +303,14 @@ struct PhoneSettingsPage: View {
                 Text("Adds a Jira tab listing the issues assigned to you. Off, nothing runs: no requests, no tab. The token is this phone's own, kept in its Keychain.")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(model.sectionSettingsPanes.filter { $0.id == JiraSection.sectionID }) { pane in pane.view }
+            }
+            Section("Highlights") {
+                Toggle("Show Kindle highlights", isOn: $highlightsEnabled)
+                Text("Adds a Highlights tab: the books and quotes the Mac has imported from its Kindle app, three of them a day. The phone reads the files; it does not import.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Open on today's highlights", isOn: $flyleafOnOpen)
+                    .disabled(!highlightsEnabled)
+                ForEach(model.sectionSettingsPanes.filter { $0.id == HighlightsSection.sectionID }) { pane in pane.view }
             }
             Section("Secrets") {
                 Toggle("Keep secrets in the notebook", isOn: $secretsEnabled)

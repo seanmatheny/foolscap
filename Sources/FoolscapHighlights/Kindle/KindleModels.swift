@@ -68,6 +68,17 @@ public struct KindleListing: Sendable {
     }
 }
 
+/// An extractor that finds nothing: the phone reads the highlight files the Mac
+/// writes and never imports, so the section is built over this one there.
+public struct NoKindleExtractor: KindleExtracting {
+    public init() {}
+    public func listing() async throws -> KindleListing { KindleListing(books: [], annotations: [:]) }
+    public func prepare(_ books: [KindleBook], progress: @Sendable @escaping (String) -> Void) async {}
+    public func extract(_ book: KindleBook, annotations: [KindleAnnotation], wantsCover: Bool) async throws -> ExtractedBook {
+        throw ExtractionFailure.notDownloaded
+    }
+}
+
 public enum ExtractionFailure: Error, Equatable, Sendable {
     /// The Kindle app's container could not be read (Full Disk Access).
     case accessDenied(String)

@@ -612,3 +612,13 @@
   model also locks in `flush()`. `ConcealedPasteboard` on iOS is a local-only pasteboard item
   with a 30 s expiry. Import and export stay Mac-only (panels); `Color(nsColor:)` is
   `Color(_:)`, which takes either toolkit's colour.
+- Highlights on the phone (since 0.11.0): reading only. `HighlightsSection.imports` is false on
+  iOS: the section is built over `NoKindleExtractor` (`defaultExtractor`), makes no importer,
+  schedule, watcher or startup pass, and `importNow` returns at once, so an empty listing can
+  never be taken for deletions. `KindleApp`, `KFXExtractor` and `NativeKindleExtractor` are gated
+  whole; `KindleLibrary.defaultDataDirectory` is a dead path on iOS. The index does read
+  `Highlights/*.md` there (`indexesHighlights`), covers are `CGImage`s (`CoverCache`,
+  `Image(decorative:)`), and the day's three are the phone's own draw (`daily.json` lives in
+  its Application Support). The phone's Settings tab has the toggle, "Open on today's
+  highlights" (the flyleaf, `PageTurnOverlay`, works on the phone) and the picks cadence; the
+  pane's import controls are Mac-only.

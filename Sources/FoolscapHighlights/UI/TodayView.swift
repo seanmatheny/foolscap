@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import FoolscapCore
 import FoolscapUI
 
@@ -201,17 +200,14 @@ struct HighlightMenu: View {
             }
         }
         Divider()
-        Button("Copy Quote") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(item.text, forType: .string)
-        }
+        Button("Copy Quote") { Platform.copyText(item.text) }
         if showsBook {
             Button("Open in Book") {
                 if let openBook { openBook() } else { section.open(book: item.path, highlight: item.id) }
             }
         }
         if let url = section.kindleURL(for: item) {
-            Button("Open in Kindle") { NSWorkspace.shared.open(url) }
+            Button("Open in Kindle") { Platform.openURL(url) }
         }
     }
 }
@@ -230,7 +226,7 @@ struct LocationLabel: View {
             // Plain digits, as the Kindle prints them ("Location 1205").
             let text = Text(verbatim: "Location \(String(location))").font(theme.type.body.face(size)).foregroundStyle(theme.dimInk.color)
             if let url = section.kindleURL(for: item) {
-                Button { NSWorkspace.shared.open(url) } label: { text.underline(hovering) }
+                Button { Platform.openURL(url) } label: { text.underline(hovering) }
                     .buttonStyle(.plain)
                     .onHover { hovering = $0 }
                     .help("Open in Kindle at this location")

@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import ImageIO
 import CryptoKit
 import UniformTypeIdentifiers
@@ -98,7 +97,7 @@ struct CoverThumbnail: View {
     let title: String
     let author: String
     var width: CGFloat = 96
-    @State private var image: NSImage?
+    @State private var image: CGImage?
 
     /// Thumbnails are rendered at 3× the shelf height for Retina and zoom.
     static let shelfPixels = 96 * 3 / 2 * 3
@@ -117,7 +116,7 @@ struct CoverThumbnail: View {
     var body: some View {
         ZStack {
             if let image {
-                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+                Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fill)
                     .frame(width: width, height: height)
                     .clipped()
             } else {
@@ -177,17 +176,17 @@ struct PlaceholderCover: View {
 final class CoverCache {
     static let shared = CoverCache()
     /// Bounded, and emptied under memory pressure: the JPEGs on disk bring a cover back in a moment.
-    private let images: NSCache<NSString, NSImage> = {
-        let cache = NSCache<NSString, NSImage>()
+    private let images: NSCache<NSString, CGImage> = {
+        let cache = NSCache<NSString, CGImage>()
         cache.totalCostLimit = 24 << 20
         return cache
     }()
-    private var loading: [String: Task<NSImage?, Never>] = [:]
+    private var loading: [String: Task<CGImage?, Never>] = [:]
     nonisolated static let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Foolscap/Covers", isDirectory: true)
 
     /// What is already in memory, for a first render without a hop.
-    func cached(for url: URL, maxPixels: Int) -> NSImage? { images.object(forKey: "\(url.path)|\(maxPixels)" as NSString) }
+    func cached(for url: URL, maxPixels: Int) -> CGImage? { images.object(forKey: "\(url.path)|\(maxPixels)" as NSString) }
 
     /// Load every cover once, a few at a time, so scrolling never decodes.
     func warm(_ urls: [URL], maxPixels: Int) {
@@ -207,7 +206,7 @@ final class CoverCache {
         }
     }
 
-    func image(for url: URL, maxPixels: Int) async -> NSImage? {
+    func image(for url: URL, maxPixels: Int) async -> CGImage? {
         let key = "\(url.path)|\(maxPixels)"
         if let cached = images.object(forKey: key as NSString) { return cached }
         if let task = loading[key] { return await task.value }
@@ -216,18 +215,18 @@ final class CoverCache {
         let image = await task.value
         loading[key] = nil
         if let image {
-            let pixels = image.representations.first.map { $0.pixelsWide * $0.pixelsHigh } ?? Int(image.size.width * image.size.height * 4)
-            images.setObject(image, forKey: key as NSString, cost: pixels * 4)
+            images.setObject(image, forKey: key as NSString, cost: image.width * image.height * 4)
         }
         return image
     }
 
-    nonisolated private static func load(_ url: URL, maxPixels: Int) -> NSImage? {
+    nonisolated private static func load(_ url: URL, maxPixels: Int) -> CGImage? {
         let fm = FileManager.default
         let mtime = (try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         let digest = Insecure.SHA1.hash(data: Data("\(url.path)|\(Int(mtime))|\(maxPixels)".utf8))
         let cached = directory.appendingPathComponent(digest.prefix(8).map { String(format: "%02x", $0) }.joined() + ".jpg")
-        if let data = try? Data(contentsOf: cached), let image = NSImage(data: data) { return image }
+        if let data = try? Data(contentsOf: cached), let source = CGImageSourceCreateWithData(data as CFData, nil),
+           let image = CGImageSourceCreateImageAtIndex(source, 0, nil) { return image }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
                                         kCGImageSourceThumbnailMaxPixelSize: maxPixels,
@@ -239,7 +238,7 @@ final class CoverCache {
             CGImageDestinationAddImage(destination, cg, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
             if CGImageDestinationFinalize(destination) { try? (out as Data).write(to: cached, options: .atomic) }
         }
-        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        return cg
     }
 }
 

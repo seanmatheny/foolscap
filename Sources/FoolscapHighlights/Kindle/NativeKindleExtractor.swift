@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -84,3 +85,4 @@ public enum CoverImage {
         return out as Data
     }
 }
+#endif

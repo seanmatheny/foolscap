@@ -31,7 +31,7 @@ import AppKit
         cache.warm([tmp], maxPixels: 120)
         for _ in 0..<50 where cache.cached(for: tmp, maxPixels: 120) == nil { try await Task.sleep(for: .milliseconds(40)) }
         let warmed = try #require(cache.cached(for: tmp, maxPixels: 120))
-        #expect(warmed.size.height > 0 && warmed.size.height <= 120)
+        #expect(warmed.height > 0 && warmed.height <= 120)
     }
 }
 

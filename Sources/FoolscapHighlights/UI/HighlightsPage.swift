@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
@@ -103,6 +102,10 @@ struct HighlightsPage: View {
                     Text(section.status.phase ?? "Reading your Kindle highlights…")
                 }
                 .font(theme.type.body.face(15)).foregroundStyle(theme.dimInk.color)
+            } else if !HighlightsSection.imports {
+                Text("Highlights are read from the Kindle app on the Mac and saved into the notebook folder; the phone shows what has arrived. None yet.")
+                    .font(theme.type.body.face(15)).opacity(0.75)
+                    .frame(maxWidth: 520, alignment: .leading)
             } else if !section.kindleInstalled {
                 Text("Highlights come from the Kindle app on this Mac. Install Amazon Kindle from the App Store, sign in, and download the books you have highlighted.")
                     .font(theme.type.body.face(15)).opacity(0.75)
@@ -220,10 +223,10 @@ struct FullDiskAccessButton: View {
     var body: some View {
         HStack(spacing: 10) {
             Button("Open Files & Folders Settings…") {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders") { NSWorkspace.shared.open(url) }
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders") { Platform.openURL(url) }
             }
             Button("Full Disk Access…") {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") { NSWorkspace.shared.open(url) }
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") { Platform.openURL(url) }
             }
         }
         .font(theme.type.body.face(12.5))

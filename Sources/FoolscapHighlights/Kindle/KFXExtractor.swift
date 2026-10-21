@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import Foundation
 import CryptoKit
 
@@ -336,3 +337,4 @@ public enum HighlightsResources {
         return Bundle.module
     }()
 }
+#endif

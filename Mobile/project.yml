@@ -41,6 +41,8 @@ targets:
         product: FoolscapJira
       - package: foolscap
         product: FoolscapSecrets
+      - package: foolscap
+        product: FoolscapHighlights
     settings:
       base:
         PRODUCT_NAME: Foolscap

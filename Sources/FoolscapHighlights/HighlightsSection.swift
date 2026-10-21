@@ -1,5 +1,7 @@
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
@@ -126,7 +128,26 @@ public final class HighlightsSection: NotebookSection {
     @ObservationIgnored private lazy var provider = HighlightsSearchProvider(section: self)
     @ObservationIgnored private var started = false
 
-    public init(library: NotebookLibrary, extractor: any KindleExtracting = NativeKindleExtractor(),
+    /// What reads the Kindle: the app's files on the Mac; nothing on the phone, which
+    /// only reads the highlight files the Mac writes.
+    public static var defaultExtractor: any KindleExtracting {
+        #if canImport(AppKit)
+        NativeKindleExtractor()
+        #else
+        NoKindleExtractor()
+        #endif
+    }
+
+    /// Whether this device imports from the Kindle app at all.
+    public static var imports: Bool {
+        #if canImport(AppKit)
+        true
+        #else
+        false
+        #endif
+    }
+
+    public init(library: NotebookLibrary, extractor: any KindleExtracting = HighlightsSection.defaultExtractor,
                 stateURL: URL = HighlightsPaths.stateURL, dailyURL: URL = HighlightsPaths.dailyURL,
                 defaults: UserDefaults = .standard) {
         self.library = library
@@ -160,10 +181,14 @@ public final class HighlightsSection: NotebookSection {
         schedulePicksRefresh()
     }
 
+    #if canImport(AppKit)
     public var kindleInstalled: Bool {
         KindleLibrary.isInstalled(dataDirectory: (extractor as? NativeKindleExtractor)?.dataDirectory ?? KindleLibrary.defaultDataDirectory)
     }
     public var kfxAvailability: KFXExtractor.Availability { (extractor as? NativeKindleExtractor)?.kfx.availability ?? .ready }
+    #else
+    public var kindleInstalled: Bool { false }
+    #endif
 
     // MARK: Lifecycle
 
@@ -173,7 +198,8 @@ public final class HighlightsSection: NotebookSection {
         guard !started else { return }
         started = true
         history = DailyPickHistory.load(from: dailyURL)
-        importer = HighlightsImporter(extractor: extractor, library: library, stateURL: stateURL)
+        // The phone never imports: no importer, no schedule, no startup pass.
+        if Self.imports { importer = HighlightsImporter(extractor: extractor, library: library, stateURL: stateURL) }
         changeListener = Task { [weak self] in
             guard let self else { return }
             for await _ in library.changes {
@@ -185,7 +211,7 @@ public final class HighlightsSection: NotebookSection {
         applySchedule()
         let state = HighlightsState.load(from: stateURL)
         kindleBookIDs = Self.bookIDs(in: state)
-        if HighlightsImportSchedule.startupImportDue(schedule, lastRun: state.lastRun) {
+        if Self.imports, HighlightsImportSchedule.startupImportDue(schedule, lastRun: state.lastRun) {
             startupTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(5))
                 guard !Task.isCancelled else { return }
@@ -210,7 +236,9 @@ public final class HighlightsSection: NotebookSection {
     private func applySchedule() {
         scheduler?.stop(); scheduler = nil
         watcher?.stop(); watcher = nil
+        guard Self.imports else { return }
         let schedule = self.schedule
+        #if canImport(AppKit)
         if let minutes = schedule.minutes {
             let s = PeriodicScheduler(identifier: "com.seanmatheny.foolscap.highlights-import") { [weak self] in self?.importNow() }
             s.start(minutes: minutes)
@@ -221,6 +249,7 @@ public final class HighlightsSection: NotebookSection {
             w.start()
             watcher = w
         }
+        #endif
     }
 
     /// Re-draw the picks when they fall due: at local midnight, or when the
@@ -249,17 +278,24 @@ public final class HighlightsSection: NotebookSection {
     /// told otherwise this first opens it hidden, waits for its sync, and quits
     /// it again afterwards (never a Kindle the user had open).
     public func importNow(opensKindle: Bool = true) {
-        guard importTask == nil, let importer else { return }
+        guard Self.imports, importTask == nil, let importer else { return }
         let status = self.status
         status.isRunning = true
         status.lastError = nil
+        #if canImport(AppKit)
         let dataDirectory = (extractor as? NativeKindleExtractor)?.dataDirectory
         let launchesKindle = opensKindle && self.opensKindle && dataDirectory == KindleLibrary.defaultDataDirectory
             && KindleApp.isInstalled && KindleApp.running == nil
+        #else
+        let launchesKindle = false
+        #endif
         importTask = Task { [weak self] in
+            #if canImport(AppKit)
             var launched: NSRunningApplication?
             defer { if let launched { KindleApp.quit(launched) } }
+            #endif
             do {
+                #if canImport(AppKit)
                 if launchesKindle {
                     status.phase = "Opening Kindle to fetch new highlights…"
                     launched = try await KindleApp.launchHidden()
@@ -267,6 +303,9 @@ public final class HighlightsSection: NotebookSection {
                     _ = await KindleApp.waitForSync(of: KindleApp.syncFiles(dataDirectory: KindleLibrary.defaultDataDirectory), timeout: 45)
                     try Task.checkCancellation()
                 }
+                #else
+                _ = launchesKindle
+                #endif
                 let report = try await importer.run { phase in
                     Task { @MainActor in status.phase = phase }
                 }

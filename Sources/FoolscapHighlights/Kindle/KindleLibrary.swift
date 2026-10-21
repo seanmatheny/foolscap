@@ -7,8 +7,13 @@ import GRDB
 public enum KindleLibrary {
     /// The Mac App Store Kindle app (bundle id com.amazon.Lassen).
     public static var defaultDataDirectory: URL {
+        #if os(macOS)
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Containers/com.amazon.Lassen/Data", isDirectory: true)
+        #else
+        // No Kindle container to read on the phone; nothing looks here there.
+        FileManager.default.temporaryDirectory.appendingPathComponent("no-kindle", isDirectory: true)
+        #endif
     }
 
     public static func databaseURL(dataDirectory: URL) -> URL {

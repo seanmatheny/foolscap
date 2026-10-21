@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 
 /// The Kindle app itself. It only fetches new highlights from Amazon while it
@@ -74,3 +75,4 @@ enum KindleApp {
         var lastWrite: Date?
     }
 }
+#endif
