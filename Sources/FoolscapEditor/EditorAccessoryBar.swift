@@ -10,6 +10,8 @@ public final class EditorAccessoryModel {
     public let tags = TagCompletionModel()
     public var theme: NotebookTheme = .classicBlack
     @ObservationIgnored public var onCommand: (EditorCommand) -> Void = { _ in }
+    /// Set when the editor takes pictures: the bar then leads with a photo button.
+    @ObservationIgnored public var onPickPhoto: (() -> Void)?
 
     public init() {}
 }
@@ -37,6 +39,17 @@ public struct EditorAccessoryBar: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
                 if model.tags.tags.isEmpty {
+                    if let pick = model.onPickPhoto {
+                        Button(action: pick) {
+                            Image(systemName: "photo")
+                                .font(.system(size: 17, weight: .medium))
+                                .frame(width: 40, height: 36)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(theme.ink.color)
+                        .accessibilityLabel("Insert Photo")
+                    }
                     ForEach(Array(Self.commands.enumerated()), id: \.offset) { _, entry in
                         Button { model.onCommand(entry.0) } label: {
                             Image(systemName: entry.1)

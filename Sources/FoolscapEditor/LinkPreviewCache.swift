@@ -1,5 +1,4 @@
-#if canImport(AppKit)
-import AppKit
+import Foundation
 import LinkPresentation
 import CryptoKit
 
@@ -89,4 +88,3 @@ public final class LinkPreviewCache {
         pump()
     }
 }
-#endif

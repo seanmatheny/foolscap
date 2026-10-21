@@ -1,6 +1,8 @@
 #if canImport(UIKit) && !canImport(AppKit)
 import UIKit
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
@@ -15,6 +17,8 @@ public final class MarkdownTextView: UITextView {
     let styler: MarkdownStyler
     let document: NoteDocument
     let features: EditorFeatures
+    /// The pictures and link cards laid under their lines (shared with the Mac).
+    private(set) lazy var overlays = OverlayController(textView: self)
     /// Known tags for `#` completion, most used first (set by the editor wrapper).
     var knownTags: () -> [String] = { [] }
     /// Folding: the "n lines" pills drawn after folded headings (for taps). A phone
@@ -132,6 +136,7 @@ public final class MarkdownTextView: UITextView {
 
     /// Called after every edit, as the Mac's `didChangeText`.
     func textDidChange() {
+        overlays.select(nil)
         scheduleTagListUpdate(open: true)
     }
 
@@ -251,6 +256,7 @@ public final class MarkdownTextView: UITextView {
     private func installAccessoryBar() {
         accessory.theme = palette.theme
         accessory.onCommand = { [weak self] command in self?.perform(command) }
+        if features.contains(.attachments) { accessory.onPickPhoto = { [weak self] in self?.pickPhoto() } }
         let host = UIHostingController(rootView: EditorAccessoryBar(model: accessory))
         host.view.backgroundColor = .clear
         host.view.frame = CGRect(x: 0, y: 0, width: 390, height: EditorAccessoryBar.height)
@@ -348,25 +354,80 @@ public final class MarkdownTextView: UITextView {
                                   width: width, height: max(1, footerHeight))
     }
 
+    // MARK: Pictures from the photo library
+
+    /// The bar's photo button: the system picker, presented over the page; the picked
+    /// image's own bytes go to `Attachments/` and its line is inserted at the caret.
+    private func pickPhoto() {
+        var config = PHPickerConfiguration(photoLibrary: .shared())
+        config.filter = .images
+        config.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = self
+        var presenter = window?.rootViewController
+        while let next = presenter?.presentedViewController { presenter = next }
+        presenter?.present(picker, animated: true)
+    }
+
+    /// Image data from the pasteboard, under the first image type each item carries.
+    private func pastedImageData(_ pb: UIPasteboard) -> [Data] {
+        var out: [Data] = []
+        for (i, item) in pb.items.enumerated() {
+            guard let type = item.keys.compactMap({ UTType($0) }).first(where: { $0.conforms(to: .image) }),
+                  let data = pb.data(forPasteboardType: type.identifier, inItemSet: IndexSet(integer: i))?.first else { continue }
+            out.append(data)
+        }
+        return out
+    }
+
+    // MARK: Paste
+
+    /// Paste offers itself for a copied picture too (the text view alone only asks for text).
+    public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)), features.contains(.attachments), UIPasteboard.general.hasImages { return true }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    /// As the Mac's: a picture goes to `Attachments/` and its line is inserted; a bare web
+    /// address links the selection or takes a line of its own (for a card); text wins
+    /// over a picture when both are on the pasteboard.
+    public override func paste(_ sender: Any?) {
+        let pb = UIPasteboard.general
+        if features.contains(.attachments), !pb.hasStrings, pb.hasImages {
+            let lines = pastedImageData(pb).compactMap { AttachmentImporter.importImageData($0, document: document) }
+            if lines.isEmpty, let image = pb.image, let md = AttachmentImporter.importImage(image, document: document) {
+                insertMarkdown(md, ownLine: true)
+            }
+            for md in lines { insertMarkdown(md, ownLine: true) }
+            return
+        }
+        if let s = pb.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let url = URL(string: s), let scheme = url.scheme, ["http", "https"].contains(scheme), !s.contains(" ") {
+            if selectedRange.length > 0 {
+                insertMarkdown("[\(markdownText.substring(with: selectedRange))](\(s))", ownLine: false)
+            } else {
+                insertMarkdown(s, ownLine: true)
+            }
+            return
+        }
+        super.paste(sender)
+    }
+
     // MARK: Overlays
 
     /// An overlay's size changed or it went away.
     func refreshOverlays() { overlaysChanged() }
 
-    /// The header's room follows the opening heading, as a picture's follows its
-    /// line on the Mac; pictures and link cards themselves are still to come here.
+    /// The pictures and cards, and the header's room under the opening heading, are
+    /// reserved as paragraph spacing by the styler; the controller places the views.
     private func overlaysChanged() {
         guard !syncingOverlays else { return }
         syncingOverlays = true
         defer { syncingOverlays = false }
         updateTopInset()
-        var heights: [Int: CGFloat] = [:]
-        if let anchor = headerAnchor, headerReservation > 0 {
-            heights[anchor] = palette.pitch + headerReservation
-        }
-        if heights != styler.overlayHeights {
-            let before = styler.overlayHeights
-            styler.overlayHeights = heights
+        let before = styler.overlayHeights
+        if overlays.sync(map: styler.blockMap) {
+            let heights = styler.overlayHeights
             let changed = Set(before.keys).union(heights.keys).filter { before[$0] != heights[$0] }
             if !changed.isEmpty {
                 styler.restyle(lines: Array(changed))
@@ -399,6 +460,10 @@ public final class MarkdownTextView: UITextView {
         if subviews.last !== overlay { bringSubviewToFront(overlay) }
         positionHeader()
         positionFooter()
+        if overlays.reposition() {
+            // Width changed: reserve new heights on the next turn of the run loop.
+            DispatchQueue.main.async { [weak self] in self?.overlaysChanged() }
+        }
     }
 
     // MARK: Taps
@@ -408,6 +473,9 @@ public final class MarkdownTextView: UITextView {
     /// the selection is put back and a keyboard the tap would have raised is not.
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: self)
+        // A picture or card takes its own taps; one on the text lets a selected picture go.
+        if overlays.overlayView(at: point) != nil { return }
+        overlays.select(nil)
         let wasEditing = isFirstResponder
         let selection = selectedRange
         if let heading = foldControl(at: point) {
@@ -630,6 +698,21 @@ extension MarkdownTextView: MarkdownEditing {
     func endUndoGroup() { undoManager?.endUndoGrouping() }
 
     func clipboardString() -> String? { Platform.pasteboardString() }
+}
+
+extension MarkdownTextView: PHPickerViewControllerDelegate {
+    public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let provider = results.first?.itemProvider,
+              provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { return }
+        provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { [weak self] data, _ in
+            guard let data else { return }
+            Task { @MainActor in
+                guard let self, let md = AttachmentImporter.importImageData(data, document: self.document) else { return }
+                self.insertMarkdown(md, ownLine: true)
+            }
+        }
+    }
 }
 
 extension MarkdownTextView: UIGestureRecognizerDelegate {

@@ -1,14 +1,22 @@
 #if canImport(AppKit)
 import AppKit
+#else
+import UIKit
+#endif
+import ImageIO
 import LinkPresentation
 import UniformTypeIdentifiers
 import FoolscapCore
 import FoolscapStore
+import FoolscapUI
 
 /// Places real views (images, link cards) under the markdown lines that
 /// reference them. The text storage is untouched: the styler reserves space
 /// below the line with paragraph spacing, and this controller positions a
-/// subview in that space after each layout pass.
+/// subview in that space after each layout pass. Shared by both platforms'
+/// text views (the views it places, `ResizableImageView` and `LinkCardView`,
+/// are each toolkit's own); both lay their text out y-down, so the arithmetic
+/// is the same.
 @MainActor
 final class OverlayController {
     unowned let textView: MarkdownTextView
@@ -28,15 +36,17 @@ final class OverlayController {
     /// A decoded picture, sized in points as the markdown lays it out, and the
     /// longest side in pixels it covers (the size asked for, when the file is smaller).
     private final class DecodedImage {
-        let image: NSImage
+        let image: PlatformImage
+        /// The natural size in points, as the header gives it.
+        let size: CGSize
         let pixels: CGFloat
-        init(image: NSImage, pixels: CGFloat) { self.image = image; self.pixels = pixels }
+        init(image: PlatformImage, size: CGSize, pixels: CGFloat) { self.image = image; self.size = size; self.pixels = pixels }
     }
     /// The longest side, in pixels, each picture is wanted at; a decode in flight
     /// that was asked for less is followed by another.
     private var wantedPixels: [String: CGFloat] = [:]
     /// Display sizes read from image headers, so space is reserved before decoding.
-    private var imageSizes: [String: NSSize] = [:]
+    private var imageSizes: [String: CGSize] = [:]
     private var decoding: Set<String> = []
     /// Images that could not be read, and when: not retried on every styling pass.
     private var failures: [String: Date] = [:]
@@ -56,26 +66,26 @@ final class OverlayController {
 
     final class Overlay {
         let key: Key
-        let view: NSView
+        let view: PlatformView
         var lineIndex: Int
         /// Natural size; images scale to the available width, cards keep a fixed height.
-        var naturalSize: NSSize
+        var naturalSize: CGSize
         let isImage: Bool
         /// Width the user chose by dragging, stored in the markdown as `|width`.
         var requestedWidth: CGFloat?
-        init(key: Key, view: NSView, lineIndex: Int, naturalSize: NSSize, isImage: Bool, requestedWidth: CGFloat? = nil) {
+        init(key: Key, view: PlatformView, lineIndex: Int, naturalSize: CGSize, isImage: Bool, requestedWidth: CGFloat? = nil) {
             self.key = key; self.view = view; self.lineIndex = lineIndex; self.naturalSize = naturalSize
             self.isImage = isImage; self.requestedWidth = requestedWidth
         }
 
-        func displaySize(availableWidth: CGFloat) -> NSSize {
+        func displaySize(availableWidth: CGFloat) -> CGSize {
             if isImage {
                 let maxWidth = min(availableWidth, requestedWidth ?? .greatestFiniteMagnitude)
                 let cap = requestedWidth == nil ? OverlayController.maxImageHeight : .greatestFiniteMagnitude
                 let scale = min(1, min(maxWidth / naturalSize.width, cap / naturalSize.height))
-                return NSSize(width: (naturalSize.width * scale).rounded(), height: (naturalSize.height * scale).rounded())
+                return CGSize(width: (naturalSize.width * scale).rounded(), height: (naturalSize.height * scale).rounded())
             }
-            return NSSize(width: min(availableWidth, naturalSize.width), height: naturalSize.height)
+            return CGSize(width: min(availableWidth, naturalSize.width), height: naturalSize.height)
         }
     }
 
@@ -148,16 +158,21 @@ final class OverlayController {
         switch line.kind {
         case .imageLine(let alt, let path):
             let decoded = imageCache.object(forKey: path as NSString)
-            guard let size = decoded?.image.size ?? imageSize(path) else { return nil }
+            guard let size = decoded?.size ?? imageSize(path) else { return nil }
             let iv = ResizableImageView(image: decoded?.image, size: size, path: path)
             iv.decodedPixels = decoded?.pixels ?? 0
             iv.selectionColor = textView.palette.accent
             iv.onResize = { [weak self] width in self?.commitWidth(width, key: key) }
             iv.onReveal = { [weak self] in self?.revealLine(forKey: key) }
             iv.onCopy = { [weak self] in self?.copyImage(path: path) ?? false }
+            #if canImport(AppKit)
             iv.onShowInFinder = { [weak self] in self?.showInFinder(path: path) }
+            #endif
             iv.onSelect = { [weak self, weak iv] in
-                self?.textView.window?.makeFirstResponder(self?.textView)
+                // The Mac's click takes the focus for ⌘C; a phone's tap must not raise the keyboard.
+                #if canImport(AppKit)
+                self?.focusTextView()
+                #endif
                 self?.select(iv)
             }
             let overlay = Overlay(key: key, view: iv, lineIndex: line.index, naturalSize: size, isImage: true,
@@ -183,14 +198,37 @@ final class OverlayController {
                 }
             }
             return Overlay(key: key, view: card, lineIndex: line.index,
-                           naturalSize: NSSize(width: Self.linkCardMaxWidth, height: Self.linkCardHeight), isImage: false)
+                           naturalSize: CGSize(width: Self.linkCardMaxWidth, height: Self.linkCardHeight), isImage: false)
         default:
             return nil
         }
     }
 
+    /// The text column's left edge and width, inside the view's insets (an `NSSize`
+    /// on the Mac, where both sides are the same; `UIEdgeInsets` on the phone).
+    private var textLeft: CGFloat {
+        #if canImport(AppKit)
+        textView.textContainerInset.width
+        #else
+        textView.textContainerInset.left
+        #endif
+    }
+
     private func availableWidth() -> CGFloat {
-        max(120, textView.bounds.width - textView.textContainerInset.width * 2)
+        #if canImport(AppKit)
+        let insets = textView.textContainerInset.width * 2
+        #else
+        let insets = textView.textContainerInset.left + textView.textContainerInset.right
+        #endif
+        return max(120, textView.bounds.width - insets)
+    }
+
+    private func focusTextView() {
+        #if canImport(AppKit)
+        textView.window?.makeFirstResponder(textView)
+        #else
+        textView.becomeFirstResponder()
+        #endif
     }
 
     // MARK: Selecting and copying images
@@ -213,6 +251,15 @@ final class OverlayController {
     func copyImage(path: String) -> Bool {
         let url = fileURL(path)
         guard let data = try? Data(contentsOf: url) else { return false }
+        #if canImport(UIKit)
+        // The phone's pasteboard takes the file's bytes under their own type.
+        if let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) {
+            UIPasteboard.general.setData(data, forPasteboardType: type.identifier)
+        } else if let image = UIImage(data: data) {
+            UIPasteboard.general.image = image
+        } else { return false }
+        return true
+        #else
         let item = NSPasteboardItem()
         if let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) {
             item.setData(data, forType: NSPasteboard.PasteboardType(type.identifier))
@@ -223,6 +270,7 @@ final class OverlayController {
         pb.clearContents()
         pb.writeObjects([item])
         return true
+        #endif
     }
 
     /// Copy the selected picture, if there is one. False when nothing was selected.
@@ -231,9 +279,11 @@ final class OverlayController {
         return copyImage(path: selected.path)
     }
 
+    #if canImport(AppKit)
     func showInFinder(path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([fileURL(path)])
     }
+    #endif
 
     // MARK: Images
 
@@ -244,7 +294,7 @@ final class OverlayController {
 
     /// The picture's display size from its header (no decoding), or nil if it
     /// cannot be read; failures are remembered for a while.
-    private func imageSize(_ path: String) -> NSSize? {
+    private func imageSize(_ path: String) -> CGSize? {
         if let size = imageSizes[path] { return size }
         if let failed = failures[path], Date().timeIntervalSince(failed) < Self.failureRetryInterval { return nil }
         let url = fileURL(path)
@@ -258,7 +308,11 @@ final class OverlayController {
     /// The longest side, in pixels, the overlay shows its picture at.
     private func pixelsShown(_ overlay: Overlay) -> CGFloat {
         let size = overlay.displaySize(availableWidth: availableWidth())
-        let scale = textView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        #if canImport(AppKit)
+        let scale = textView.window?.backingScaleFactor ?? Platform.backingScale
+        #else
+        let scale = textView.window?.screen.scale ?? Platform.backingScale
+        #endif
         return min(Self.maxThumbnailPixels, (max(size.width, size.height) * scale).rounded(.up))
     }
 
@@ -307,11 +361,15 @@ final class OverlayController {
             return
         }
         // Sized in points as the header said: the bitmap behind may be smaller than that.
+        #if canImport(AppKit)
         let image = NSImage(cgImage: thumbnail.image, size: thumbnail.size)
+        #else
+        let image = UIImage(cgImage: thumbnail.image)
+        #endif
         // A file smaller than asked for is as sharp as it gets: count the request as covered.
         let pixels = max(CGFloat(max(thumbnail.image.width, thumbnail.image.height)), thumbnail.requested)
         if (imageCache.object(forKey: path as NSString)?.pixels ?? 0) <= pixels {
-            imageCache.setObject(DecodedImage(image: image, pixels: pixels), forKey: path as NSString,
+            imageCache.setObject(DecodedImage(image: image, size: thumbnail.size, pixels: pixels), forKey: path as NSString,
                                  cost: thumbnail.image.width * thumbnail.image.height * 4)
         }
         imageSizes[path] = thumbnail.size
@@ -331,7 +389,7 @@ final class OverlayController {
     private struct Thumbnail: @unchecked Sendable {
         let image: CGImage
         /// Natural size in points, from the header, whatever size the bitmap came out at.
-        let size: NSSize
+        let size: CGSize
         /// The longest side asked for, in pixels.
         let requested: CGFloat
     }
@@ -353,7 +411,7 @@ final class OverlayController {
     private nonisolated static let maxThumbnailPixels: CGFloat = 1800
 
     /// The picture's natural size in points, from the header alone (no decoding).
-    private nonisolated static func headerSize(_ url: URL) -> NSSize? {
+    private nonisolated static func headerSize(_ url: URL) -> CGSize? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return nil }
         return naturalSize(props)
@@ -361,7 +419,7 @@ final class OverlayController {
 
     /// Points: a picture is laid out as if decoded at `maxThumbnailPixels`, and one
     /// wider than 1400 px is treated as 2x so screenshots do not look enormous.
-    private nonisolated static func naturalSize(_ props: [CFString: Any]) -> NSSize? {
+    private nonisolated static func naturalSize(_ props: [CFString: Any]) -> CGSize? {
         guard let pixelWidth = props[kCGImagePropertyPixelWidth] as? CGFloat,
               let pixelHeight = props[kCGImagePropertyPixelHeight] as? CGFloat,
               pixelWidth > 0, pixelHeight > 0 else { return nil }
@@ -374,7 +432,12 @@ final class OverlayController {
             h = (h * maxThumbnailPixels / longest).rounded()
         }
         let scale: CGFloat = pixelWidth > 1400 ? 2 : 1
-        return NSSize(width: w / scale, height: h / scale)
+        return CGSize(width: w / scale, height: h / scale)
+    }
+
+    /// The overlay whose view lies under `point` (text-view coordinates), if any.
+    func overlayView(at point: CGPoint) -> PlatformView? {
+        overlays.values.first { !$0.view.isHidden && $0.view.frame.contains(point) }?.view
     }
 
     /// Position every overlay under its line. Called from the text view's layout().
@@ -393,9 +456,8 @@ final class OverlayController {
             let size = overlay.displaySize(availableWidth: width)
             if textView.styler.overlayHeights[overlay.lineIndex] != reserved(for: size.height) { stale = true }
             if overlay.isImage { decodeIfNeeded(overlay) }
-            let x = textView.textContainerInset.width
             // Directly under the text line, inside the paragraph spacing reserved for it.
-            overlay.view.frame = NSRect(x: x, y: bottom + 4, width: size.width, height: size.height)
+            overlay.view.frame = CGRect(x: textLeft, y: bottom + 4, width: size.width, height: size.height)
         }
         return stale
     }
@@ -409,9 +471,8 @@ final class OverlayController {
         let natural = overlay.naturalSize.width
         let chosen: Double? = abs(width - natural) < 4 ? nil : Double(min(width, natural))
         let replacement = BlockMap.imageLine(alt: alt, width: chosen, path: path)
-        guard replacement != line.text, textView.shouldChangeText(in: line.range, replacementString: replacement) else { return }
-        textView.textStorage?.replaceCharacters(in: line.range, with: replacement)
-        textView.didChangeText()
+        guard replacement != line.text else { return }
+        textView.replace(line.range, with: replacement)
     }
 
     /// Show the markdown behind an overlay and put the caret at its end.
@@ -420,12 +481,13 @@ final class OverlayController {
         let index = overlay.lineIndex
         textView.styler.forceReveal(line: index)
         let line = textView.styler.blockMap.lines[index]
-        textView.window?.makeFirstResponder(textView)
-        textView.setSelectedRange(NSRange(location: line.range.location + line.range.length, length: 0))
+        focusTextView()
+        textView.markdownSelection = NSRange(location: line.range.location + line.range.length, length: 0)
         textView.scrollRangeToVisible(line.range)
     }
 }
 
+#if canImport(AppKit)
 
 /// A LinkPresentation card with a discreet copy button that appears on hover.
 final class LinkCardView: NSView {

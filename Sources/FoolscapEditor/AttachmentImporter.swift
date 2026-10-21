@@ -1,10 +1,15 @@
 #if canImport(AppKit)
 import AppKit
+#else
+import UIKit
+#endif
+import ImageIO
 import UniformTypeIdentifiers
 import FoolscapCore
 import FoolscapStore
+import FoolscapUI
 
-/// Copies pasted or dropped images into the note's Attachments folder and
+/// Copies pasted, dropped or picked images into the note's Attachments folder and
 /// returns the markdown to insert.
 @MainActor
 enum AttachmentImporter {
@@ -22,12 +27,27 @@ enum AttachmentImporter {
     }
 
     /// Write PNG data for an image and return the markdown line.
-    static func importImage(_ image: NSImage, document: NoteDocument, name: String? = nil) -> String? {
+    static func importImage(_ image: PlatformImage, document: NoteDocument, name: String? = nil) -> String? {
+        #if canImport(AppKit)
         guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        #else
+        guard let png = image.pngData() else { return nil }
+        #endif
         let stamp = Self.stamp()
         let fileName = name.map { sanitise($0) } ?? "\(document.day?.string ?? "image")-\(stamp).png"
         return importData(png, fileName: fileName, document: document, alt: name ?? "screenshot")
+    }
+
+    /// Keep an image's own bytes (a photo stays a JPEG or HEIC, never re-encoded),
+    /// named by the day and the time with the extension its header says.
+    static func importImageData(_ data: Data, document: NoteDocument, alt: String = "photo") -> String? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let identifier = CGImageSourceGetType(source) as String?,
+              let type = UTType(identifier), type.conforms(to: .image) else { return nil }
+        let ext = type.preferredFilenameExtension ?? "jpg"
+        let fileName = "\(document.day?.string ?? "image")-\(stamp()).\(ext)"
+        return importData(data, fileName: fileName, document: document, alt: alt)
     }
 
     /// Copy an existing image file, keeping its name (deduplicated).
@@ -63,4 +83,3 @@ enum AttachmentImporter {
         return imageTypes.contains { type.conforms(to: $0) }
     }
 }
-#endif
