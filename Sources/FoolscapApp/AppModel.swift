@@ -150,7 +150,7 @@ final class AppModel: AppModelCore {
             secretsSection?.didEnterTab(after: .milliseconds(args.contains("--no-opening") ? 800 : 2200))
         }
         // `--window=WxH` sizes the main window (to see the tabs shrink to their icons).
-        if let size = flagValue("--window")?.split(separator: "x"), size.count == 2,
+        if let size = (flagValue("--window") ?? (args.contains("--compact") ? "390x844" : nil))?.split(separator: "x"), size.count == 2,
            let w = Double(size[0]), let h = Double(size[1]) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 guard let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey }) else { return }

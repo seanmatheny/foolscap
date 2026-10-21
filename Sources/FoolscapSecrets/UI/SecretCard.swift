@@ -201,6 +201,7 @@ struct CopiedBadge: View {
 /// A fenced block: the editor's code backdrop with its lines hidden behind dots
 /// until revealed, and Reveal / Copy capsules in its corner.
 struct BlockView: View {
+    @Environment(\.compactPage) private var compact
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: SecretsSection
     let entry: SecretEntry
@@ -222,7 +223,7 @@ struct BlockView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     ForEach(0..<min(3, max(1, block.lineCount)), id: \.self) { _ in
-                        Text(String(repeating: "•", count: 48))
+                        Text(String(repeating: "•", count: compact ? 20 : 48))
                             .font(theme.monoFont(12 * scale))
                             .foregroundStyle(theme.ink.color.opacity(0.55))
                     }
@@ -234,7 +235,7 @@ struct BlockView: View {
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
-            .padding(.trailing, 150)
+            .padding(.trailing, compact ? 100 : 150)
             .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 6) {
                 if let info = block.info {

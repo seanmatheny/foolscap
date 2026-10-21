@@ -20,6 +20,8 @@ struct FoolscapMobileApp: App {
         // (the margin rule sits 16 pt left of the text, still clear of the page edge).
         PageRuling.textLeft = 28
         PageRuling.textRight = 14
+        // A line more above the note, so the search and day controls clear the heading.
+        PageColumn.topLines = 2
         // The text scale once followed the Mac's; it is the phone's own now, and the
         // Mac's 0.85 that may already be here goes back to full size, once.
         if !UserDefaults.standard.bool(forKey: "phoneTextScaleReset") {

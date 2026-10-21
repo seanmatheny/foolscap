@@ -53,7 +53,8 @@
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
   to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--jira` (forces the Jira tab on and opens it; `--jira-sample` shows made-up issues without reading the keychain, so a freshly signed debug build raises no token prompt), `--secrets` (the Secrets tab likewise), `--highlights` (forces the Highlights tab on
   and opens it; `--highlights=books` on the shelf, which is where the tab opens by default, `--highlights=today` on the day's three, `--highlights=search:words` with a search typed in),
-  `--window=WxH` (sizes the main window, to see the index tabs shrink to their icons), `--flyleaf` (forces the tab on and shows the day's three on the
+  `--window=WxH` (sizes the main window, to see the index tabs shrink to their icons), `--compact` (previews the phone's layout on the Mac: the compact cover, `\.compactPage`, the phone's
+  text column, a 390×844 window unless `--window` says otherwise; the Mac app never sets these otherwise, and the UIKit editor and the phone's Settings tab are not shown), `--flyleaf` (forces the tab on and shows the day's three on the
   opening page),
   `--type=text` (posts key events into the focused text after 2s, e.g. to show tag
   completion; `\n` is Return, `{up}` `{down}` `{left}` `{right}` `{tab}` `{esc}` name
@@ -605,7 +606,17 @@
   edits and tags; a double tap edits in a sheet). The daily page's search capsule is the
   magnifier alone and the iCloud banners (`NoteBanner`, a `ViewThatFits`) wrap their buttons.
   The Today panel is handed `taskPens` and `compactPage` explicitly, since its hosting view
-  inherits no environment. The phone's text column is 28/14.
+  inherits no environment. The phone's text column is 28/14: `PageColumn` (FoolscapUI) holds
+  `textLeft`/`textRight`/`topLines` (`PageRuling` in the editor forwards to it, so pages without
+  the editor read the same numbers) and `PageColumn.trailing(compact:)` is the SwiftUI pages'
+  trailing inset (44 on the Mac). Every tab has a phone layout (since 0.15.0, 2026-10-21, checked
+  with the Mac's `--compact` flag): the editor keeps two lines above the note so the search and
+  day controls clear the heading; the Jira row is two ruled lines (key and summary wrapping, then
+  epic, status, due, comment and link) with the status line under the + field and a short
+  prompt; the Highlights and Secrets headers put the chips/search on a second line and the shelf
+  holds two books a row; the Secrets page leaves `ThumbIndexView.selectedWidth + 6` on the
+  index's side; the Scribe page swaps the contents column for a menu of the folder's notebooks
+  (`treeNotebooks`), the facsimile and transcript stacking as they do in a narrow window.
 - Jira on the phone (since 0.9.0): FoolscapJira compiles for iOS as it is bar three spots
   (`Platform.openURL`, `Platform.copyText`, and `JiraSection.openSettings`, a hook each app sets:
   the Mac opens its Settings window on the Jira tab, the phone turns to its Settings tab). The

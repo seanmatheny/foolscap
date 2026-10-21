@@ -7,16 +7,16 @@ import FoolscapUI
 /// then today's three, the shelf of covers, one book, or search results.
 struct HighlightsPage: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.compactPage) private var compact
     @Bindable var section: HighlightsSection
     @FocusState private var searchFocused: Bool
 
     private var pitch: CGFloat { theme.linePitch }
     private var scale: CGFloat { theme.type.body.size / 15 }
 
-    @State private var pageWidth: CGFloat = 800
-
     var body: some View {
         GeometryReader { geo in
+            let leading = PageColumn.textLeft, trailing = PageColumn.trailing(compact: compact)
             ScrollViewReader { proxy in
                 ScrollView {
                     // Quotes and covers do not sit on the ruling, so the page is left plain.
@@ -25,17 +25,15 @@ struct HighlightsPage: View {
                         VStack(alignment: .leading, spacing: 0) {
                             header
                             Spacer().frame(height: pitch / 2)
-                            content
+                            content(width: max(120, geo.size.width - leading - trailing))
                             Spacer(minLength: pitch * 2)
                         }
-                        .padding(.leading, 58)
-                        .padding(.trailing, 44)
+                        .padding(.leading, leading)
+                        .padding(.trailing, trailing)
                         .padding(.top, pitch)
                     }
                 }
                 .onChange(of: section.pendingHighlightID) { _, id in scroll(to: id, proxy: proxy) }
-                .onAppear { pageWidth = geo.size.width - 58 - 44 }
-                .onChange(of: geo.size.width) { _, w in pageWidth = w - 58 - 44 }
                 .onChange(of: section.items.count) { _, _ in scroll(to: section.pendingHighlightID, proxy: proxy) }
             }
         }
@@ -43,7 +41,7 @@ struct HighlightsPage: View {
         .task { await section.reload() }
     }
 
-    @ViewBuilder private var content: some View {
+    @ViewBuilder private func content(width pageWidth: CGFloat) -> some View {
         if section.items.isEmpty {
             emptyState
         } else if !section.searchQuery.isEmpty {
@@ -57,21 +55,36 @@ struct HighlightsPage: View {
         }
     }
 
+    /// The title, the mode chips and the search field on one line; on a phone the
+    /// chips and the search field take the line under the title.
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("Highlights").font(theme.type.heading.font).fontWeight(.bold)
-            Text("\(section.items.count)").font(theme.type.body.face(13 * scale)).foregroundStyle(theme.dimInk.color)
-            Spacer()
-            if !section.items.isEmpty {
-                FilterChip(label: "Today", isOn: section.mode == .today && section.searchText.isEmpty) { section.searchText = ""; section.showToday() }
-                FilterChip(label: "Books", isOn: section.mode != .today && section.searchText.isEmpty) { section.searchText = ""; section.showBooks() }
-                searchField
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("Highlights").font(theme.type.heading.font).fontWeight(.bold)
+                Text("\(section.items.count)").font(theme.type.body.face(13 * scale)).foregroundStyle(theme.dimInk.color)
+                Spacer()
+                if !compact, !section.items.isEmpty {
+                    modeChips
+                    searchField
+                }
+                if section.status.isRunning {
+                    ProgressView().controlSize(.mini).help(section.status.phase ?? "Importing…")
+                }
             }
-            if section.status.isRunning {
-                ProgressView().controlSize(.mini).help(section.status.phase ?? "Importing…")
+            .frame(height: pitch * 1.5)
+            if compact, !section.items.isEmpty {
+                HStack(spacing: 8) {
+                    modeChips
+                    searchField
+                }
+                .frame(height: pitch)
             }
         }
-        .frame(height: pitch * 1.5)
+    }
+
+    @ViewBuilder private var modeChips: some View {
+        FilterChip(label: "Today", isOn: section.mode == .today && section.searchText.isEmpty) { section.searchText = ""; section.showToday() }
+        FilterChip(label: "Books", isOn: section.mode != .today && section.searchText.isEmpty) { section.searchText = ""; section.showBooks() }
     }
 
     private var searchField: some View {
@@ -88,7 +101,8 @@ struct HighlightsPage: View {
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 3)
-        .frame(width: 230)
+        .frame(width: compact ? nil : 230)
+        .frame(maxWidth: compact ? .infinity : nil)
         .background(RoundedRectangle(cornerRadius: 6).fill(theme.ink.color.opacity(searchFocused ? 0.07 : 0.04)))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.ink.color.opacity(searchFocused ? 0.22 : 0.12), lineWidth: 0.5))
         .colorScheme(theme.isDark ? .dark : .light)

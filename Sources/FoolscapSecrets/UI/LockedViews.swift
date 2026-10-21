@@ -58,7 +58,7 @@ struct LockedView: View {
                     SecureField("Recovery passphrase", text: $passphrase)
                         .paperField()
                         .font(theme.type.body.face(13 * scale))
-                        .frame(width: 260)
+                        .frame(maxWidth: 260)
                         .focused($passphraseFocused)
                         .onSubmit(submit)
                     Button("Unlock") { submit() }
@@ -118,10 +118,10 @@ struct SetupView: View {
                 .foregroundStyle(theme.dimInk.color)
                 .fixedSize(horizontal: false, vertical: true)
             SecureField("Recovery passphrase", text: $passphrase)
-                .paperField().frame(width: 320)
+                .paperField().frame(maxWidth: 320)
                 .focused($passphraseFocused)
             SecureField("The same again", text: $confirmation)
-                .paperField().frame(width: 320)
+                .paperField().frame(maxWidth: 320)
                 .onSubmit { if ready { create() } }
             HStack(spacing: 12) {
                 Button { create() } label: {

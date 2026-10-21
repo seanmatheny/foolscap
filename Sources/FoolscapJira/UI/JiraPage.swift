@@ -9,6 +9,7 @@ import FoolscapUI
 /// sun, a status menu and a comment bubble.
 struct JiraPage: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.compactPage) private var compact
     @Bindable var section: JiraSection
     @State private var newTaskText = ""
     @FocusState private var newTaskFocused: Bool
@@ -36,6 +37,13 @@ struct JiraPage: View {
                         } else {
                             newTaskField
                                 .frame(height: pitch)
+                            // The phone's header has no room for the status line: trouble shows under the field.
+                            if compact, section.status.lastError != nil || section.status.isRunning {
+                                Text(section.statusText).font(theme.type.body.face(11.5 * scale))
+                                    .foregroundStyle(section.status.lastError == nil ? theme.dimInk.color : .red)
+                                    .lineLimit(2)
+                                    .frame(minHeight: pitch, alignment: .leading)
+                            }
                             // A full line between the field and the first group, as between the groups below.
                             Spacer().frame(height: pitch * 1.5 - Self.fieldGap)
                             if section.state.issues.isEmpty {
@@ -51,7 +59,7 @@ struct JiraPage: View {
                         Spacer(minLength: pitch * 2)
                     }
                     .padding(.leading, PageRuling.textLeft)
-                    .padding(.trailing, 44)
+                    .padding(.trailing, PageColumn.trailing(compact: compact))
                     .padding(.top, pitch + PageRuling.rowShift(palette))
                 }
             }
@@ -85,8 +93,10 @@ struct JiraPage: View {
             Text("Jira").font(theme.type.heading.font).fontWeight(.bold)
             Text("\(section.openCount)").font(theme.type.body.face(13 * scale)).foregroundStyle(theme.dimInk.color)
             Spacer()
-            Text(section.statusText).font(theme.type.body.face(12 * scale))
-                .foregroundStyle(section.status.lastError == nil ? theme.dimInk.color : .red).lineLimit(1)
+            if !compact {
+                Text(section.statusText).font(theme.type.body.face(12 * scale))
+                    .foregroundStyle(section.status.lastError == nil ? theme.dimInk.color : .red).lineLimit(1)
+            }
             if section.credentials != nil {
                 Button {
                     section.syncNow()
@@ -107,7 +117,7 @@ struct JiraPage: View {
     private var newTaskField: some View {
         HStack(spacing: 8) {
             Image(systemName: "plus").font(.system(size: 12, weight: .semibold)).foregroundStyle(theme.dimInk.color)
-            TextField(section.newTaskPrompt, text: $newTaskText)
+            TextField(compact ? "New \(section.newTaskDefaults.projectKey) task" : section.newTaskPrompt, text: $newTaskText)
                 .font(theme.type.body.face(14 * scale))
                 .textFieldStyle(.plain)
                 .focused($newTaskFocused)
@@ -215,6 +225,7 @@ struct JiraPage: View {
 
 struct JiraIssueRow: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.compactPage) private var compact
     let section: JiraSection
     let issue: JiraIssue
     let pitch: CGFloat
@@ -223,54 +234,16 @@ struct JiraIssueRow: View {
     @State private var hovering = false
     @State private var commenting = false
     @State private var draft = ""
+    /// The phone's key-and-summary text, measured to know whether it took two lines.
+    @State private var summaryHeight: CGFloat = 0
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
         let pulled = section.isPulled(issue)
         let busy = section.busyKeys.contains(issue.key)
-        HStack(alignment: .center, spacing: 8) {
-            // A toggle: filled while the task sits in Today, a click then sends it back to To do.
-            Button { if pulled { section.park(issue) } else { section.pull(issue) } } label: {
-                Image(systemName: pulled ? "sun.max.fill" : "sun.max")
-                    .font(.system(size: 13 * scale, weight: .regular))
-                    .foregroundStyle(pulled ? theme.accent.color : theme.dimInk.color)
-                    .frame(width: 20)
-            }
-            .buttonStyle(.plain)
-            .disabled(busy)
-            .help(pulled ? "In Today; click to send it back to To do" : "Pull into Today")
-            Circle()
-                .fill(TaskPriority(rawValue: issue.taskPriorityLevel)?.color.color ?? .clear)
-                .frame(width: 8, height: 8)
-                .help(issue.priority ?? "")
-            Text(issue.key)
-                .font(theme.type.mono.face(11.5 * scale, weight: .medium))
-                .foregroundStyle(theme.dimInk.color)
-            Text(issue.summary)
-                .font(theme.type.body.face(14.5 * scale))
-                .lineLimit(1)
-            if let parent = issue.parentSummary {
-                // The epic, as a chip in Jira's purple.
-                Text(parent)
-                    .epicChip(theme: theme, scale: scale)
-                    .help("Epic: \(parent)")
-            }
-            statusChip(busy: busy)
-            Spacer(minLength: 8)
-            if let due = issue.dueDate {
-                Text("due \(due)").font(theme.type.body.face(11.5 * scale)).foregroundStyle(theme.dimInk.color)
-            }
-            commentButton(busy: busy)
-            Button { section.open(issue) } label: {
-                Image(systemName: "arrow.up.forward.square")
-                    .font(.system(size: 12 * scale))
-                    .foregroundStyle(theme.dimInk.color)
-            }
-            .buttonStyle(.plain)
-            .opacity(hovering ? 1 : 0.35)
-            .help("Open in Jira")
+        Group {
+            if compact { compactRow(pulled: pulled, busy: busy) } else { wideRow(pulled: pulled, busy: busy) }
         }
-        .frame(height: pitch)
         .background(RoundedRectangle(cornerRadius: 5).fill(theme.accent.color.opacity(flashed ? 0.18 : 0)).padding(.vertical, 2))
         .animation(.easeOut(duration: 0.6), value: flashed)
         .contentShape(Rectangle())
@@ -287,6 +260,102 @@ struct JiraIssueRow: View {
             Button("Open in Jira") { section.open(issue) }
             Button("Copy Key") { Platform.copyText(issue.key) }
         }
+    }
+
+    /// The Mac's row: one ruled line, everything beside the summary.
+    private func wideRow(pulled: Bool, busy: Bool) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            sun(pulled: pulled, busy: busy)
+            light
+            Text(issue.key)
+                .font(theme.type.mono.face(11.5 * scale, weight: .medium))
+                .foregroundStyle(theme.dimInk.color)
+            Text(issue.summary)
+                .font(theme.type.body.face(14.5 * scale))
+                .lineLimit(1)
+            if let parent = issue.parentSummary {
+                // The epic, as a chip in Jira's purple.
+                Text(parent)
+                    .epicChip(theme: theme, scale: scale)
+                    .help("Epic: \(parent)")
+            }
+            statusChip(busy: busy)
+            Spacer(minLength: 8)
+            if let due = issue.dueDate { dueText(due) }
+            commentButton(busy: busy)
+            openButton.opacity(hovering ? 1 : 0.35)
+        }
+        .frame(height: pitch)
+    }
+
+    /// The phone's row, like the Tasks tab's: the key and summary may wrap onto a second
+    /// ruled line, and the epic, status, due date, comment bubble and link take a line of
+    /// their own under them, so nothing is squeezed to an ellipsis.
+    private func compactRow(pulled: Bool, busy: Bool) -> some View {
+        let face = FontSpec(family: theme.type.body.family, size: 14.5 * scale, design: theme.type.body.design).platformFont
+        let lineHeight = face.ascender - face.descender + face.leading
+        let lines: CGFloat = summaryHeight > lineHeight * 1.5 ? 2 : 1
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 8) {
+                sun(pulled: pulled, busy: busy).frame(height: pitch)
+                light.frame(height: pitch)
+                (Text(issue.key).font(theme.type.mono.face(11.5 * scale, weight: .medium)).foregroundStyle(theme.dimInk.color)
+                 + Text("  ") + Text(issue.summary).font(theme.type.body.face(14.5 * scale)))
+                    .lineLimit(2)
+                    .lineSpacing(max(0, pitch - lineHeight))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { summaryHeight = $0 }
+                    .frame(minHeight: pitch * lines, alignment: .center)
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 6) {
+                if let parent = issue.parentSummary {
+                    Text(parent).epicChip(theme: theme, scale: scale).frame(maxWidth: 130)
+                }
+                statusChip(busy: busy)
+                if let due = issue.dueDate { dueText(due) }
+                Spacer(minLength: 0)
+                commentButton(busy: busy)
+                openButton
+            }
+            .frame(height: pitch)
+            .padding(.leading, 20 + 8 + 8 + 8)
+        }
+        .frame(height: pitch * (lines + 1))
+    }
+
+    /// A toggle: filled while the task sits in Today, a click then sends it back to To do.
+    private func sun(pulled: Bool, busy: Bool) -> some View {
+        Button { if pulled { section.park(issue) } else { section.pull(issue) } } label: {
+            Image(systemName: pulled ? "sun.max.fill" : "sun.max")
+                .font(.system(size: 13 * scale, weight: .regular))
+                .foregroundStyle(pulled ? theme.accent.color : theme.dimInk.color)
+                .frame(width: 20)
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .help(pulled ? "In Today; click to send it back to To do" : "Pull into Today")
+    }
+
+    private var light: some View {
+        Circle()
+            .fill(TaskPriority(rawValue: issue.taskPriorityLevel)?.color.color ?? .clear)
+            .frame(width: 8, height: 8)
+            .help(issue.priority ?? "")
+    }
+
+    private func dueText(_ due: String) -> some View {
+        Text("due \(due)").font(theme.type.body.face(11.5 * scale)).foregroundStyle(theme.dimInk.color)
+    }
+
+    private var openButton: some View {
+        Button { section.open(issue) } label: {
+            Image(systemName: "arrow.up.forward.square")
+                .font(.system(size: 12 * scale))
+                .foregroundStyle(theme.dimInk.color)
+        }
+        .buttonStyle(.plain)
+        .help("Open in Jira")
     }
 
     /// The issue's status as a chip; a menu of where the workflow lets it go.
@@ -347,7 +416,7 @@ struct JiraIssueRow: View {
                 Text("Comment on \(issue.key)").font(theme.type.body.face(12, weight: .semibold))
                 TextEditor(text: $draft)
                     .font(theme.type.body.face(13))
-                    .frame(width: 360, height: 90)
+                    .frame(width: compact ? 280 : 360, height: 90)
                     .scrollContentBackground(.hidden)
                     .padding(4)
                     .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.05)))

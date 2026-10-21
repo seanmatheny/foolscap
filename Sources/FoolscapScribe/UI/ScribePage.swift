@@ -6,6 +6,7 @@ import FoolscapUI
 /// notebooks, and the selected notebook filling the rest.
 struct ScribePage: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.compactPage) private var compact
     @Bindable var section: ScribeSection
 
     private var pitch: CGFloat { theme.linePitch }
@@ -14,6 +15,24 @@ struct ScribePage: View {
         Group {
             if !section.tree.hasNotebooks {
                 emptyState
+            } else if compact {
+                // A phone has no room for the contents column: a menu of the folder's
+                // notebooks stands in, and the notebook takes the page.
+                VStack(spacing: 0) {
+                    FolderTabRow(tabs: section.folderTabs, selectedID: section.selectedFolderID) { section.select(folder: $0) }
+                        .padding(.top, pitch)
+                    notebookMenu
+                        .frame(height: pitch * 1.5)
+                    if let notebook = section.selectedNotebook {
+                        ScribeNotebookView(section: section, notebook: notebook)
+                            .id(notebook.id)
+                    } else {
+                        Text("Choose a notebook").font(theme.type.body.face(15)).foregroundStyle(theme.dimInk.color)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .padding(.leading, PageColumn.textLeft)
+                .padding(.trailing, PageColumn.textRight)
             } else {
                 VStack(spacing: 0) {
                     FolderTabRow(tabs: section.folderTabs, selectedID: section.selectedFolderID) { section.select(folder: $0) }
@@ -32,11 +51,41 @@ struct ScribePage: View {
                         }
                     }
                 }
-                .padding(.leading, 58)
+                .padding(.leading, PageColumn.textLeft)
                 .padding(.trailing, 44)
             }
         }
         .foregroundStyle(theme.ink.color)
+    }
+
+    /// The phone's contents: the selected notebook's name, a menu of the others in the folder.
+    private var notebookMenu: some View {
+        Menu {
+            ForEach(section.treeNotebooks) { notebook in
+                Button {
+                    section.select(notebook: notebook.id)
+                } label: {
+                    if notebook.id == section.selectedNotebookID {
+                        Label(notebook.name, systemImage: "checkmark")
+                    } else {
+                        Text(notebook.name)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "book.closed").font(.system(size: 11)).foregroundStyle(theme.accent.color)
+                Text(section.selectedNotebook?.name ?? "Choose a notebook")
+                    .font(theme.type.body.face(14, weight: .semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(theme.dimInk.color)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
     }
 
     private var emptyState: some View {
@@ -71,7 +120,7 @@ struct ScribePage: View {
             }
             Spacer()
         }
-        .padding(EdgeInsets(top: pitch, leading: 58, bottom: 24, trailing: 44))
+        .padding(EdgeInsets(top: pitch, leading: PageColumn.textLeft, bottom: 24, trailing: PageColumn.trailing(compact: compact)))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 

@@ -13,7 +13,7 @@ enum EditorMetrics {
     static var leftInset: CGFloat { PageRuling.textLeft }
     static var rightInset: CGFloat { PageRuling.textRight }
     static let marginRuleOffset: CGFloat = RulingView.marginRuleOffset   // red line sits this far left of the text
-    static let topLines: CGFloat = 1            // ruled lines above the first text line
+    static var topLines: CGFloat { PageColumn.topLines }   // ruled lines above the first text line
     /// The header (today's tasks) ends where the Tasks tab's rows do.
     static var headerRightInset: CGFloat { PageRuling.textRight + 8 }
 }
@@ -22,10 +22,16 @@ enum EditorMetrics {
 /// pages (the Tasks tab) so the ruling does not move between tabs.
 public enum PageRuling {
     /// Left edge of the text column; the margin rule sits `RulingView.marginRuleOffset` left of it.
-    /// A window's worth on the Mac; the phone app narrows it at launch, before any page is laid out.
-    nonisolated(unsafe) public static var textLeft: CGFloat = 58
+    /// The numbers are `PageColumn`'s (FoolscapUI), shared with the pages that have no editor.
+    public static var textLeft: CGFloat {
+        get { PageColumn.textLeft }
+        set { PageColumn.textLeft = newValue }
+    }
     /// Paper left clear on the right of the text.
-    nonisolated(unsafe) public static var textRight: CGFloat = 36
+    public static var textRight: CGFloat {
+        get { PageColumn.textRight }
+        set { PageColumn.textRight = newValue }
+    }
 
     /// From the top of a line's band to its rule: just under the baseline of a
     /// line set in the top heading (a daily note's date), whose lower baseline

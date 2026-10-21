@@ -511,3 +511,18 @@ struct IndexTabsView: View {
 
     @State private var pageHeight: CGFloat = 0
 }
+
+/// The page's text column on both platforms: where text starts from the page's
+/// leading edge and the paper left clear of it on the trailing side. A window's
+/// worth on the Mac; the phone app narrows them at launch, before any page is laid
+/// out. The editor's `PageRuling` reads the same numbers, so the SwiftUI pages and
+/// the editor share one column.
+public enum PageColumn {
+    nonisolated(unsafe) public static var textLeft: CGFloat = 58
+    nonisolated(unsafe) public static var textRight: CGFloat = 36
+    /// Ruled lines above the editor's first text line: two on a phone, where the daily
+    /// page's search and day controls would otherwise sit over the heading's line.
+    nonisolated(unsafe) public static var topLines: CGFloat = 1
+    /// The Mac's SwiftUI pages keep 44 pt clear on the trailing side; a phone's keep the column's own.
+    public static func trailing(compact: Bool) -> CGFloat { compact ? textRight : 44 }
+}

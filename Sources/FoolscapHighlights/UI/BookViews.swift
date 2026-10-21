@@ -11,6 +11,7 @@ import FoolscapUI
 /// would create and drop rows mid-scroll.
 struct BookGrid: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.compactPage) private var compact
     @Bindable var section: HighlightsSection
     /// The width the shelf may use, from the page.
     var width: CGFloat
@@ -21,12 +22,14 @@ struct BookGrid: View {
 
     var body: some View {
         let books = books ?? section.books
-        let columns = max(1, Int((width + Self.spacing) / (Self.cellWidth + Self.spacing)))
+        // A phone's shelf holds two books a row, each cell half the width.
+        let cell = compact ? max(96, floor((width - Self.spacing) / 2)) : Self.cellWidth
+        let columns = max(1, Int((width + Self.spacing) / (cell + Self.spacing)))
         let rows = stride(from: 0, to: books.count, by: columns).map { Array(books[$0..<min($0 + columns, books.count)]) }
         VStack(alignment: .leading, spacing: 26) {
             ForEach(rows, id: \.first!.path) { row in
                 HStack(alignment: .top, spacing: Self.spacing) {
-                    ForEach(row) { book in BookCover(section: section, book: book) }
+                    ForEach(row) { book in BookCover(section: section, book: book, cellWidth: cell) }
                 }
             }
         }
@@ -36,15 +39,19 @@ struct BookGrid: View {
 
 struct BookCover: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.compactPage) private var compact
     @Bindable var section: HighlightsSection
     let book: SearchIndex.HighlightBookRecord
+    var cellWidth: CGFloat = BookGrid.cellWidth
     @State private var hovering = false
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
         Button { section.open(book: book.path) } label: {
             VStack(spacing: 7) {
-                ShelfCover(url: section.coverURL(for: book.path), title: book.title, author: book.author, width: 96, lifted: hovering)
+                // A phone's two-a-row cells have room for a larger cover than the Mac's shelf.
+                ShelfCover(url: section.coverURL(for: book.path), title: book.title, author: book.author,
+                           width: compact ? min(116, cellWidth - 20) : 96, lifted: hovering)
                 Text(book.title)
                     .font(theme.type.body.face(11.5 * scale))
                     .multilineTextAlignment(.center)
@@ -53,7 +60,7 @@ struct BookCover: View {
                 Text("\(book.count - book.hiddenCount)")
                     .font(theme.type.body.face(10.5 * scale)).foregroundStyle(theme.dimInk.color)
             }
-            .frame(width: BookGrid.cellWidth)
+            .frame(width: cellWidth)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -11,6 +11,7 @@ import FoolscapUI
 struct SecretsPage: View {
     @Environment(\.notebookTheme) private var theme
     @Environment(\.notebookTabEdge) private var tabEdge
+    @Environment(\.compactPage) private var compact
     @Bindable var section: SecretsSection
     @FocusState private var searchFocused: Bool
     @State private var pageHeight: CGFloat = 710
@@ -25,6 +26,10 @@ struct SecretsPage: View {
         let group = layout.group(containing: section.selectedLetter)
         let unlocked = section.isUnlocked
         let left = tabEdge == .left
+        // On a phone the thumb index needs more than the narrow column leaves on its side.
+        let indexRoom = ThumbIndexView.selectedWidth + 6
+        let leading = compact && left ? max(PageRuling.textLeft, indexRoom) : PageRuling.textLeft
+        let trailing = compact ? (left ? PageRuling.textRight : max(PageRuling.textRight, indexRoom)) : 44
         GeometryReader { geo in
             ZStack(alignment: left ? .topLeading : .topTrailing) {
                 // The letter is printed on the page's foot, where the cards seldom
@@ -40,15 +45,15 @@ struct SecretsPage: View {
                 }
                 ScrollView {
                     ZStack(alignment: .topLeading) {
-                        RulingView(pitch: pitch, topInset: pitch + PageRuling.ruleOffset(palette), marginX: PageRuling.textLeft)
+                        RulingView(pitch: pitch, topInset: pitch + PageRuling.ruleOffset(palette), marginX: leading)
                             .frame(minHeight: geo.size.height)
                         VStack(alignment: .leading, spacing: 0) {
                             header
                             content(group: group)
                             Spacer(minLength: pitch * 2)
                         }
-                        .padding(.leading, PageRuling.textLeft)
-                        .padding(.trailing, 44)
+                        .padding(.leading, leading)
+                        .padding(.trailing, trailing)
                         .padding(.top, pitch + PageRuling.rowShift(palette))
                     }
                 }
@@ -74,42 +79,61 @@ struct SecretsPage: View {
 
     // MARK: Title row
 
+    /// Title, padlock, status, search and New on one line; on a phone the status and
+    /// the search field take the line under them.
     private var header: some View {
         let unlocked = section.isUnlocked
-        return HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("Secrets").font(theme.type.heading.font).fontWeight(.bold)
-            // The padlock is a switch: open, a click locks the vault; shut, it asks for Touch ID.
-            Button {
-                if unlocked { section.lockNow() } else if section.vault.hasDeviceWrap { Task { await section.unlockWithDevice() } }
-            } label: {
-                Image(systemName: unlocked ? "lock.open.fill" : "lock.fill")
-                    .font(.system(size: 13 * scale, weight: .semibold))
-                    .foregroundStyle(unlocked ? theme.accent.color : theme.dimInk.color)
-            }
-            .buttonStyle(.plain)
-            .linkPointer()
-            .help(unlocked ? "Lock (⌃⌘L)" : "Unlock with Touch ID")
-            status
-                .font(theme.type.body.face(12.5 * scale))
-                .foregroundStyle(theme.dimInk.color)
-                .lineLimit(1)
-            Spacer()
-            if unlocked {
-                searchField
-                Button { section.beginAdd() } label: {
-                    Label("New", systemImage: "plus")
-                        .font(theme.type.body.face(12.5, weight: .semibold))
-                        .padding(.horizontal, 10).padding(.vertical, 3)
-                        .background(Capsule().fill(theme.accent.color.opacity(0.16)))
-                        .overlay(Capsule().stroke(theme.accent.color.opacity(0.35), lineWidth: 0.5))
-                        .foregroundStyle(theme.accent.color)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("Secrets").font(theme.type.heading.font).fontWeight(.bold)
+                // The padlock is a switch: open, a click locks the vault; shut, it asks for Touch ID.
+                Button {
+                    if unlocked { section.lockNow() } else if section.vault.hasDeviceWrap { Task { await section.unlockWithDevice() } }
+                } label: {
+                    Image(systemName: unlocked ? "lock.open.fill" : "lock.fill")
+                        .font(.system(size: 13 * scale, weight: .semibold))
+                        .foregroundStyle(unlocked ? theme.accent.color : theme.dimInk.color)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut("n", modifiers: [.command])
-                .help("New secret (⌘N)")
+                .linkPointer()
+                .help(unlocked ? "Lock (⌃⌘L)" : "Unlock with Touch ID")
+                if !compact { statusText }
+                Spacer()
+                if unlocked {
+                    if !compact { searchField }
+                    newButton
+                }
+            }
+            .frame(height: pitch * 1.5 - Self.fieldGap)
+            if compact, unlocked {
+                HStack(spacing: 8) {
+                    searchField
+                    statusText
+                }
+                .frame(height: pitch)
             }
         }
-        .frame(height: pitch * 1.5 - Self.fieldGap)
+    }
+
+    private var statusText: some View {
+        status
+            .font(theme.type.body.face(12.5 * scale))
+            .foregroundStyle(theme.dimInk.color)
+            .lineLimit(1)
+    }
+
+    private var newButton: some View {
+        Button { section.beginAdd() } label: {
+            Label("New", systemImage: "plus")
+                .font(theme.type.body.face(12.5, weight: .semibold))
+                .padding(.horizontal, 10).padding(.vertical, 3)
+                .background(Capsule().fill(theme.accent.color.opacity(0.16)))
+                .overlay(Capsule().stroke(theme.accent.color.opacity(0.35), lineWidth: 0.5))
+                .foregroundStyle(theme.accent.color)
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("n", modifiers: [.command])
+        .help("New secret (⌘N)")
     }
 
     @ViewBuilder private var status: some View {
@@ -157,7 +181,8 @@ struct SecretsPage: View {
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 3)
-        .frame(width: 230)
+        .frame(width: compact ? nil : 230)
+        .frame(maxWidth: compact ? .infinity : nil)
         .background(RoundedRectangle(cornerRadius: 6).fill(theme.ink.color.opacity(searchFocused ? 0.07 : 0.04)))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.ink.color.opacity(searchFocused ? 0.22 : 0.12), lineWidth: 0.5))
         .colorScheme(theme.isDark ? .dark : .light)

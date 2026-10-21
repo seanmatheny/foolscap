@@ -35,6 +35,19 @@ struct FoolscapApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model = AppModel()
 
+    /// `--compact` previews the phone's layout on the Mac for window shots: the compact
+    /// cover, `\.compactPage`, the phone's text column and a phone-sized window
+    /// (`--window=390x844` unless another is given). The Mac app never sets these otherwise.
+    static let previewsCompact = CommandLine.arguments.contains("--compact")
+
+    init() {
+        if Self.previewsCompact {
+            PageRuling.textLeft = 28
+            PageRuling.textRight = 14
+            PageColumn.topLines = 2
+        }
+    }
+
     var body: some Scene {
         mainWindow.windowStyle(.hiddenTitleBar)
         Settings {
@@ -55,7 +68,7 @@ struct FoolscapApp: App {
                 .environment(\.notebookTabEdge, model.tabEdge)
                 .environment(\.showsElasticBand, model.elasticBand)
                 .environment(\.taskPens, model.pens)
-                .frame(minWidth: 820, minHeight: 560)
+                .frame(minWidth: Self.previewsCompact ? 320 : 820, minHeight: 560)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1100, height: 760)
@@ -160,6 +173,8 @@ struct RootView: View {
         }
         .overlay { CoverOpeningOverlay() }
         .overlay(alignment: .top) { SearchOverlay(coordinator: model.search) }
+        .environment(\.notebookMetrics, FoolscapApp.previewsCompact ? .compact : .regular)
+        .environment(\.compactPage, FoolscapApp.previewsCompact)
         .sheet(isPresented: $model.showExport) {
             if let library = model.library {
                 ExportPanel(library: library, currentDay: model.dailyNotes?.selectedDay ?? .today)
