@@ -129,7 +129,7 @@ func makePNG(width: Int, height: Int, dpi: Double = 96, mark: Int = 0) -> Data {
         #expect(await first.cachedPageSizes(id: "n/1", version: "v1") == nil)
         #expect(await first.pageSizes(id: "n/1", url: pdf, version: "v1") == [CGSize(width: 144, height: 72), CGSize(width: 72, height: 72)])
         let drawn = try #require(await first.image(id: "n/1", url: pdf, version: "v1", page: 0, width: 100, backingScale: 2))
-        #expect(drawn.image.size == NSSize(width: 100, height: 50))
+        #expect(drawn.image.width == 200 && drawn.image.height == 100 && drawn.scale == 2, "100 × 50 pt at 2×")
         try FileManager.default.removeItem(at: pdf)
 
         let relaunched = ScribePageRenderer(diskDirectory: cacheDir)
@@ -141,7 +141,7 @@ func makePNG(width: Int, height: Int, dpi: Double = 96, mark: Int = 0) -> Data {
             cached = await relaunched.cachedImage(id: "n/1", version: "v1", page: 0, width: 100, backingScale: 2)
             if cached == nil { try await Task.sleep(for: .milliseconds(100)) }
         }
-        #expect(cached?.image.size == NSSize(width: 100, height: 50))
+        #expect(cached?.image.width == 200 && cached?.image.height == 100 && cached?.scale == 2)
         #expect(await relaunched.cachedImage(id: "n/1", version: "v1", page: 0, width: 150, backingScale: 2) == nil)
         #expect(!ICloudPlaceholders.needsDownload(dir.appendingPathComponent("cache")))
     }

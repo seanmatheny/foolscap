@@ -48,6 +48,10 @@ struct ScribePage: View {
                     Text(section.status.phase ?? "Fetching your notebooks…")
                 }
                 .font(theme.type.body.face(15)).foregroundStyle(theme.dimInk.color)
+            } else if !ScribeSection.syncs {
+                Text("The Mac syncs your Kindle Scribe notebooks into the notebook folder; the phone shows what has arrived. None yet.")
+                    .font(theme.type.body.face(15)).opacity(0.75)
+                    .frame(maxWidth: 520, alignment: .leading)
             } else if section.status.needsSignIn || !section.account.isSignedIn {
                 Text("Sign in to Amazon once and your handwritten notebooks will appear here, with their text recognised and any TODO lines added to the Tasks tab.")
                     .font(theme.type.body.face(15)).opacity(0.75)
@@ -93,6 +97,7 @@ struct ScribeSettingsPane: View {
     @State private var modelToDelete: String?
 
     var body: some View {
+        #if canImport(AppKit)
         LabeledContent("Amazon account") {
             HStack {
                 if section.account.isSignedIn {
@@ -177,8 +182,13 @@ struct ScribeSettingsPane: View {
                 Text("Frees the disk space. It is downloaded again the next time handwriting is read with it.")
             }
             .onAppear { section.refreshModelStatus() }
+        #else
+        Text("The Mac signs in to Amazon, fetches the notebooks and reads the handwriting; the phone shows the PDFs and transcripts it writes into Scribe/ in the notebook folder, as iCloud brings them.")
+            .font(.caption).foregroundStyle(.secondary)
+        #endif
     }
 
+    #if canImport(AppKit)
     private var deleteDialogPresented: Binding<Bool> {
         Binding(get: { modelToDelete != nil }, set: { if !$0 { modelToDelete = nil } })
     }
@@ -203,4 +213,5 @@ struct ScribeSettingsPane: View {
         }
         return text
     }
+    #endif
 }

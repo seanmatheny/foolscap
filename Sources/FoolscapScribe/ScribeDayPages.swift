@@ -1,5 +1,5 @@
-import AppKit
 import Foundation
+import CoreGraphics
 import FoolscapCore
 import FoolscapStore
 
@@ -67,13 +67,13 @@ final class ScribeDayPagesProvider: DayPagesProvider {
         let renderer = section.renderer
         let url = section.pdfURL(for: notebook)
         if let cached = await renderer.cachedImage(id: notebook.id, version: version, page: index, width: width, backingScale: backingScale) {
-            return cached.image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            return cached.image
         }
         // A PDF iCloud has evicted is left alone: the Daily page never forces a download.
         guard !ICloudPlaceholders.needsDownload(url) else { return nil }
         let drawn = await renderer.image(id: notebook.id, url: url, version: version, page: index, width: width, backingScale: backingScale)
         // The Daily page is not reading this notebook: the PDF need not stay open.
         await renderer.release(id: notebook.id)
-        return drawn?.image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        return drawn?.image
     }
 }

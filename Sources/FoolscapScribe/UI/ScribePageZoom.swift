@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
@@ -51,13 +50,13 @@ struct ScribePageZoom: View {
     let caption: (Int) -> String
     @Binding var page: Int
     /// The spread's bitmap of the page, shown scaled up until the sharp one is drawn.
-    let placeholder: NSImage?
+    let placeholder: RenderedPage?
     let dismiss: () -> Void
 
     @State private var zoom: CGFloat = 1
     /// The pinch under way, applied on top of `zoom` until it ends.
     @State private var pinch: CGFloat = 1
-    @State private var image: NSImage?
+    @State private var image: RenderedPage?
     @State private var sharp = false
 
     private var aspect: CGFloat {
@@ -118,13 +117,13 @@ struct ScribePageZoom: View {
         .transition(.opacity)
     }
 
-    private var backing: CGFloat { NSScreen.main?.backingScaleFactor ?? 2 }
+    private var backing: CGFloat { Platform.backingScale }
 
     private func sheet(size: CGSize) -> some View {
         ZStack {
             Color.white
             if let image {
-                Image(nsImage: image).resizable().interpolation(sharp ? .none : .high)
+                Image(decorative: image.image, scale: image.scale).resizable().interpolation(sharp ? .none : .high)
             } else if !sharp {
                 ProgressView().controlSize(.small)
             }
@@ -202,7 +201,7 @@ struct ScribePageZoom: View {
         if image == nil, let placeholder { image = placeholder }
         let width = ScribeZoomLayout.renderWidth(fitWidth: fitWidth, zoom: zoom, backingScale: backing)
         if let cached = await renderer.cachedImage(id: notebookID, version: version, page: page, width: width, backingScale: backing) {
-            image = cached.image; sharp = true
+            image = cached; sharp = true
             return
         }
         // An evicted PDF would block the renderer until iCloud brings it back; the
@@ -211,7 +210,7 @@ struct ScribePageZoom: View {
         if let drawn = await renderer.image(id: notebookID, url: pdfURL, version: version, page: page, width: width,
                                             backingScale: backing, persist: false) {
             guard !Task.isCancelled else { return }
-            image = drawn.image; sharp = true
+            image = drawn; sharp = true
         }
     }
 }

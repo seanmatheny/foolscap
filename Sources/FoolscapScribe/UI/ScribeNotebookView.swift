@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import FoolscapCore
 import FoolscapStore
 import FoolscapUI
@@ -29,7 +28,7 @@ struct ScribeNotebookView: View {
     @State private var position: Int?
     /// A page lifted off the spread (`ScribePageZoom`), by index, with the spread's
     /// bitmap of it to show until the sharp one is drawn.
-    @State private var zoomed: (page: Int, placeholder: NSImage?)?
+    @State private var zoomed: (page: Int, placeholder: RenderedPage?)?
     /// Notebooks this long get the jump button.
     static let jumpPages = 3
     /// The notebook area must be this wide for ink and text to sit side by side.
@@ -129,7 +128,7 @@ struct ScribeNotebookView: View {
         return min(max(position, 1), pageSizes.count) - 1
     }
 
-    private func zoom(page: Int, placeholder: NSImage?) {
+    private func zoom(page: Int, placeholder: RenderedPage?) {
         guard pageSizes.indices.contains(page) else { return }
         zoomed = (page, placeholder)
     }
@@ -176,7 +175,9 @@ struct ScribeNotebookView: View {
                 Spacer()
                 headerButton(copied ? "Copied" : "Copy text", symbol: copied ? "checkmark" : "doc.on.doc") { copyText() }
                     .disabled(parsed == nil)
-                headerButton("Open PDF", symbol: "arrow.up.forward.square") { NSWorkspace.shared.open(pdfURL) }
+                if ScribeSection.syncs {
+                    headerButton("Open PDF", symbol: "arrow.up.forward.square") { Platform.openURL(pdfURL) }
+                }
             }
             Text(subtitle).font(theme.type.body.face(12 * scale)).foregroundStyle(theme.dimInk.color)
         }
@@ -235,8 +236,7 @@ struct ScribeNotebookView: View {
 
     private func copyText() {
         guard let parsed else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(parsed.plainText, forType: .string)
+        Platform.copyText(parsed.plainText)
         copied = true
         Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
     }
@@ -303,8 +303,8 @@ struct PageFacsimile: View {
     let pdfReady: Bool
     let width: CGFloat
     let aspect: CGFloat
-    var onZoom: ((NSImage?) -> Void)? = nil
-    @State private var image: NSImage?
+    var onZoom: ((RenderedPage?) -> Void)? = nil
+    @State private var image: RenderedPage?
     @State private var isVisible = false
     @State private var hovering = false
     static let widthStep: CGFloat = 50
@@ -315,7 +315,7 @@ struct PageFacsimile: View {
         ZStack {
             Color.white
             if let image {
-                Image(nsImage: image).resizable().interpolation(.high)
+                Image(decorative: image.image, scale: image.scale).resizable().interpolation(.high)
             }
         }
         .frame(width: width, height: (width * aspect).rounded())
@@ -338,17 +338,29 @@ struct PageFacsimile: View {
         .onTapGesture { onZoom?(image) }
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
-        .pointerStyle(onZoom == nil ? .default : .zoomIn)
+        .zoomPointer(onZoom != nil)
         .help(onZoom == nil ? "" : "Click to enlarge (or press Space on the page you are reading)")
         .onScrollVisibilityChange(threshold: 0.01) { isVisible = $0 }
         .task(id: "\(id)|\(version)|\(page)|\(Int(renderWidth))|\(pdfReady)|\(isVisible)") {
             guard isVisible else { image = nil; return }
-            let backing = NSScreen.main?.backingScaleFactor ?? 2
+            let backing = Platform.backingScale
             if let cached = await renderer.cachedImage(id: id, version: version, page: page, width: renderWidth, backingScale: backing) {
-                image = cached.image
+                image = cached
             } else if pdfReady {
-                image = await renderer.image(id: id, url: url, version: version, page: page, width: renderWidth, backingScale: backing)?.image
+                image = await renderer.image(id: id, url: url, version: version, page: page, width: renderWidth, backingScale: backing)
             }
         }
+    }
+}
+
+private extension View {
+    /// The magnifying-glass pointer over ink that can be enlarged, on the Mac.
+    @ViewBuilder
+    func zoomPointer(_ active: Bool) -> some View {
+        #if canImport(AppKit)
+        pointerStyle(active ? .zoomIn : .default)
+        #else
+        self
+        #endif
     }
 }

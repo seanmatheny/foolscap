@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import CryptoKit
 import Foundation
 import PDFKit
@@ -295,3 +296,4 @@ public struct VLMOCRRunner: OCRRunning {
         return pages
     }
 }
+#endif

@@ -64,7 +64,9 @@ public enum OCRError: Error, Equatable {
     case timedOut
 }
 
-/// Runs the bundled `scribe-ocr` helper. Vision's models stay resident in
+
+#if canImport(AppKit)
+// Runs the bundled `scribe-ocr` helper. Vision's models stay resident in
 /// whichever process loads them, so the work is kept out of the app.
 public struct ProcessOCRRunner: OCRRunning {
     public let helperURL: URL
@@ -104,6 +106,8 @@ public struct ProcessOCRRunner: OCRRunning {
 
 /// What an OCR result depends on. A notebook is only re-read when one of
 /// these changes; a PDF rebuilt from identical page images is not.
+#endif
+
 public struct OCRCacheKey: Codable, Equatable, Sendable {
     public var contentHash: String
     public var engine: String

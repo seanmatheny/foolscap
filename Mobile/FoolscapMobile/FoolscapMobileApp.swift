@@ -8,6 +8,7 @@ import FoolscapSections
 import FoolscapJira
 import FoolscapSecrets
 import FoolscapHighlights
+import FoolscapScribe
 
 /// The iPhone app: the shared app model over the notebook folder the Files picker
 /// granted (the app's own Documents until one is chosen), the Daily Notes and
@@ -52,6 +53,9 @@ final class PhoneModel: AppModelCore {
     private(set) var highlightsSection: HighlightsSection?
     /// The day's highlights lie on a loose page over the notebook until tapped away.
     var flyleafPresented = false
+    /// The Scribe tab: reading only on the phone (the Mac syncs and reads the handwriting).
+    private(set) var scribeEnabled = false
+    private(set) var scribeSection: ScribeSection?
 
     init() {
         let bookmarked = BookmarkedFolder.resolve()
@@ -62,6 +66,7 @@ final class PhoneModel: AppModelCore {
         setJiraEnabled(UserDefaults.standard.bool(forKey: "jiraEnabled"))
         setSecretsEnabled(UserDefaults.standard.bool(forKey: SecretsSection.enabledKey))
         setHighlightsEnabled(UserDefaults.standard.bool(forKey: "highlightsEnabled"))
+        setScribeEnabled(UserDefaults.standard.bool(forKey: "scribeEnabled"))
         flyleafPresented = highlightsEnabled && UserDefaults.standard.bool(forKey: "flyleafOnOpen")
         // The Jira page's "Open Settings…" turns to the Settings tab.
         JiraSection.openSettings = { [weak self] in self?.selectedSectionID = RootView.settingsTab.id }
@@ -131,6 +136,26 @@ final class PhoneModel: AppModelCore {
         rewireSections()
     }
 
+    /// Add or remove the Scribe section at runtime, and everything derived from `sections`.
+    func setScribeEnabled(_ on: Bool) {
+        guard on != scribeEnabled, let library else { return }
+        scribeEnabled = on
+        if on {
+            let scribe = ScribeSection(library: library)
+            sections.append(scribe)
+            scribeSection = scribe
+            library.indexesScribe = true
+            scribe.start()
+        } else {
+            scribeSection?.stop()
+            scribeSection = nil
+            sections.removeAll { $0.id == ScribeSection.sectionID }
+            library.indexesScribe = false
+            if selectedSectionID == ScribeSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
+        }
+        rewireSections()
+    }
+
     /// Add or remove the Highlights section at runtime (`rewireSections` places it).
     func setHighlightsEnabled(_ on: Bool) {
         guard on != highlightsEnabled, let library else { return }
@@ -167,6 +192,8 @@ final class PhoneModel: AppModelCore {
         if secrets != secretsEnabled { setSecretsEnabled(secrets) }
         let highlights = UserDefaults.standard.bool(forKey: "highlightsEnabled")
         if highlights != highlightsEnabled { setHighlightsEnabled(highlights) }
+        let scribe = UserDefaults.standard.bool(forKey: "scribeEnabled")
+        if scribe != scribeEnabled { setScribeEnabled(scribe) }
     }
 
     override func sectionSelectionChanged(from old: String) {
@@ -180,6 +207,7 @@ final class PhoneModel: AppModelCore {
     override func flush() {
         secretsSection?.lockNow()
         highlightsSection?.stop()
+        scribeSection?.stop()
         super.flush()
     }
 
@@ -273,6 +301,7 @@ struct PhoneSettingsPage: View {
     @AppStorage(SecretsSection.enabledKey) private var secretsEnabled = false
     @AppStorage("highlightsEnabled") private var highlightsEnabled = false
     @AppStorage("flyleafOnOpen") private var flyleafOnOpen = false
+    @AppStorage("scribeEnabled") private var scribeEnabled = false
 
     var body: some View {
         Form {
@@ -303,6 +332,12 @@ struct PhoneSettingsPage: View {
                 Text("Adds a Jira tab listing the issues assigned to you. Off, nothing runs: no requests, no tab. The token is this phone's own, kept in its Keychain.")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(model.sectionSettingsPanes.filter { $0.id == JiraSection.sectionID }) { pane in pane.view }
+            }
+            Section("Kindle Scribe") {
+                Toggle("Show Kindle Scribe notebooks", isOn: $scribeEnabled)
+                Text("Adds a Scribe tab: the handwritten notebooks the Mac syncs into the notebook folder, ink beside transcript. The phone reads the files; it does not sync.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(model.sectionSettingsPanes.filter { $0.id == ScribeSection.sectionID }) { pane in pane.view }
             }
             Section("Highlights") {
                 Toggle("Show Kindle highlights", isOn: $highlightsEnabled)

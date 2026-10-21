@@ -16,6 +16,7 @@ public struct SyncReport: Equatable, Sendable {
     public var changedFiles: Bool { rendered + transcribed + pruned + moved > 0 }
 }
 
+#if canImport(AppKit)
 /// One pass: list the Kindle's notebooks, fetch what changed, build PDFs,
 /// recognise the handwriting, write transcripts and hand new TODOs to the
 /// task sink. State is saved after every notebook so an interrupted pass
@@ -346,3 +347,4 @@ public actor ScribeSyncEngine {
         }
     }
 }
+#endif

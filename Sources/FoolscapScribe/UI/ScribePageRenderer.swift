@@ -1,13 +1,15 @@
-import AppKit
+import Foundation
 import CryptoKit
 import ImageIO
 import PDFKit
 import UniformTypeIdentifiers
 
-/// A rendered page bitmap. NSImage is not marked Sendable, but nothing
-/// mutates one after it leaves the renderer.
+/// A rendered page bitmap and the pixels per point it was drawn at, so a view
+/// shows it 1:1 (`Image(decorative:scale:)`). Nothing mutates it after it leaves
+/// the renderer.
 struct RenderedPage: @unchecked Sendable {
-    let image: NSImage
+    let image: CGImage
+    let scale: CGFloat
 }
 
 /// Draws notebook pages at the width the page view needs, one document open
@@ -127,8 +129,7 @@ actor ScribePageRenderer {
     }
 
     private func page(from image: CGImage, backingScale: CGFloat) -> RenderedPage {
-        RenderedPage(image: NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width) / backingScale,
-                                                                 height: CGFloat(image.height) / backingScale)))
+        RenderedPage(image: image, scale: backingScale)
     }
 
     /// A page already drawn at this width, from memory or disk; never opens the PDF.

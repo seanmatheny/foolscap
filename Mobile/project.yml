@@ -43,6 +43,8 @@ targets:
         product: FoolscapSecrets
       - package: foolscap
         product: FoolscapHighlights
+      - package: foolscap
+        product: FoolscapScribe
     settings:
       base:
         PRODUCT_NAME: Foolscap

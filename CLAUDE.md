@@ -622,3 +622,15 @@
   its Application Support). The phone's Settings tab has the toggle, "Open on today's
   highlights" (the flyleaf, `PageTurnOverlay`, works on the phone) and the picks cadence; the
   pane's import controls are Mac-only.
+- Scribe on the phone (since 0.12.0): reading only. `ScribeSection.syncs` is false on iOS: no
+  engine, scheduler, path monitor or sign-in; `start()` instead reads the notebooks off the
+  folder with `ScribeState.scanned(root:)` (one item per PDF under `Scribe/`, iCloud stubs
+  included, a folder per directory, ids `scan:<path>` so selection and the last-read page
+  hold across launches, the PDF's change time as the version the render cache keys on) and
+  reads again on every library change, since the Mac's ledger lives in its own Application
+  Support. Gated whole: `HelperProcess`, `VLMOCR`, `ScribeSignInWindow`; `ProcessOCRRunner`
+  and the `ScribeSyncEngine` actor are gated inside their files (the OCR models, `OCRCache`
+  and `SyncReport` are shared, the heuristics need them); `ScribeAccount` on iOS is a stub
+  that is never signed in. `RenderedPage` is a `CGImage` plus the scale it was drawn at,
+  shown with `Image(decorative:scale:)` on both platforms; "Open PDF" is Mac-only. The phone's
+  Settings tab has the toggle; the Scribe pane there is a note. Phase 3 is complete.

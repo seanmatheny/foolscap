@@ -65,6 +65,48 @@ public struct ScribeState: Codable, Equatable, Sendable {
 
     public init() {}
 
+    /// The notebooks as the files under `Scribe/` say, for a device that never
+    /// syncs: one item per PDF (an iCloud stub counts), a folder per directory, ids
+    /// made from the paths so they hold across launches, the PDF's change time as
+    /// the version the renderer keys its cache on.
+    public static func scanned(root: URL) -> ScribeState {
+        var state = ScribeState()
+        let base = root.appendingPathComponent(NotesFolder.scribeDirectoryName, isDirectory: true)
+        let fm = FileManager.default
+        func walk(_ directory: URL, relative: String, parentID: String?) {
+            guard let names = try? fm.contentsOfDirectory(atPath: directory.path) else { return }
+            var order = 0
+            for name in names.sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending }) {
+                let real = ICloudPlaceholders.realName(forPlaceholder: name) ?? name
+                guard !real.hasPrefix(".") else { continue }
+                let url = directory.appendingPathComponent(name)
+                var isDirectory: ObjCBool = false
+                guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory) else { continue }
+                let path = relative.isEmpty ? real : relative + "/" + real
+                if isDirectory.boolValue {
+                    let id = "scan:folder:" + path
+                    var folder = ScribeItem(id: id, name: real, path: path, isFolder: true, parentID: parentID, order: order)
+                    folder.updateTime = 0
+                    state.items[id] = folder
+                    walk(url, relative: path, parentID: id)
+                } else if real.hasSuffix(".pdf") {
+                    let stem = String(path.dropLast(4))
+                    let id = "scan:" + stem
+                    var notebook = ScribeItem(id: id, name: String(real.dropLast(4)), path: stem, isFolder: false, parentID: parentID, order: order)
+                    let mtime = (try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+                    notebook.updateTime = Int(mtime)
+                    notebook.modificationTime = Int(mtime)
+                    state.items[id] = notebook
+                } else {
+                    continue
+                }
+                order += 1
+            }
+        }
+        walk(base, relative: "", parentID: nil)
+        return state
+    }
+
     public static func load(from url: URL) -> ScribeState {
         guard let data = try? Data(contentsOf: url),
               let state = try? Self.decoder.decode(ScribeState.self, from: data),

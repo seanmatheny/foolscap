@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import FoolscapCore
 import FoolscapEditor
 import FoolscapUI

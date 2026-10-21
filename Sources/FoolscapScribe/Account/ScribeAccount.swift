@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+#if canImport(AppKit)
 
 /// Whether Foolscap can talk to Amazon, and the sign-in flow.
 @MainActor
@@ -45,3 +46,18 @@ public final class ScribeAccount {
         isSignedIn = false
     }
 }
+#else
+/// The phone never talks to Amazon: the Mac syncs, the phone reads the files.
+@MainActor
+@Observable
+public final class ScribeAccount {
+    public private(set) var isSignedIn = false
+    public private(set) var isSigningIn = false
+    public private(set) var signInError: String?
+    public init() {}
+    public func refresh() {}
+    public func beginSignIn(onSuccess: @escaping @MainActor () -> Void = {}) {}
+    public func signOut() {}
+    public func markSignedOut() {}
+}
+#endif

@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import Foundation
 
 /// Runs one of the bundled recognition helpers (`scribe-ocr`, `scribe-vlm`) to
@@ -108,3 +109,4 @@ enum HelperProcess {
         }
     }
 }
+#endif

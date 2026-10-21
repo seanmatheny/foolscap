@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 import WebKit
 
@@ -115,3 +116,4 @@ final class ScribeSignInWindow: NSObject, WKNavigationDelegate, WKUIDelegate, NS
         WKWebsiteDataStore.default().removeData(ofTypes: [WKWebsiteDataTypeCookies, WKWebsiteDataTypeSessionStorage, WKWebsiteDataTypeLocalStorage], modifiedSince: .distantPast) {}
     }
 }
+#endif

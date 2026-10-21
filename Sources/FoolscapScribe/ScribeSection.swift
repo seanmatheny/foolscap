@@ -49,7 +49,11 @@ public final class ScribeSection: NotebookSection {
     @ObservationIgnored let renderer = ScribePageRenderer()
     /// A search hit's page, being worked out off the main actor.
     @ObservationIgnored var pageLookup: Task<Void, Never>?
+    #if canImport(AppKit)
     @ObservationIgnored private var engine: ScribeSyncEngine?
+    #else
+    @ObservationIgnored private var changeListener: Task<Void, Never>?
+    #endif
     @ObservationIgnored private var scheduler: PeriodicScheduler?
     /// Watches for the connection coming back after an offline pass.
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
@@ -134,6 +138,17 @@ public final class ScribeSection: NotebookSection {
         return list.isEmpty ? Self.defaultLanguages : list
     }
 
+    /// Whether this device syncs with Amazon and reads handwriting at all. The phone
+    /// does neither: it shows the PDFs and transcripts the Mac writes into the folder.
+    public static var syncs: Bool {
+        #if canImport(AppKit)
+        true
+        #else
+        false
+        #endif
+    }
+
+    #if canImport(AppKit)
     /// The recogniser chosen in Settings (`scribeOCREngine`: "vision" or "vlm").
     public var ocrEngine: OCREngine { OCREngine(defaultsValue: defaults.string(forKey: "scribeOCREngine")) }
 
@@ -377,6 +392,42 @@ public final class ScribeSection: NotebookSection {
         }
     }
 
+    #else
+    public func settingsChanged() {}
+
+    // MARK: Lifecycle (reading only)
+
+    /// Read the notebooks off the folder and follow it: a sync on the Mac lands
+    /// new PDFs and transcripts through iCloud.
+    public func start() {
+        guard changeListener == nil else { return }
+        rescanFiles()
+        changeListener = Task { [weak self] in
+            guard let self else { return }
+            for await _ in library.changes {
+                guard !Task.isCancelled else { return }
+                self.rescanFiles()
+            }
+        }
+    }
+
+    public func stop() {
+        changeListener?.cancel()
+        changeListener = nil
+        Task { await renderer.releaseAll() }
+    }
+
+    public func signIn() {}
+    public func signOut() {}
+    /// "Sync now" on the phone: look at the folder again.
+    public func syncNow() { rescanFiles() }
+
+    private func rescanFiles() {
+        apply(ScribeState.scanned(root: library.folder.root))
+        selectDefaultsIfNeeded()
+    }
+    #endif
+
     /// Tests: stand in for a sync pass.
     func replaceStateForTesting(_ newState: ScribeState) { apply(newState) }
 
@@ -541,8 +592,10 @@ public final class ScribeSection: NotebookSection {
     public func transcriptURL(for item: ScribeItem) -> URL { library.folder.url(forRelativePath: item.transcriptRelativePath) }
 }
 
+#if canImport(AppKit)
 /// Stands in when the bundled helper cannot be found (a development build
 /// that has not run `make app-debug`).
 struct MissingOCRRunner: OCRRunning {
     func recognise(pdf: URL, languages: [String]) async throws -> OCRResult { throw OCRError.helperMissing }
 }
+#endif
