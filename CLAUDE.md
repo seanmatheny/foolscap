@@ -600,7 +600,13 @@
   phone's `PhoneModel.setJiraEnabled` mirrors the Mac's; the toggle and `JiraSettingsPane` sit on
   the phone's Settings tab, the token in the phone's own Keychain (entered once there; the Mac's
   is not synced). Sync on the phone runs only while the app is in front (`PeriodicScheduler`'s
-  iOS branch) plus the pass 3 s after launch.
+  iOS branch) plus the pass 3 s after launch. Two phone gotchas (2026-10-21): a Form row fires
+  every enabled button in it on a tap unless they are `.borderless` (Save beside Forget ran both
+  and deleted the token; the phone's Settings form sets that style), and the URL keyboard's `.com`
+  key lands as `name.atlassian.com`, so `JiraSection.normalisedSite` turns a `.atlassian.com`
+  ending into `.net` on save and on read. A sync's outcome is `NSLog`ged (never the token); to read
+  it, `xcrun devicectl device process launch --console --terminate-existing --device <udid>
+  com.seanmatheny.foolscap.ios` with the phone unlocked (`log collect --device` needs root).
 - Secrets on the phone (since 0.10.0): the vault opens with the recovery passphrase only.
   `SecretsVault.allowsDeviceEnrolment` is false on iOS and `enrolDevice()` refuses there, since
   the header's one `device` slot holds the Mac's key and a phone's would replace it (the

@@ -434,4 +434,14 @@ private let credentials = JiraCredentials(site: URL(string: "https://x.atlassian
         defaults.set("OTHER", forKey: JiraSection.projectKey)
         #expect(section.epics.isEmpty)
     }
+
+    @Test func theSiteIsNormalisedToAtlassianNet() {
+        #expect(JiraSection.normalisedSite("aucklanduni.atlassian.net")?.absoluteString == "https://aucklanduni.atlassian.net")
+        // The phone's URL keyboard offers a `.com` key: Jira Cloud sites are always `.net`.
+        #expect(JiraSection.normalisedSite(" https://aucklanduni.atlassian.com/ ")?.absoluteString == "https://aucklanduni.atlassian.net")
+        #expect(JiraSection.normalisedSite("Example.Atlassian.COM")?.absoluteString == "https://Example.Atlassian.net")
+        // A self-hosted site keeps its own name.
+        #expect(JiraSection.normalisedSite("jira.example.com")?.absoluteString == "https://jira.example.com")
+        #expect(JiraSection.normalisedSite("") == nil)
+    }
 }

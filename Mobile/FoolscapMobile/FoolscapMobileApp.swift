@@ -368,6 +368,10 @@ struct PhoneSettingsPage: View {
                 Text(version).font(.caption).foregroundStyle(.secondary)
             }
         }
+        // A Form row fires every enabled button in it on a tap unless the buttons are
+        // borderless, each its own target: Save next to Forget was running both
+        // (found 2026-10-21: saving a corrected Jira site deleted the token).
+        .buttonStyle(.borderless)
         .scrollContentBackground(.hidden)
         .tint(theme.accent.color)
     }

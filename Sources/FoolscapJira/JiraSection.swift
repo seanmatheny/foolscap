@@ -150,12 +150,21 @@ public final class JiraSection: NotebookSection {
         scheduler = s
     }
 
-    /// The site is normalised to `https://host`; an empty token keeps the one on file.
-    public func saveCredentials(site rawSite: String, email rawEmail: String, token: String) throws {
+    /// The site as `https://host`, or nil when it is not an address. A Jira Cloud site is
+    /// always `name.atlassian.net`: a `.com` ending is put right, since the phone's URL
+    /// keyboard offers a `.com` key and that is what lands (found 2026-10-21).
+    public static func normalisedSite(_ rawSite: String) -> URL? {
         var host = rawSite.trimmingCharacters(in: .whitespacesAndNewlines)
         if !host.contains("://") { host = "https://" + host }
         while host.hasSuffix("/") { host.removeLast() }
-        guard let url = URL(string: host), url.host != nil else { throw JiraClientError.invalidResponse("not a site address") }
+        guard var parts = URLComponents(string: host), let name = parts.host, !name.isEmpty else { return nil }
+        if name.lowercased().hasSuffix(".atlassian.com") { parts.host = String(name.dropLast(4)) + ".net" }
+        return parts.url
+    }
+
+    /// The site is normalised to `https://host`; an empty token keeps the one on file.
+    public func saveCredentials(site rawSite: String, email rawEmail: String, token: String) throws {
+        guard let url = Self.normalisedSite(rawSite) else { throw JiraClientError.invalidResponse("not a site address") }
         let email = rawEmail.trimmingCharacters(in: .whitespacesAndNewlines)
         let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
         let kept = token.isEmpty ? (try? store.token(for: email)) ?? nil : nil
@@ -178,6 +187,8 @@ public final class JiraSection: NotebookSection {
 
     /// The credentials on file, read from the defaults and the keychain.
     private func loadCredentials() {
+        // A site saved with the wrong ending by an earlier build is put right on the way in.
+        if let fixed = Self.normalisedSite(site), fixed.absoluteString != site { defaults.set(fixed.absoluteString, forKey: Self.siteKey) }
         guard let url = URL(string: site), url.host != nil, !email.isEmpty,
               let token = try? store.token(for: email), !token.isEmpty else {
             credentials = nil
@@ -186,6 +197,18 @@ public final class JiraSection: NotebookSection {
         }
         credentials = JiraCredentials(site: url, email: email, token: token)
         status.needsCredentials = false
+    }
+
+    /// What the console sees at launch: whether the three pieces are on file (never their values).
+    private func logCredentialState() {
+        let host = URL(string: site)?.host ?? "none"
+        let token: String
+        do {
+            if let t = try store.token(for: email) { token = t.isEmpty ? "empty" : "present" } else { token = "missing" }
+        } catch {
+            token = "unreadable (\(error))"
+        }
+        NSLog("Foolscap Jira: site host %@, email %@, token %@", host, email.isEmpty ? "missing" : "present", token)
     }
 
     // MARK: Lifecycle
@@ -201,6 +224,7 @@ public final class JiraSection: NotebookSection {
             status.needsCredentials = false
         } else {
             loadCredentials()
+            logCredentialState()
         }
         applySchedule()
         watchToday()
@@ -294,21 +318,25 @@ public final class JiraSection: NotebookSection {
             status.lastRun = Date()
             status.lastReport = report
             status.isOffline = false
+            NSLog("Foolscap Jira: synced, %d issues", report.fetched)
             if let why = report.epicsError { status.lastError = "The epics could not be fetched. \(why)" }
             if report.resolved > 0 { await library.rescan() }
         } catch JiraClientError.unauthorised {
             guard passID == pass else { return }
             status.isOffline = false
             status.lastError = "Jira rejected the email or API token."
+            NSLog("Foolscap Jira: sync refused: unauthorised")
         } catch is CancellationError {
             // Stopped: nothing to report.
         } catch where JiraClientError.isOffline(error) {
             guard passID == pass else { return }
             status.isOffline = true
+            NSLog("Foolscap Jira: sync offline: %@", String(describing: error))
         } catch {
             guard passID == pass else { return }
             status.isOffline = false
             status.lastError = "\(error)"
+            NSLog("Foolscap Jira: sync failed: %@", String(describing: error))
         }
     }
 

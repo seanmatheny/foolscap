@@ -1,11 +1,17 @@
 import SwiftUI
 import FoolscapCore
+import FoolscapStore
+import FoolscapUI
 
 extension JiraSection {
     /// One line for the page and the settings pane: error, offline, phase or last run.
     var statusText: String {
         if let error = status.lastError { return error }
-        if status.isOffline && !status.isRunning { return "Offline; syncs when you reconnect" }
+        if status.isOffline && !status.isRunning {
+            // The host is named: a site typed wrong looks exactly like no connection.
+            let host = credentials?.site.host ?? URL(string: site)?.host ?? "Jira"
+            return "Can't reach \(host); syncs when it can"
+        }
         if let phase = status.phase { return phase }
         guard let run = status.lastRun ?? state.lastSync else { return credentials == nil ? "" : "Not synced yet" }
         var text = "Synced " + DateFormatter.localizedString(from: run, dateStyle: .short, timeStyle: .short)
@@ -16,6 +22,7 @@ extension JiraSection {
 
 /// The Jira group in Settings, under the master toggle.
 struct JiraSettingsPane: View {
+    @Environment(\.compactPage) private var compact
     @Bindable var section: JiraSection
     @AppStorage(JiraSection.minutesKey) private var syncMinutes = JiraSection.defaultSyncMinutes
     @AppStorage(JiraSection.projectKey) private var projectKey = JiraSection.defaultProject
@@ -43,6 +50,8 @@ struct JiraSettingsPane: View {
                     saveError = nil
                 } catch JiraClientError.unauthorised {
                     saveError = "Paste an API token."
+                } catch let error as KeychainError {
+                    saveError = "The token could not be kept in the Keychain: \(error.message)"
                 } catch {
                     saveError = "That does not look like a site address."
                 }
@@ -72,8 +81,12 @@ struct JiraSettingsPane: View {
             HStack {
                 Button(section.status.isRunning ? "Syncing…" : "Sync Now") { section.syncNow() }
                     .disabled(section.status.isRunning || section.credentials == nil)
-                Text(section.statusText).foregroundStyle(.secondary).lineLimit(2)
+                if !compact { Text(section.statusText).foregroundStyle(.secondary).lineLimit(2) }
             }
+        }
+        // A phone's row has no room beside the button: the outcome goes on a line of its own.
+        if compact, !section.statusText.isEmpty {
+            Text(section.statusText).font(.caption).foregroundStyle(section.status.lastError == nil ? Color.secondary : Color.red)
         }
         Text("The sun on an issue adds `- [/] KEY summary #jira` to Tasks.md with a link to the issue, so it sits under today's date; a second click, or the moon on the task, sends it back to To do. When Jira marks the issue Done, the next sync ticks the task. Ticking the task here does not change Jira; the status menu on the Jira tab does.")
             .font(.caption).foregroundStyle(.secondary)
