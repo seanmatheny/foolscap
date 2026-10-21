@@ -39,6 +39,8 @@ struct FoolscapMobileApp: App {
 @MainActor @Observable
 final class PhoneModel: AppModelCore {
     static let followKey = "followMacAppearance"
+    /// The running app's model, for the Add a Task intent (nil when the app is not up).
+    nonisolated(unsafe) static weak var current: PhoneModel?
     /// No folder has been chosen yet: the notebook is the app's own Documents.
     private(set) var usingLocalFolder: Bool
     @ObservationIgnored private var changeWatch: Task<Void, Never>?
@@ -61,6 +63,7 @@ final class PhoneModel: AppModelCore {
         let bookmarked = BookmarkedFolder.resolve()
         usingLocalFolder = bookmarked == nil
         super.init(notesFolder: bookmarked ?? NotesFolder.defaultRoot)
+        Self.current = self
         followSettingChanged()
         watchForChanges()
         setJiraEnabled(UserDefaults.standard.bool(forKey: "jiraEnabled"))
@@ -362,6 +365,10 @@ struct PhoneSettingsPage: View {
                 if let error = model.startupError {
                     Text(error).font(.caption).foregroundStyle(.red)
                 }
+            }
+            Section("Quick task") {
+                Text("\"Add a Task to Foolscap\" is a Shortcut (in the Shortcuts app and Siri): put it on the Action button, in Control Center or on the Lock Screen to jot a task into the Tasks tab without opening Foolscap. #tags and !! for priority work there too.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Index") {
                 Button("Rebuild Index") { model.rebuildIndex() }

@@ -12,6 +12,8 @@ public final class EditorAccessoryModel {
     @ObservationIgnored public var onCommand: (EditorCommand) -> Void = { _ in }
     /// Set when the editor takes pictures: the bar then leads with a photo button.
     @ObservationIgnored public var onPickPhoto: (() -> Void)?
+    /// Opens the system find bar over the note.
+    @ObservationIgnored public var onFind: (() -> Void)?
 
     public init() {}
 }
@@ -49,6 +51,17 @@ public struct EditorAccessoryBar: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(theme.ink.color)
                         .accessibilityLabel("Insert Photo")
+                    }
+                    if let find = model.onFind {
+                        Button(action: find) {
+                            Image(systemName: "text.magnifyingglass")
+                                .font(.system(size: 17, weight: .medium))
+                                .frame(width: 40, height: 36)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(theme.ink.color)
+                        .accessibilityLabel("Find in Note")
                     }
                     ForEach(Array(Self.commands.enumerated()), id: \.offset) { _, entry in
                         Button { model.onCommand(entry.0) } label: {

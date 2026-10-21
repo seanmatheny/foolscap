@@ -111,6 +111,8 @@ public final class MarkdownTextView: UITextView {
         smartDashesType = .no
         smartInsertDeleteType = .no
         spellCheckingType = features.contains(.textChecking) ? .yes : .no
+        // The system find bar (⌘F on a hardware keyboard, the bar's magnifier otherwise).
+        isFindInteractionEnabled = true
         applyPalette()
     }
 
@@ -257,6 +259,7 @@ public final class MarkdownTextView: UITextView {
         accessory.theme = palette.theme
         accessory.onCommand = { [weak self] command in self?.perform(command) }
         if features.contains(.attachments) { accessory.onPickPhoto = { [weak self] in self?.pickPhoto() } }
+        accessory.onFind = { [weak self] in self?.findInteraction?.presentFindNavigator(showingReplace: false) }
         let host = UIHostingController(rootView: EditorAccessoryBar(model: accessory))
         host.view.backgroundColor = .clear
         host.view.frame = CGRect(x: 0, y: 0, width: 390, height: EditorAccessoryBar.height)

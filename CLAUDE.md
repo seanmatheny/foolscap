@@ -555,8 +555,20 @@
   are caught in `shouldChangeTextIn`; tags and the Format commands live in the bar above the
   keyboard (`EditorAccessoryBar`); a tap cycles a task mark or toggles a fold and then puts the
   caret back. `PageRuling.textLeft`/`textRight` are vars the phone app narrows at launch
-  (36/16 against the Mac's 58/36). Pictures, link cards, drag-and-drop, find and the spell-check
-  filter are Mac-only for now (`OverlayController` and friends are gated whole).
+  (36/16 against the Mac's 58/36). Pictures and link cards (since 0.13.0): `OverlayController`,
+  `AttachmentImporter` and `LinkPreviewCache` are shared; the views it places are each toolkit's
+  own (`OverlayViews+iOS.swift`: a tap selects a picture, a long press offers Copy Image / Show
+  Markdown, a card's long press Copy Link / Show Markdown; no drag-resize on the phone, the
+  markdown's `|width` is honoured). Paste takes a picture off the pasteboard (`canPerformAction`
+  says so for images), a web address links the selection or takes a line of its own, and the
+  keyboard bar's photo button runs `PHPickerViewController` from the window's top view
+  controller, keeping the photo's own bytes (`AttachmentImporter.importImageData`, extension from
+  the header). Find in note (since 0.14.0) is UIKit's `findInteraction`, opened by the bar's
+  magnifier or ⌘F. The quick task is `AddTaskIntent` (Mobile/, an App Intent + `AppShortcutsProvider`
+  "Add a Task to Foolscap"): it runs in the app's process, through `PhoneModel.current`'s library
+  when the app is up, else a library of its own over the bookmarked folder; a widget or control
+  would need an App Group the free team lacks. Drag-and-drop and the spell-check filter are still
+  Mac-only.
 - The app model is split (since 0.6.0): `AppModelCore` (FoolscapSections/AppModelCore.swift) holds
   what both apps share (defaults, the library, Daily Notes + Tasks, `rewireSections`/`tabRank`,
   `readAppearancePreferences`, `changeNotesFolder`, `flush`/`save`, the defaults observer with the
