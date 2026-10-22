@@ -22,27 +22,6 @@ private struct MetricsKey: EnvironmentKey { static let defaultValue: NotebookMet
 private struct CompactPageKey: EnvironmentKey { static let defaultValue = false }
 private struct PageContentInsetsKey: EnvironmentKey { static let defaultValue = EdgeInsets() }
 private struct PageChipInsetKey: EnvironmentKey { static let defaultValue: CGFloat = 0 }
-private struct NotebookZoomKey: EnvironmentKey { static let defaultValue: NotebookZoom? = nil }
-
-/// The phone's zoom between page mode and the cover view, run through a photograph of
-/// the page: the live page re-wraps its text on every frame of a width change (the
-/// editor visibly so), so the photograph is laid over it while the frame animates and
-/// dropped when the animation ends. `NotebookView` lends it the page's camera.
-@MainActor @Observable
-public final class NotebookZoom {
-    /// The photograph shown over the page while a zoom runs.
-    public var shot: CGImage?
-    @ObservationIgnored public var capture: (() -> CGImage?)?
-    public init() {}
-
-    /// Photograph the page, make `change` with the animation, and let the photograph go
-    /// once the animation has ended.
-    public func animate(duration: Double, _ change: () -> Void) {
-        shot = capture?()
-        withAnimation(.easeInOut(duration: duration), change)
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.05) { [weak self] in self?.shot = nil }
-    }
-}
 
 public extension EnvironmentValues {
     /// Set by the app from Settings; every piece of chrome reads it.
@@ -73,11 +52,6 @@ public extension EnvironmentValues {
     var pageChipInset: CGFloat {
         get { self[PageChipInsetKey.self] }
         set { self[PageChipInsetKey.self] = newValue }
-    }
-    /// The phone's page-mode zoom, when the app runs one.
-    var notebookZoom: NotebookZoom? {
-        get { self[NotebookZoomKey.self] }
-        set { self[NotebookZoomKey.self] = newValue }
     }
     var compactPage: Bool {
         get { self[CompactPageKey.self] }
@@ -162,7 +136,6 @@ public struct NotebookView<Page: View>: View {
     @Environment(\.showsElasticBand) private var showsBand
     @Environment(\.notebookMetrics) private var metrics
     @Environment(\.pageContentInsets) private var contentInsets
-    @Environment(\.notebookZoom) private var zoom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let tabs: [NotebookTabItem]
     @Binding var selection: String
@@ -202,16 +175,7 @@ public struct NotebookView<Page: View>: View {
                     .padding(.bottom, metrics.bottomMargin)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topTrailing : .topLeading)
                     .opacity(foldRoom)
-                PageView {
-                    ZStack(alignment: .topLeading) {
-                        page(open).safeAreaPadding(contentInsets)
-                            .opacity(zoom?.shot == nil ? 1 : 0)
-                        // The page's photograph stands in while a zoom runs (see NotebookZoom).
-                        if let shot = zoom?.shot {
-                            Image(decorative: shot, scale: 1).resizable().allowsHitTesting(false)
-                        }
-                    }
-                }
+                PageView { page(open).safeAreaPadding(contentInsets) }
                     // The drop shadow belongs to a plain shape behind the page: on the page
                     // itself it would put every photograph of the page through a blur.
                     .background {
@@ -284,7 +248,6 @@ public struct NotebookView<Page: View>: View {
         .onAppear {
             if shown == nil { shown = selection }
             PageCurlRenderer.warmUp()
-            zoom?.capture = { [anchor] in anchor.capture()?.image }
         }
         .onChange(of: selection) { old, new in turnPage(from: old, to: new) }
     }

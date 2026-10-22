@@ -624,9 +624,9 @@
   the daily page's editor does the same through `ignoresSafeArea` plus `MarkdownTextView.outerInsets`
   from the same value). The chrome that lives in the leather (facing page, fold, stamp, band) fades
   with the margins and the tabs slide off the edge they are glued to. `RootView.pageMode` toggles
-  through `NotebookZoom` (`\.notebookZoom`, 0.35 s): a photograph of the page (`PageAnchor.capture`,
-  lent by `NotebookView`) lies over the live page while the frame animates, since the editor re-wraps
-  on every frame and the text visibly jumped (0.16.0). The chip in the open tab's colour sits in the
+  with `withAnimation(0.35 s)` on the metrics; the editor re-wraps on every frame, a slight jump of
+  the note's text Sean accepts (0.17.0 zoomed over a photograph of the page instead, which he found
+  unnatural and reverted in 0.17.1). The chip in the open tab's colour sits in the
   page's first row on the tab side; each page's top row keeps clear of it with `.clearOfTabChip()`
   (`\.pageChipInset`, 44 in page mode: the daily controls, the Tasks/Jira/Highlights/Secrets title
   rows, the Scribe folder tabs). The chip or a pinch in (`MagnifyGesture` ending under 0.8) zooms
