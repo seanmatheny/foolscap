@@ -38,7 +38,9 @@ struct FoolscapApp: App {
     /// `--compact` previews the phone's layout on the Mac for window shots: the compact
     /// cover, `\.compactPage`, the phone's text column and a phone-sized window
     /// (`--window=390x844` unless another is given). The Mac app never sets these otherwise.
-    static let previewsCompact = CommandLine.arguments.contains("--compact")
+    static let previewsCompact = CommandLine.arguments.contains { $0 == "--compact" || $0.hasPrefix("--compact=") }
+    /// `--compact=page`: the phone's page mode, the page alone with a band for its chip.
+    static let previewsPage = CommandLine.arguments.contains("--compact=page")
 
     init() {
         if Self.previewsCompact {
@@ -173,7 +175,8 @@ struct RootView: View {
         }
         .overlay { CoverOpeningOverlay() }
         .overlay(alignment: .top) { SearchOverlay(coordinator: model.search) }
-        .environment(\.notebookMetrics, FoolscapApp.previewsCompact ? .compact : .regular)
+        .environment(\.notebookMetrics, FoolscapApp.previewsPage ? .page : FoolscapApp.previewsCompact ? .compact : .regular)
+        .environment(\.pageContentInsets, FoolscapApp.previewsPage ? EdgeInsets(top: 36, leading: 0, bottom: 0, trailing: 0) : EdgeInsets())
         .environment(\.compactPage, FoolscapApp.previewsCompact)
         .sheet(isPresented: $model.showExport) {
             if let library = model.library {

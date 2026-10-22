@@ -617,6 +617,19 @@
   holds two books a row; the Secrets page leaves `ThumbIndexView.selectedWidth + 6` on the
   index's side; the Scribe page swaps the contents column for a menu of the folder's notebooks
   (`treeNotebooks`), the facsimile and transcript stacking as they do in a narrow window.
+- Page mode on the phone (since 0.16.0, 2026-10-22): in a tab the page alone fills the screen
+  (`NotebookMetrics.page`, every margin 0; the paper runs under the status bar and the home
+  indicator, the content keeps clear through `\.pageContentInsets`, applied by `NotebookView` as
+  `safeAreaPadding` on the page content, with a 36 pt band under the clock for the chip). The
+  chrome that lives in the leather (facing page, fold, stamp, band) fades with the margins and the
+  tabs slide off the edge they are glued to. `RootView.pageMode` toggles with `withAnimation(0.35 s)`
+  on the metrics: the chip in the open tab's colour (top corner on the tab side) or a pinch in
+  (`MagnifyGesture` ending under 0.8) zooms out to the cover view (`compact`, now 6 pt of leather
+  above and below); a tab tap there (`NotebookView(onSelectTab:)`, called for the open tab too)
+  zooms back in after the curl; the app zooms in 0.4 s after launch, or once the flyleaf is turned
+  away. `--compact=page` previews the page metrics on the Mac (`--compact` alone the cover view).
+  The editor relays out on every frame of the width animation; if that stutters on the phone the
+  plan's snapshot zoom (`NotebookZoom`, a captured page over the live one) is the next step.
 - Jira on the phone (since 0.9.0): FoolscapJira compiles for iOS as it is bar three spots
   (`Platform.openURL`, `Platform.copyText`, and `JiraSection.openSettings`, a hook each app sets:
   the Mac opens its Settings window on the Jira tab, the phone turns to its Settings tab). The

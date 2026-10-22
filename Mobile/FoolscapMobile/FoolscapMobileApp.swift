@@ -235,7 +235,13 @@ final class PhoneModel: AppModelCore {
 
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var model = PhoneModel()
+    /// Page mode: the page alone fills the screen; off, the cover view with its tabs.
+    /// The app zooms in by itself after launch and zooms out on the chip or a pinch.
+    @State private var pageMode = false
+    /// The band under the status bar that holds the chip in page mode.
+    static let chipBand: CGFloat = 36
     @State private var choosingFolder = false
     @State private var offeringFolder = false
     /// The first-run offer to pick the iCloud folder has been shown.
@@ -246,7 +252,9 @@ struct RootView: View {
         @Bindable var model = model
         let tabsLeft = model.tabEdge == .left
         GeometryReader { geo in
-            NotebookView(tabs: model.tabs + [Self.settingsTab], selection: $model.selectedSectionID, looseLeaf: $model.flyleafPresented) { id in
+            let safe = geo.safeAreaInsets
+            NotebookView(tabs: model.tabs + [Self.settingsTab], selection: $model.selectedSectionID, looseLeaf: $model.flyleafPresented,
+                         onSelectTab: tabTapped) { id in
                 if id == Self.settingsTab.id {
                     PhoneSettingsPage(model: model, choosingFolder: $choosingFolder)
                 } else if let section = model.section(id: id) {
@@ -261,9 +269,25 @@ struct RootView: View {
                     PageTurnOverlay(isPresented: $model.flyleafPresented) { highlights.makeFlyleafView() }
                 }
             }
-            // The leather runs under the status bar and the home indicator; the page does not.
-            .environment(\.notebookMetrics, NotebookMetrics.compact.insetBy(safeArea: geo.safeAreaInsets, tabsLeft: tabsLeft))
-            .overlay(alignment: .top) { SearchOverlay(coordinator: model.search).padding(.top, geo.safeAreaInsets.top) }
+            // In the cover view the leather runs under the status bar and the home indicator and
+            // the page does not; in page mode the paper does, and the content keeps clear of them.
+            .environment(\.notebookMetrics, pageMode ? .page : NotebookMetrics.compact.insetBy(safeArea: safe, tabsLeft: tabsLeft))
+            .environment(\.pageContentInsets, pageMode
+                         ? EdgeInsets(top: safe.top + Self.chipBand, leading: 0, bottom: safe.bottom, trailing: 0) : EdgeInsets())
+            // The open tab's chip, in the band under the clock on the tab side: a tap shows the tabs.
+            .overlay(alignment: tabsLeft ? .topLeading : .topTrailing) {
+                if pageMode {
+                    TabChip(colour: openTabColour) { zoomOut() }
+                        .padding(.top, safe.top + (Self.chipBand - 28) / 2)
+                        .padding(.horizontal, 12)
+                        .transition(.opacity)
+                }
+            }
+            // A pinch in zooms out too (the Scribe tab's own pinch lifts a page on a pinch out).
+            .simultaneousGesture(MagnifyGesture().onEnded { value in
+                if pageMode, value.magnification < 0.8 { zoomOut() }
+            })
+            .overlay(alignment: .top) { SearchOverlay(coordinator: model.search).padding(.top, safe.top) }
         }
         .environment(\.notebookTheme, model.theme)
         .environment(\.notebookTabEdge, model.tabEdge)
@@ -279,12 +303,65 @@ struct RootView: View {
         }
         .onAppear {
             if !folderOffered, model.usingLocalFolder { folderOffered = true; offeringFolder = true }
+            // The cover view shows for a moment, then the page zooms in; under the flyleaf it
+            // waits for the leaf to be turned away.
+            if !model.flyleafPresented { zoomIn(after: 0.4) }
+        }
+        .onChange(of: model.flyleafPresented) { _, up in
+            if !up, !pageMode { zoomIn(after: 0.6) }
         }
         .onChange(of: scenePhase) { _, phase in
             // The app may be killed in the background: write what is dirty now.
             if phase == .background { model.flush() }
             if phase == .active { Task { await model.library?.checkForExternalChanges(); await model.applyMacAppearance() } }
         }
+    }
+}
+
+extension RootView {
+    private var openTabColour: Color {
+        let index = (model.tabs + [Self.settingsTab]).first { $0.id == model.selectedSectionID }?.appearance.colorIndex ?? 0
+        return model.theme.tabColor(at: index).color
+    }
+
+    /// A tab tapped in the cover view: the page zooms in, after the curl when the tab
+    /// is another one (NotebookView's turn takes 0.55 s), at once when it is the open one.
+    private func tabTapped(_ id: String) {
+        guard !pageMode else { return }
+        let turns = id != model.selectedSectionID && !reduceMotion
+        zoomIn(after: turns ? 0.6 : 0.05)
+    }
+
+    private func zoomIn(after delay: Double) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard !pageMode, !model.flyleafPresented else { return }
+            withAnimation(.easeInOut(duration: 0.35)) { pageMode = true }
+        }
+    }
+
+    private func zoomOut() {
+        withAnimation(.easeInOut(duration: 0.35)) { pageMode = false }
+    }
+}
+
+/// The open tab's colour as a small chip: tapped, the page shrinks back into the
+/// cover so the tabs can be reached.
+struct TabChip: View {
+    let colour: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                ForEach(0..<3, id: \.self) { _ in Capsule().fill(Color.black.opacity(0.55)).frame(width: 14, height: 3) }
+            }
+            .frame(width: 28, height: 28)
+            .background(RoundedRectangle(cornerRadius: 8).fill(colour))
+            .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show the tabs")
     }
 }
 

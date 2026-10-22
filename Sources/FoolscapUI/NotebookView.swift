@@ -20,6 +20,7 @@ private struct TabEdgeKey: EnvironmentKey { static let defaultValue: TabEdge = .
 private struct ElasticBandKey: EnvironmentKey { static let defaultValue = false }
 private struct MetricsKey: EnvironmentKey { static let defaultValue: NotebookMetrics = .regular }
 private struct CompactPageKey: EnvironmentKey { static let defaultValue = false }
+private struct PageContentInsetsKey: EnvironmentKey { static let defaultValue = EdgeInsets() }
 
 public extension EnvironmentValues {
     /// Set by the app from Settings; every piece of chrome reads it.
@@ -40,6 +41,12 @@ public extension EnvironmentValues {
     }
     /// A phone's page: one column of lanes, rows that wrap, no pointer-only controls.
     /// The Mac never sets it (macOS has no size classes to read instead).
+    /// Room the page content keeps clear inside the page: on a phone in page mode the
+    /// paper runs under the status bar and the home indicator, the content does not.
+    var pageContentInsets: EdgeInsets {
+        get { self[PageContentInsetsKey.self] }
+        set { self[PageContentInsetsKey.self] = newValue }
+    }
     var compactPage: Bool {
         get { self[CompactPageKey.self] }
         set { self[CompactPageKey.self] = newValue }
@@ -75,8 +82,14 @@ public struct NotebookMetrics: Equatable, Sendable {
 
     /// A phone: the leather trimmed to a few points so the page gets the width, the
     /// side still wide enough for the tabs (`PaperTab.width` plus a rim).
-    public static let compact = NotebookMetrics(topMargin: 12, sideMargin: 40, bottomMargin: 10, facingWidth: 16,
+    public static let compact = NotebookMetrics(topMargin: 6, sideMargin: 40, bottomMargin: 6, facingWidth: 16,
                                                 firstTabOffset: 18, stampSize: 22)
+
+    /// A phone reading a page: no leather at all, the page edge to edge; the tabs,
+    /// glued to the page's edge, lie off the screen, and the fold, the facing page,
+    /// the stamp and the band fade with the margins that would have held them.
+    public static let page = NotebookMetrics(topMargin: 0, sideMargin: 0, bottomMargin: 0, facingWidth: 0,
+                                             firstTabOffset: 18, stampSize: 22)
 
     public init(topMargin: CGFloat, sideMargin: CGFloat, bottomMargin: CGFloat, facingWidth: CGFloat,
                 firstTabOffset: CGFloat, stampSize: CGFloat, stampCentre: CGPoint? = nil) {
@@ -116,10 +129,13 @@ public struct NotebookView<Page: View>: View {
     @Environment(\.notebookTabEdge) private var tabEdge
     @Environment(\.showsElasticBand) private var showsBand
     @Environment(\.notebookMetrics) private var metrics
+    @Environment(\.pageContentInsets) private var contentInsets
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let tabs: [NotebookTabItem]
     @Binding var selection: String
     let page: (String) -> Page
+    /// Told of every tab tap, the open tab's included (the phone zooms in on the page then).
+    let onSelectTab: ((String) -> Void)?
     /// Whether a loose leaf (the flyleaf) lies on the page. A tab click then
     /// photographs the leaf with the page and turns it away, even when the tab
     /// is the one the notebook is already open at.
@@ -134,13 +150,16 @@ public struct NotebookView<Page: View>: View {
     @State private var pendingShot: (id: String, image: CGImage, size: CGSize, edge: CGFloat)?
 
     public init(tabs: [NotebookTabItem], selection: Binding<String>, looseLeaf: Binding<Bool>? = nil,
-                @ViewBuilder page: @escaping (String) -> Page) {
-        self.tabs = tabs; self._selection = selection; self.looseLeaf = looseLeaf; self.page = page
+                onSelectTab: ((String) -> Void)? = nil, @ViewBuilder page: @escaping (String) -> Page) {
+        self.tabs = tabs; self._selection = selection; self.looseLeaf = looseLeaf; self.onSelectTab = onSelectTab; self.page = page
     }
 
     public var body: some View {
         let tabsLeft = tabEdge == .left
         let open = shown ?? selection
+        // The chrome that lives in the leather fades as the leather goes (a phone's page mode).
+        let sideRoom = min(1, max(0, (metrics.sideMargin - PaperTab.width + 10) / 20))
+        let foldRoom = min(1, max(0, metrics.facingWidth / 16))
         CoverBlock {
             ZStack(alignment: tabsLeft ? .topLeading : .topTrailing) {
                 // The facing page runs from under the page's inner edge to the window edge.
@@ -149,7 +168,8 @@ public struct NotebookView<Page: View>: View {
                     .padding(.top, metrics.topMargin)
                     .padding(.bottom, metrics.bottomMargin)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topTrailing : .topLeading)
-                PageView { page(open) }
+                    .opacity(foldRoom)
+                PageView { page(open).safeAreaPadding(contentInsets) }
                     // The drop shadow belongs to a plain shape behind the page: on the page
                     // itself it would put every photograph of the page through a blur.
                     .background {
@@ -167,6 +187,7 @@ public struct NotebookView<Page: View>: View {
                             // Photograph the page before the selection changes anything
                             // (a leaf lying on it is in the photograph too).
                             let leaf = looseLeaf?.wrappedValue == true
+                            onSelectTab?(id)
                             if id != open || leaf, let shot = anchor.capture() { pendingShot = (open, shot.image, shot.size, edge) }
                             if leaf { looseLeaf?.wrappedValue = false }
                             if id == open {
@@ -189,10 +210,12 @@ public struct NotebookView<Page: View>: View {
                     .padding(.bottom, metrics.bottomMargin)
                     .padding(tabsLeft ? .trailing : .leading, metrics.facingWidth - 22)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topTrailing : .topLeading)
+                    .opacity(foldRoom)
                 // The band wraps the cover beyond the tabs, so it never crosses the page.
                 if showsBand {
                     ElasticBandView()
                         .padding(tabsLeft ? .leading : .trailing, 6)
+                        .opacity(sideRoom)
                 }
                 // The cover's jester, stamped in the leather's corner on the tabs' side,
                 // centred between the page, the first tab and the stitching. With the tabs
@@ -200,6 +223,7 @@ public struct NotebookView<Page: View>: View {
                 if !theme.flat {
                     CoverStamp(tabsLeft: tabsLeft)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tabsLeft ? .topLeading : .topTrailing)
+                        .opacity(sideRoom)
                 }
                 #if canImport(AppKit)
                 // Leather band above the page: reveals the traffic lights and drags the window.
