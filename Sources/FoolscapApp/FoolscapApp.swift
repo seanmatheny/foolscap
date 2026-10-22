@@ -176,7 +176,7 @@ struct RootView: View {
         .overlay { CoverOpeningOverlay() }
         .overlay(alignment: .top) { SearchOverlay(coordinator: model.search) }
         .environment(\.notebookMetrics, FoolscapApp.previewsPage ? .page : FoolscapApp.previewsCompact ? .compact : .regular)
-        .environment(\.pageContentInsets, FoolscapApp.previewsPage ? EdgeInsets(top: 36, leading: 0, bottom: 0, trailing: 0) : EdgeInsets())
+        .environment(\.pageChipInset, FoolscapApp.previewsPage ? 44 : 0)
         .environment(\.compactPage, FoolscapApp.previewsCompact)
         .sheet(isPresented: $model.showExport) {
             if let library = model.library {

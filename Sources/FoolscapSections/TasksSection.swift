@@ -156,6 +156,7 @@ struct TasksPage: View {
             Spacer()
             if let err = section.aggregator.error { Text(err).font(theme.type.body.face(11 * scale)).foregroundStyle(.red) }
         }
+        .clearOfTabChip()
         .frame(height: pitch * 1.5 - Self.fieldGap)
     }
 

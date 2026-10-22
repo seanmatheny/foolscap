@@ -110,6 +110,7 @@ struct JiraPage: View {
                 .disabled(section.status.isRunning)
             }
         }
+        .clearOfTabChip()
         .frame(height: pitch * 1.5 - Self.fieldGap)
     }
 

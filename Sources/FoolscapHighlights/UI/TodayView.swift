@@ -42,6 +42,7 @@ struct TodayView: View {
 /// appearing on hover.
 struct QuoteCard: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.compactPage) private var compact
     @Bindable var section: HighlightsSection
     let item: HighlightItem
     var showsBook: Bool
@@ -51,9 +52,19 @@ struct QuoteCard: View {
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            cover
-            quote
+        Group {
+            if compact {
+                // A phone's column has no room beside the cover: the quote goes under it.
+                VStack(alignment: .leading, spacing: 12) {
+                    cover
+                    quote
+                }
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    cover
+                    quote
+                }
+            }
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
@@ -91,7 +102,7 @@ struct QuoteCard: View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(item.paragraphs.enumerated()), id: \.offset) { _, paragraph in
                 Text(paragraph)
-                    .font(theme.type.body.face(19 * scale))
+                    .font(theme.type.body.face((compact ? 17 : 19) * scale))
                     .lineSpacing(5)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -104,9 +115,13 @@ struct QuoteCard: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 attribution
-                LocationLabel(section: section, item: item, size: 12.5 * scale)
+                if !compact { LocationLabel(section: section, item: item, size: 12.5 * scale) }
                 Spacer()
-                HighlightControls(section: section, item: item, visible: hovering, size: 13 * scale)
+                // A phone has no pointer to hover the controls in; the menu has them, and only a
+                // set heart shows, so the title keeps the width.
+                if !compact || item.isFavourite {
+                    HighlightControls(section: section, item: item, visible: hovering, size: 13 * scale)
+                }
             }
             if !item.tags.isEmpty {
                 FlowLayout(spacing: 6) {
@@ -137,6 +152,7 @@ struct QuoteCard: View {
         }
         .font(theme.type.body.face(14 * scale))
         .italic()
+        .fixedSize(horizontal: false, vertical: true)
         .foregroundStyle(theme.accent.color)
     }
 }
@@ -241,6 +257,7 @@ struct LocationLabel: View {
 /// jester from the cover printed small in its top corner.
 struct FlyleafView: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.compactPage) private var compact
     @Bindable var section: HighlightsSection
     private var pitch: CGFloat { theme.linePitch }
 
@@ -261,12 +278,13 @@ struct FlyleafView: View {
                         Spacer().frame(height: pitch * 1.5)
                         TodayView(section: section, items: section.picks, showsBooks: true, centered: true)
                         Spacer().frame(height: pitch * 1.5)
-                        Text("Click to turn the page")
+                        Text(compact ? "Tap to turn the page" : "Click to turn the page")
                             .font(theme.type.body.face(11.5)).italic()
                             .foregroundStyle(theme.dimInk.color.opacity(0.8))
                         Spacer(minLength: pitch)
                     }
-                    .padding(.horizontal, 58)
+                    .padding(.leading, PageColumn.textLeft)
+                    .padding(.trailing, PageColumn.trailing(compact: compact))
                     .padding(.top, pitch)
                     .frame(maxWidth: .infinity, alignment: .top)
                 }

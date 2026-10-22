@@ -19,6 +19,7 @@ public struct MarkdownEditor: UIViewRepresentable {
     let features: EditorFeatures
     let onEdit: () -> Void
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.pageContentInsets) private var pageInsets
 
     public init(document: NoteDocument, revealLine: Int? = nil, tags: @escaping () -> [String] = { [] },
                 header: AnyView? = nil, footer: AnyView? = nil, features: EditorFeatures = .all, onEdit: @escaping () -> Void) {
@@ -42,6 +43,7 @@ public struct MarkdownEditor: UIViewRepresentable {
         // Today list), ready to type; the opening heading keeps its `#` hidden.
         if revealLine == nil { textView.selectedRange = NSRange(location: (textView.text as NSString).length, length: 0) }
         context.coordinator.textView = textView
+        textView.outerInsets = UIEdgeInsets(top: pageInsets.top, left: 0, bottom: pageInsets.bottom, right: 0)
         updateHeader(textView, context: context)
         updateFooter(textView, context: context)
         context.coordinator.hostedHeader = header != nil
@@ -51,6 +53,7 @@ public struct MarkdownEditor: UIViewRepresentable {
 
     public func updateUIView(_ textView: MarkdownTextView, context: Context) {
         textView.knownTags = tags
+        textView.outerInsets = UIEdgeInsets(top: pageInsets.top, left: 0, bottom: pageInsets.bottom, right: 0)
         // The fonts and the hosted views are only rebuilt when the theme changed or a
         // header/footer came or went; the hosted views observe their own models.
         let themeChanged = textView.palette.theme != theme

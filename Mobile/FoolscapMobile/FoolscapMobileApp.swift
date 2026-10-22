@@ -240,8 +240,9 @@ struct RootView: View {
     /// Page mode: the page alone fills the screen; off, the cover view with its tabs.
     /// The app zooms in by itself after launch and zooms out on the chip or a pinch.
     @State private var pageMode = false
-    /// The band under the status bar that holds the chip in page mode.
-    static let chipBand: CGFloat = 36
+    @State private var zoom = NotebookZoom()
+    /// The room the chip takes in a page's top row, on the tab side.
+    static let chipInset: CGFloat = 44
     @State private var choosingFolder = false
     @State private var offeringFolder = false
     /// The first-run offer to pick the iCloud folder has been shown.
@@ -272,13 +273,15 @@ struct RootView: View {
             // In the cover view the leather runs under the status bar and the home indicator and
             // the page does not; in page mode the paper does, and the content keeps clear of them.
             .environment(\.notebookMetrics, pageMode ? .page : NotebookMetrics.compact.insetBy(safeArea: safe, tabsLeft: tabsLeft))
-            .environment(\.pageContentInsets, pageMode
-                         ? EdgeInsets(top: safe.top + Self.chipBand, leading: 0, bottom: safe.bottom, trailing: 0) : EdgeInsets())
-            // The open tab's chip, in the band under the clock on the tab side: a tap shows the tabs.
+            .environment(\.pageContentInsets, pageMode ? EdgeInsets(top: safe.top, leading: 0, bottom: safe.bottom, trailing: 0) : EdgeInsets())
+            .environment(\.pageChipInset, pageMode ? Self.chipInset : 0)
+            .environment(\.notebookZoom, zoom)
+            // The open tab's chip, in the page's first row on the tab side (the pages' own top
+            // rows keep clear of it): a tap shows the tabs.
             .overlay(alignment: tabsLeft ? .topLeading : .topTrailing) {
                 if pageMode {
                     TabChip(colour: openTabColour) { zoomOut() }
-                        .padding(.top, safe.top + (Self.chipBand - 28) / 2)
+                        .padding(.top, safe.top + 8)
                         .padding(.horizontal, 12)
                         .transition(.opacity)
                 }
@@ -335,12 +338,12 @@ extension RootView {
     private func zoomIn(after delay: Double) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             guard !pageMode, !model.flyleafPresented else { return }
-            withAnimation(.easeInOut(duration: 0.35)) { pageMode = true }
+            zoom.animate(duration: 0.35) { pageMode = true }
         }
     }
 
     private func zoomOut() {
-        withAnimation(.easeInOut(duration: 0.35)) { pageMode = false }
+        zoom.animate(duration: 0.35) { pageMode = false }
     }
 }
 

@@ -71,6 +71,7 @@ struct HighlightsPage: View {
                     ProgressView().controlSize(.mini).help(section.status.phase ?? "Importing…")
                 }
             }
+            .clearOfTabChip()
             .frame(height: pitch * 1.5)
             if compact, !section.items.isEmpty {
                 HStack(spacing: 8) {

@@ -19,6 +19,11 @@ public final class MarkdownTextView: UITextView {
     let features: EditorFeatures
     /// The pictures and link cards laid under their lines (shared with the Mac).
     private(set) lazy var overlays = OverlayController(textView: self)
+    /// Room kept clear at the top and bottom of the content (the status bar and the home
+    /// indicator in page mode, the view running under both), set by the editor wrapper.
+    var outerInsets = UIEdgeInsets.zero {
+        didSet { if outerInsets != oldValue { updateTopInset(); setNeedsLayout() } }
+    }
     /// Known tags for `#` completion, most used first (set by the editor wrapper).
     var knownTags: () -> [String] = { [] }
     /// Folding: the "n lines" pills drawn after folded headings (for taps). A phone
@@ -307,10 +312,12 @@ public final class MarkdownTextView: UITextView {
     /// Without a heading to sit under, the header takes whole lines above the text;
     /// the footer's room is a line under the text, the footer, and a line more.
     private func updateTopInset() {
-        let top = palette.pitch * EditorMetrics.topLines + (headerAnchor == nil ? headerReservation : 0)
-        let bottom = footerReservation > 0 ? palette.pitch * 2 + footerReservation : palette.pitch
+        let top = palette.pitch * EditorMetrics.topLines + (headerAnchor == nil ? headerReservation : 0) + outerInsets.top
+        let bottom = (footerReservation > 0 ? palette.pitch * 2 + footerReservation : palette.pitch) + outerInsets.bottom
         let insets = UIEdgeInsets(top: top, left: EditorMetrics.leftInset, bottom: bottom, right: EditorMetrics.rightInset)
         if textContainerInset != insets { textContainerInset = insets }
+        let bars = UIEdgeInsets(top: outerInsets.top, left: 0, bottom: outerInsets.bottom, right: 0)
+        if verticalScrollIndicatorInsets != bars { verticalScrollIndicatorInsets = bars }
     }
 
     /// Under its line, moved down as the Tasks tab's rows are so each row sits on a rule.

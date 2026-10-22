@@ -20,7 +20,8 @@ struct ScribePage: View {
                 // notebooks stands in, and the notebook takes the page.
                 VStack(spacing: 0) {
                     FolderTabRow(tabs: section.folderTabs, selectedID: section.selectedFolderID) { section.select(folder: $0) }
-                        .padding(.top, pitch)
+                        .clearOfTabChip()
+                        .padding(.top, 6)
                     notebookMenu
                         .frame(height: pitch * 1.5)
                     if let notebook = section.selectedNotebook {

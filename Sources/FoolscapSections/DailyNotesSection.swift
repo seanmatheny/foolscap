@@ -131,6 +131,9 @@ struct DailyNotesPage: View {
                     // Keyed on the library generation too: a folder switch or a restore replaces every
                     // document. And on the day-pages providers: the footer takes them by value.
                     .id("\(document.path)/\(section.library.generation)/\(section.dayPagesProviders.count)")
+                    // On the phone the note runs under the clock and the home indicator like the
+                    // other pages' scroll views; the text view insets its content by the same room.
+                    .ignoresPageInsets(compact)
                     .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
                                             removal: .opacity))
             }
@@ -140,6 +143,7 @@ struct DailyNotesPage: View {
             }
             .padding(.top, 8)
             .padding(.trailing, compact ? PageRuling.textRight : 44)
+            .clearOfTabChip()
             if let document {
                 if document.isDownloading {
                     Text("Downloading from iCloud…")
@@ -309,5 +313,12 @@ struct NoteBanner<Buttons: View>: View {
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 14).fill(theme.accent.color.opacity(0.18)))
         .foregroundStyle(theme.ink.color)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func ignoresPageInsets(_ on: Bool) -> some View {
+        if on { ignoresSafeArea(.container, edges: .vertical) } else { self }
     }
 }

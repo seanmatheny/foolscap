@@ -104,6 +104,7 @@ struct SecretsPage: View {
                     newButton
                 }
             }
+            .clearOfTabChip()
             .frame(height: pitch * 1.5 - Self.fieldGap)
             if compact, unlocked {
                 HStack(spacing: 8) {
