@@ -47,6 +47,11 @@ public final class SecretsSection: NotebookSection {
     /// letter or a tag is chosen.
     public private(set) var showingAll = false
     public private(set) var editingID: String?
+    /// The card being edited as a form (the usual way); nil while editing as text (`draft`).
+    public var form: SecretForm?
+    /// The form as it was opened, so Done on an untouched card rewrites nothing.
+    @ObservationIgnored private var formOriginal: SecretForm?
+    /// The card being edited as markdown text, after "Edit as Text".
     public private(set) var draft: NoteDocument?
     /// Titles folded to their one-line row.
     public var collapsed: Set<String> = []
@@ -113,6 +118,7 @@ public final class SecretsSection: NotebookSection {
         autoLock.stop()
         editingID = nil
         draft = nil
+        form = nil
         revealed = []
         copiedKey = nil
         lockedAt = Date()
@@ -174,6 +180,16 @@ public final class SecretsSection: NotebookSection {
         }
         if let doc = vault.document, !doc.lettersWithEntries.contains(selectedLetter), let first = doc.lettersWithEntries.min() {
             selectedLetter = first
+        }
+        // `--secrets-edit=Title` opens that card's form (`=new` a new card), for screenshots.
+        if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--secrets-edit=") }) {
+            let title = String(arg.dropFirst("--secrets-edit=".count))
+            if title == "new" {
+                beginAdd()
+            } else if let entry = vault.document?.entries.first(where: { $0.title == title }) {
+                selectedLetter = entry.letter
+                beginEdit(entry)
+            }
         }
     }
 
@@ -261,19 +277,59 @@ public final class SecretsSection: NotebookSection {
 
     public var isEditing: Bool { editingID != nil }
 
-    /// A new card at the top of the current letter, already in edit-as-text mode.
+    /// A new card at the top of the current letter, open as a form.
     public func beginAdd() {
         guard isUnlocked else { return }
         if editingID != nil { commitEdit() }
-        draft = makeDraft(SecretsDocument.template)
+        startForm(.blank())
         editingID = Self.newEntryID
     }
 
     public func beginEdit(_ entry: SecretEntry) {
         guard isUnlocked else { return }
         if editingID != nil { commitEdit() }
-        draft = makeDraft(entry.raw)
+        startForm(SecretForm(entry: entry))
         editingID = entry.id
+    }
+
+    private func startForm(_ value: SecretForm) {
+        draft = nil
+        form = value
+        formOriginal = value
+    }
+
+    /// The form's entry as markdown in the text editor (for pasting a list of entries,
+    /// or for anything the form does not show).
+    public func editAsText() {
+        guard let form else { return }
+        let untouched = formOriginal.map(form.sameContent(as:)) ?? false
+        let text: String
+        if editingID == Self.newEntryID, untouched {
+            text = SecretsDocument.template
+        } else if untouched, let id = editingID, let entry = document?.entries.first(where: { $0.id == id }) {
+            text = entry.raw
+        } else {
+            text = form.markdown(keepingEmpty: true)
+        }
+        draft = makeDraft(text)
+        self.form = nil
+    }
+
+    /// The text holds one entry at most, so it can go back into the form.
+    public var canEditAsForm: Bool {
+        guard let draft else { return false }
+        return SecretsDocument.pieces(of: draft.text).count <= 1
+    }
+
+    /// Back from the text editor to the form, with what was typed.
+    public func editAsForm() {
+        guard let draft, canEditAsForm else { return }
+        let normalised = SecretsDocument.normalised(draft.text)
+        let parsed = normalised.isEmpty ? SecretForm(fields: SecretForm.blank().fields) : SecretForm(entry: SecretEntry(raw: normalised, ordinal: 0))
+        self.draft = nil
+        form = parsed
+        // Done compares against the card as it was opened, not as it came back from the text.
+        if editingID == Self.newEntryID { formOriginal = .blank() }
     }
 
     private func makeDraft(_ text: String) -> NoteDocument {
@@ -284,8 +340,13 @@ public final class SecretsSection: NotebookSection {
         return doc
     }
 
-    /// Done: the draft's text goes into the vault (an empty title drops the entry).
+    /// Done: the form or the draft's text goes into the vault (an empty title in the text
+    /// drops the entry; a form with no title changes nothing).
     public func commitEdit() {
+        if let form, let editingID {
+            commitForm(form, editingID: editingID)
+            return
+        }
         guard let editingID, let draft else { return }
         let text = editingID == Self.newEntryID ? Self.withoutTemplateLeftovers(draft.text) : draft.text
         let today = Date()
@@ -318,9 +379,32 @@ public final class SecretsSection: NotebookSection {
             .joined(separator: "\n")
     }
 
+    private func commitForm(_ form: SecretForm, editingID: String) {
+        defer {
+            self.editingID = nil
+            self.form = nil
+            formOriginal = nil
+        }
+        guard form.hasTitle, !(formOriginal.map(form.sameContent(as:)) ?? false) else { return }
+        let today = Date()
+        var landed: SecretLetter?
+        vault.edit { doc in
+            if editingID == Self.newEntryID {
+                guard let id = doc.insert(form.markdown()) else { return }
+                landed = doc.entries.first { $0.id == id }?.letter
+                doc.stamp(id: id, changed: today)
+            } else if doc.entries.contains(where: { $0.id == editingID }) {
+                for id in doc.replace(id: editingID, with: form.markdown()) { doc.stamp(id: id, changed: today) }
+            }
+        }
+        if let landed, !isSearching { selectedLetter = landed }
+    }
+
     public func cancelEdit() {
         editingID = nil
         draft = nil
+        form = nil
+        formOriginal = nil
     }
 
     /// Add the entries of a markdown text in the vault's own format (`## Title #tags`,

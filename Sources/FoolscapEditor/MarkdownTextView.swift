@@ -493,7 +493,9 @@ public final class MarkdownTextView: NSTextView {
     public override func paste(_ sender: Any?) {
         let pb = NSPasteboard.general
         if pasteImage(from: pb) { return }
-        if let s = pb.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+        // A bare web address becomes a link or a card's line only where the editor shows
+        // link cards; elsewhere (the Secrets editor) it is pasted where the caret is.
+        if features.contains(.linkPreviews), let s = pb.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
            let url = URL(string: s), let scheme = url.scheme, ["http", "https"].contains(scheme), !s.contains(" ") {
             if selectedRange().length > 0, let selected = (string as NSString?)?.substring(with: selectedRange()) {
                 insertMarkdown("[\(selected)](\(s))", ownLine: false)

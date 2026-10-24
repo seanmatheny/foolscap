@@ -221,9 +221,7 @@ struct SecretsPage: View {
         let showsHeadings = section.showsAllLetters || letters.count > 1
         let nothing = shown.allSatisfy { $0.entries.isEmpty } && section.editingID != SecretsSection.newEntryID
         return VStack(alignment: .leading, spacing: pitch / 2) {
-            if section.editingID == SecretsSection.newEntryID, let draft = section.draft {
-                SecretEntryEditor(section: section, document: draft)
-            }
+            if section.editingID == SecretsSection.newEntryID { editor }
             ForEach(shown) { under in
                 if showsHeadings, !under.entries.isEmpty {
                     Text(under.letter.description)
@@ -232,8 +230,8 @@ struct SecretsPage: View {
                         .frame(height: pitch, alignment: .bottomLeading)
                 }
                 ForEach(under.entries) { entry in
-                    if section.editingID == entry.id, let draft = section.draft {
-                        SecretEntryEditor(section: section, document: draft)
+                    if section.editingID == entry.id {
+                        editor
                     } else {
                         SecretCardView(section: section, entry: entry)
                     }
@@ -247,6 +245,15 @@ struct SecretsPage: View {
             }
         }
         .padding(.top, pitch / 2)
+    }
+
+    /// The card being edited: the form, or the markdown after "Edit as Text".
+    @ViewBuilder private var editor: some View {
+        if section.form != nil {
+            SecretEntryForm(section: section)
+        } else if let draft = section.draft {
+            SecretEntryEditor(section: section, document: draft)
+        }
     }
 
     private func emptyMessage(letters: [SecretLetter]) -> String {

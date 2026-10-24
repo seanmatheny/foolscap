@@ -411,7 +411,7 @@ public final class MarkdownTextView: UITextView {
             for md in lines { insertMarkdown(md, ownLine: true) }
             return
         }
-        if let s = pb.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if features.contains(.linkPreviews), let s = pb.string?.trimmingCharacters(in: .whitespacesAndNewlines),
            let url = URL(string: s), let scheme = url.scheme, ["http", "https"].contains(scheme), !s.contains(" ") {
             if selectedRange.length > 0 {
                 insertMarkdown("[\(markdownText.substring(with: selectedRange))](\(s))", ownLine: false)

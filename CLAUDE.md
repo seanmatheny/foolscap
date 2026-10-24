@@ -214,7 +214,7 @@
 - Secrets (`FoolscapSecrets`): a hard toggle like Jira (`secretsEnabled`, `AppModel.setSecretsEnabled`,
   after Jira/Tasks with the sixth tab colour, a pewter added to every theme; `--secrets` forces it
   on and opens it, `--secrets-sample` fills an empty vault with made-up entries for
-  screenshots; `--prefs-tab=secrets`; ⌘Y turns to it (⌘S was left to the Save reflex), ⌃⌘L
+  screenshots, `--secrets-edit=Title` opens that card's form after unlocking (`=new` a new card); `--prefs-tab=secrets`; ⌘Y turns to it (⌘S was left to the Save reflex), ⌃⌘L
   locks; `--type` cannot press the Touch ID button, so Sean clicks it). One file,
   `Secrets/vault.foolscap-secrets`: `FSCV`, a big-endian header length, the header JSON
   (`VaultHeader`: format, created/modified, `wraps`), then `AES.GCM.SealedBox.combined` over the
@@ -236,9 +236,16 @@
   `selectedTags`, every chosen tag must be present) lists the tagged entries across every letter
   under letter dividers, like a search; the "All" chip (`showingAll`) lists every entry the same
   way; a letter clicked afterwards (`letterPinned`) narrows them to that letter until the next
-  chip; the index dims letters with nothing matching. Cards render the entries; editing is "as text" in a `MarkdownEditor` over a
-  throwaway `NoteDocument` with `features: []` (`EditorFeatures`: no attachments, link cards,
-  fold memory or spell check, so nothing of the plaintext is written). Never indexed: the vault
+  chip; the index dims letters with nothing matching. Cards render the entries; editing is a form (since 0.18.0, 2026-10-24:
+  `SecretEntryForm` over `SecretForm`, which reads a `SecretEntry` and writes the same markdown
+  back, so the format is unchanged: title, tag chips, label/value rows with a hide toggle, long
+  secrets as fences, notes; a note line that would read as markdown is written with a leading `\`
+  that the parser drops; an untouched form rewrites nothing; an empty `- label:` is an empty field,
+  not a note; a web address's `#anchor` is not a tag). "Edit as Text" swaps to a `MarkdownEditor`
+  over a throwaway `NoteDocument` with `features: []` (`EditorFeatures`: no attachments, link cards,
+  fold memory or spell check, so nothing of the plaintext is written), which is also where a list
+  of several entries is pasted; without `.linkPreviews` a pasted URL goes where the caret is (it
+  used to take a line of its own, which emptied `- site:`). Never indexed: the vault
   never enters `NotebookLibrary.documents` and `listIndexableNotes` ignores `Secrets/`; `Secrets`
   is a layout directory so backups and moves carry the ciphertext. Auto-lock (`AutoLock`) after
   `secretsLockMinutes` (default 5, slider) without a key/mouse event in Foolscap, and at once on

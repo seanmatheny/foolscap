@@ -282,3 +282,106 @@ import CryptoKit
         try? FileManager.default.removeItem(at: root)
     }
 }
+
+// MARK: - The editing form
+
+@Suite struct SecretFormTests {
+    @Test func readsAnEntryAndWritesItBack() {
+        let raw = "## GitHub #work #dev\n- user: smat924\n- password: `Tr0ub4dor&3`\n- site: https://github.com/#login\n```asc\nline one\nline two\n```\nWork org account.\nSSO through Okta.\n"
+        let entry = SecretsDocument.parse(raw).entries[0]
+        // A web address's anchor is not a tag.
+        #expect(entry.tags == ["work", "dev"])
+        let form = SecretForm(entry: entry)
+        #expect(form.title == "GitHub" && form.tags == ["work", "dev"])
+        #expect(form.fields.map(\.label) == ["user", "password", "site"])
+        #expect(form.fields[1].isSecret && form.fields[1].value == "Tr0ub4dor&3")
+        #expect(form.notes == "Work org account.\nSSO through Okta.")
+        #expect(form.markdown() == raw)
+        #expect(SecretForm(entry: SecretsDocument.parse(form.markdown()).entries[0]).sameContent(as: form))
+    }
+
+    @Test func keepsTypedTextFromReadingAsMarkdown() {
+        var form = SecretForm.blank()
+        form.title = "  Odd\nentry "
+        form.tags = ["#a", "b c", "a"]
+        form.fields[0].value = "bob"
+        form.fields[1].value = "`tick`s and\nlines"
+        form.fields[2].value = ""
+        form.fields.append(.init(label: "pin: code`", value: "12", isSecret: false))
+        form.notes = "## not a heading\n- not: a field\n```\n\\- kept backslash\nplain\n\n"
+        let md = form.markdown()
+        #expect(md == "## Odd entry #a #b #c\n- user: bob\n- password: ``tick`s and lines`\n- pin code: 12\n\\## not a heading\n\\- not: a field\n\\```\n\\\\- kept backslash\nplain\n")
+        let back = SecretsDocument.parse(md).entries
+        #expect(back.count == 1)
+        let entry = back[0]
+        #expect(entry.title == "Odd entry" && entry.tags == ["a", "b", "c"])
+        #expect(entry.fields.map(\.label) == ["user", "password", "pin code"])
+        #expect(entry.fields[1].isSecret && entry.fields[1].value == "`tick`s and lines")
+        #expect(entry.blocks.isEmpty)
+        #expect(entry.notes == ["## not a heading", "- not: a field", "```", "\\- kept backslash", "plain"])
+    }
+
+    @Test func emptyFieldsAreFieldsNotNotes() {
+        let entry = SecretsDocument.parse(SecretsDocument.template).entries[0]
+        #expect(entry.fields.map(\.label) == ["user", "password", "site"])
+        #expect(entry.fields.allSatisfy(\.value.isEmpty) && entry.notes.isEmpty)
+        #expect(SecretForm(entry: entry).markdown(keepingEmpty: true) == "## \n- user:\n- password: ``\n- site:\n")
+        #expect(SecretForm(entry: entry).markdown() == "## \n")
+    }
+
+    @MainActor @Test func sectionEditsThroughTheForm() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-secret-form-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp)
+        try folder.ensureLayout()
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
+        let vault = SecretsVault(url: tmp.appendingPathComponent("vault.foolscap-secrets"), deviceStores: [MemoryKeyStore()])
+        vault.passphraseIterations = 1000
+        let defaults = UserDefaults(suiteName: "foolscap-secret-form-\(UUID().uuidString)")!
+        let section = SecretsSection(library: library, vault: vault, defaults: defaults)
+        vault.load()
+        try section.createVault(passphrase: "words")
+
+        // A new card: a pasted address goes into the site field as it is.
+        section.beginAdd()
+        #expect(section.form != nil && section.draft == nil)
+        section.form?.title = "Bank"
+        section.form?.fields[1].value = "hunter2"
+        section.form?.fields[2].value = "https://online.example.bank/login#top"
+        section.commitEdit()
+        #expect(section.form == nil && !section.isEditing)
+        let bank = try #require(section.document?.entries.first)
+        #expect(bank.title == "Bank" && bank.tags.isEmpty)
+        #expect(bank.fields.map(\.label) == ["password", "site"] && bank.changed != nil)
+        #expect(bank.fields[1].value == "https://online.example.bank/login#top")
+
+        // An untouched edit rewrites nothing; a cleared title changes nothing.
+        section.beginEdit(bank)
+        section.commitEdit()
+        #expect(section.document?.entries.first?.raw == bank.raw)
+        section.beginEdit(bank)
+        section.form?.title = " "
+        section.commitEdit()
+        #expect(section.document?.entries.first?.raw == bank.raw)
+
+        // Through the text and back: the form carries what was typed.
+        section.beginEdit(bank)
+        section.form?.tags = ["money"]
+        section.editAsText()
+        #expect(section.form == nil && section.draft?.text.hasPrefix("## Bank #money\n") == true)
+        #expect(section.canEditAsForm)
+        section.editAsForm()
+        #expect(section.form?.tags == ["money"] && section.form?.fields.count == 2)
+        section.commitEdit()
+        #expect(section.document?.entries.first?.tags == ["money"])
+
+        // An untouched new card shows the template as text; a list there makes several cards.
+        section.beginAdd()
+        section.editAsText()
+        #expect(section.draft?.text == SecretsDocument.template)
+        section.draft?.setText("## Alpha\n- a: 1\n## Zed\n- z: 2\n")
+        #expect(!section.canEditAsForm)
+        section.commitEdit()
+        #expect(section.document?.entries.map(\.title) == ["Alpha", "Bank", "Zed"])
+    }
+}

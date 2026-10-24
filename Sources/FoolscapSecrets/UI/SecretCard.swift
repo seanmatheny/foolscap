@@ -44,10 +44,11 @@ struct SecretCardView: View {
             titleRow.frame(height: pitch)
             if !collapsed {
                 Rectangle().fill(theme.accent.color.opacity(0.35)).frame(height: 0.8)
-                ForEach(Array(entry.fields.enumerated()), id: \.offset) { i, field in
+                let fields = entry.fields.filter { !$0.value.isEmpty }
+                ForEach(Array(fields.enumerated()), id: \.offset) { i, field in
                     FieldRow(section: section, entry: entry, field: field)
                         .frame(height: pitch)
-                    if i < entry.fields.count - 1 || !entry.blocks.isEmpty || !entry.notes.isEmpty {
+                    if i < fields.count - 1 || !entry.blocks.isEmpty || !entry.notes.isEmpty {
                         Rectangle().fill(theme.ink.color.opacity(0.06)).frame(height: 0.5)
                     }
                 }
@@ -104,7 +105,7 @@ struct SecretCardView: View {
             }
             if hovering {
                 Button { section.beginEdit(entry) } label: { Image(systemName: "pencil") }
-                    .buttonStyle(.plain).help("Edit as text")
+                    .buttonStyle(.plain).help("Edit")
                 Button { confirmDelete = true } label: { Image(systemName: "trash") }
                     .buttonStyle(.plain).help("Delete")
             }
@@ -283,11 +284,18 @@ struct SecretEntryEditor: View {
                 Text(section.editingID == SecretsSection.newEntryID ? "New secret, as text" : "Editing as text")
                     .font(theme.type.body.face(11 * scale))
                     .foregroundStyle(theme.dimInk.color)
+                    .fixedSize()
                 Text("## Title #tags · - label: value · a value in `backticks` is hidden · a ``` block is a long secret")
                     .font(theme.type.body.face(10.5 * scale))
                     .foregroundStyle(theme.dimInk.color.opacity(0.8))
                     .lineLimit(1)
                 Spacer()
+                Button("Edit as Form") { section.editAsForm() }
+                    .buttonStyle(.plain)
+                    .font(theme.type.body.face(11 * scale))
+                    .foregroundStyle(theme.dimInk.color)
+                    .disabled(!section.canEditAsForm)
+                    .help(section.canEditAsForm ? "Back to the form" : "The text holds several entries; Done files each as its own card")
                 Button { section.commitEdit() } label: {
                     Text("Done")
                         .font(theme.type.body.face(11.5, weight: .semibold))

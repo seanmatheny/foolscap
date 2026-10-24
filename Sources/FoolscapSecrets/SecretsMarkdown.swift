@@ -69,7 +69,7 @@ public struct SecretEntry: Identifiable, Hashable, Sendable {
 
     /// The collapsed row's muted line: the first two visible values, else the first note.
     public var summary: String {
-        let values = fields.filter { !$0.isSecret }.prefix(2).map(\.value)
+        let values = fields.filter { !$0.isSecret && !$0.value.isEmpty }.prefix(2).map(\.value)
         let text = values.isEmpty ? (notes.first ?? "") : values.joined(separator: " · ")
         return text.count > 72 ? String(text.prefix(70)) + "…" : text
     }
@@ -117,14 +117,17 @@ public struct SecretEntry: Identifiable, Hashable, Sendable {
                 let lineTags = content.matches(of: Self.tagPattern).map { String($0.1) }
                 let withoutTags = content.replacing(Self.tagPattern, with: "").trimmingCharacters(in: .whitespaces)
                 if withoutTags.isEmpty, !lineTags.isEmpty { tags += lineTags; continue }
-                if let colon = content.range(of: ": "), !content[..<colon.lowerBound].contains("`") {
+                // `- label: value`, or `- label:` with nothing after it yet (a field left empty).
+                let colon = content.range(of: ": ") ?? (content.hasSuffix(":") && content.count > 1 ? content.index(before: content.endIndex)..<content.endIndex : nil)
+                if let colon, !content[..<colon.lowerBound].contains("`") {
                     let label = String(content[..<colon.lowerBound]).trimmingCharacters(in: .whitespaces)
                     var value = String(content[colon.upperBound...]).trimmingCharacters(in: .whitespaces)
                     if label.lowercased() == "changed", let date = Self.dateFormatter.date(from: value) { changed = date; continue }
                     let isSecret = value.count >= 2 && value.hasPrefix("`") && value.hasSuffix("`")
                     if isSecret { value = String(value.dropFirst().dropLast()) }
                     let isURL = !isSecret && value.firstMatch(of: Self.urlPattern) != nil
-                    if !isSecret { tags += lineTags }
+                    // A web address's `#` is an anchor, not a tag.
+                    if !isSecret, !isURL { tags += lineTags }
                     fields.append(SecretField(label: label, value: value, isSecret: isSecret, isURL: isURL))
                     continue
                 }
@@ -132,9 +135,21 @@ public struct SecretEntry: Identifiable, Hashable, Sendable {
                 tags += lineTags
                 continue
             }
-            notes.append(trimmed)
+            notes.append(Self.unescapedNote(trimmed))
         }
+        var seen = Set<String>()
+        tags = tags.filter { seen.insert($0).inserted }
         self.title = title; self.tags = tags; self.fields = fields; self.blocks = blocks; self.notes = notes; self.changed = changed
+    }
+
+    /// A note line that would read as markdown (a heading, a list line, a fence) is written
+    /// with a backslash in front (`SecretForm`); the backslash is dropped for display.
+    static func unescapedNote(_ line: String) -> String {
+        line.firstMatch(of: /^\\+[#*`-]/) != nil ? String(line.dropFirst()) : line
+    }
+
+    static func escapedNote(_ line: String) -> String {
+        line.firstMatch(of: /^\\*[#*`-]/) != nil ? "\\" + line : line
     }
 
     static let dateFormatter: DateFormatter = {
