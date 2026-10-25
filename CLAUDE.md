@@ -48,6 +48,11 @@
   reserves its room after the first layout and TextKit 2's viewport kept the old fragment
   positions until `textViewportLayoutController.layoutViewport()` was called after the restyle
   (`MarkdownTextView.overlaysChanged`); `invalidateLayout` and `ensureLayout` alone did not do it.
+  Never force that layout from inside the storage's `didProcessEditing` (the styler's
+  `isProcessingEdit`; `overlaysChanged` then defers `relayout(fromLine:)` a turn): TextKit 2's
+  content storage hears of a character edit only after the delegate returns, so a viewport laid
+  out meanwhile caches fragments over the old paragraphs and the next `NSTextView.layout` throws
+  in `attributedSubstringFromRange` (a pasted picture or address on a fresh day, 2026-10-26).
 - Launch flags for verification: `--day=YYYY-MM-DD`, `--tab=id` (a section: `daily`, `tasks`, …), `--turn-to=id` (turns to that tab 2.5 s after launch, to watch a curl;
   with `FOOLSCAP_SLOW_OPEN=1`, capture with `screencapture`: the curl is a child window), `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`

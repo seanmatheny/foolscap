@@ -33,6 +33,10 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     /// Extra space below a paragraph, for overlay cards (Phase 4).
     var overlayHeights: [Int: CGFloat] = [:]
     var isRestyling = false
+    /// True while a character edit is being styled from the storage's own callback. TextKit 2's
+    /// content storage hears of the edit only after that callback returns, so nothing may force
+    /// a layout meanwhile (`MarkdownTextView.overlaysChanged` waits for the next turn).
+    private(set) var isProcessingEdit = false
     /// Called after every styling pass, outside the storage edit.
     var onStyled: (() -> Void)?
     /// The view whose selection decides which lines show their syntax.
@@ -204,6 +208,8 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
                                  range editedRange: NSRange, changeInLength delta: Int) {
         MainActor.assumeIsolated {
             guard editedMask.contains(.editedCharacters), !isRestyling, let textStorage = storage else { return }
+            isProcessingEdit = true
+            defer { isProcessingEdit = false }
             let text = textStorage.string as NSString
             let newMap = BlockMap.scan(textStorage.string)
             let paragraphRange = text.paragraphRange(for: editedRange)

@@ -441,18 +441,32 @@ public final class MarkdownTextView: UITextView {
             let changed = Set(before.keys).union(heights.keys).filter { before[$0] != heights[$0] }
             if !changed.isEmpty {
                 styler.restyle(lines: Array(changed))
-                // A paragraph that grew moves every line after it; TextKit 2 relays the edited
-                // paragraph alone, so lay out again from there to the end.
-                if let lm = textLayoutManager, let first = changed.min(), first < styler.blockMap.lines.count,
-                   let from = lm.location(lm.documentRange.location, offsetBy: styler.blockMap.lines[first].range.location),
-                   let range = NSTextRange(location: from, end: lm.documentRange.endLocation) {
-                    lm.invalidateLayout(for: range)
-                    lm.textViewportLayoutController.layoutViewport()
+                if let first = changed.min() {
+                    // Not from inside the storage's edit processing (a pasted picture): TextKit 2's
+                    // content storage hears of the characters only after the styler's callback
+                    // returns, and a viewport laid out before that throws on the next layout pass
+                    // (the Mac's paste crash of 2026-10-26). Lay out once the edit is through.
+                    if styler.isProcessingEdit {
+                        DispatchQueue.main.async { [weak self] in self?.relayout(fromLine: first) }
+                    } else {
+                        relayout(fromLine: first)
+                    }
                 }
             }
         }
         setNeedsLayout()
         setNeedsDisplayDecorations()
+    }
+
+    /// A paragraph that grew moves every line after it; TextKit 2 relays the edited paragraph
+    /// alone, so lay out again from there to the end. Never from inside the storage's edit
+    /// processing: see `overlaysChanged`.
+    private func relayout(fromLine first: Int) {
+        guard let lm = textLayoutManager, first < styler.blockMap.lines.count,
+              let from = lm.location(lm.documentRange.location, offsetBy: styler.blockMap.lines[first].range.location),
+              let range = NSTextRange(location: from, end: lm.documentRange.endLocation) else { return }
+        lm.invalidateLayout(for: range)
+        lm.textViewportLayoutController.layoutViewport()
     }
 
     public override func layoutSubviews() {

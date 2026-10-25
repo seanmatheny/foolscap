@@ -470,20 +470,36 @@ public final class MarkdownTextView: NSTextView {
             let changed = Set(before.keys).union(after.keys).filter { before[$0] != after[$0] }
             if !changed.isEmpty {
                 styler.restyle(lines: Array(changed))
-                // A paragraph that grew (the header's room under the heading) moves every line
-                // after it; TextKit 2 relays the edited paragraph alone and the viewport keeps
-                // drawing the rest at their old places, so lay out again from there to the end.
-                if let lm = textLayoutManager, let first = changed.min(), first < styler.blockMap.lines.count,
-                   let from = lm.location(lm.documentRange.location, offsetBy: styler.blockMap.lines[first].range.location),
-                   let range = NSTextRange(location: from, end: lm.documentRange.endLocation) {
-                    lm.invalidateLayout(for: range)
-                    lm.textViewportLayoutController.layoutViewport()
+                if let first = changed.min() {
+                    if styler.isProcessingEdit {
+                        // The edit that made or moved the overlay (a pasted picture, an address on
+                        // its own line) is still being processed: TextKit 2's content storage learns
+                        // of the new characters only after the styler's callback returns, so a
+                        // viewport laid out now caches fragments over the old paragraphs, and the
+                        // next layout pass reads past the text and throws (the paste crash of
+                        // 2026-10-26). Lay out once the edit is through.
+                        DispatchQueue.main.async { [weak self] in self?.relayout(fromLine: first) }
+                    } else {
+                        relayout(fromLine: first)
+                    }
                 }
             }
             needsDisplay = true
         }
         // layout() redraws the backdrops if the text under them moved.
         needsLayout = true
+    }
+
+    /// A paragraph that grew (the header's room under the heading, a picture's) moves every
+    /// line after it; TextKit 2 relays the edited paragraph alone and the viewport keeps drawing
+    /// the rest at their old places, so lay out again from there to the end. Never from inside
+    /// the storage's edit processing: see `overlaysChanged`.
+    private func relayout(fromLine first: Int) {
+        guard let lm = textLayoutManager, first < styler.blockMap.lines.count,
+              let from = lm.location(lm.documentRange.location, offsetBy: styler.blockMap.lines[first].range.location),
+              let range = NSTextRange(location: from, end: lm.documentRange.endLocation) else { return }
+        lm.invalidateLayout(for: range)
+        lm.textViewportLayoutController.layoutViewport()
     }
 
     public override func layout() {
