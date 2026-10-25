@@ -137,7 +137,11 @@
   last paragraph's layout fragment, so `lineBottom` skips zero-length line fragments
   (else the image draws over the line below it). A note ending on an image line with
   no newline gets one added when the caret steps past the image
-  (`addLineAfterLastOverlay`). `--type={paste}` sends ⌘V for testing pastes.
+  (`addLineAfterLastOverlay`). `--type={paste}` sends ⌘V for testing pastes. A picture or card
+  is removed whole (`MarkdownEditing.deleteCollapsedNeighbour`/`removeLine`, undoable): ⌫ at the
+  start of the line under it, ⌦ at the end of the line above it, or ⌫/⌦ with the picture clicked
+  (`OverlayController.selectedImageLineIndex`; the phone's `shouldChange` catches the ⌫). Before
+  2026-10-26 the ⌫ only joined the lines and the caret skip sent the caret up to the heading.
 - `NSTextView.maxSize` must be set to greatestFiniteMagnitude or the view never
   grows past the clip view and scrolling silently stops.
 - Rotated SwiftUI labels keep their unrotated layout size: collapse them with

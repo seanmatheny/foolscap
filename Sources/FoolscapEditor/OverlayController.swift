@@ -244,6 +244,12 @@ final class OverlayController {
         image?.isSelected = true
     }
 
+    /// The line of the picture last clicked, for ⌫/⌦ to remove.
+    var selectedImageLineIndex: Int? {
+        guard let selectedImage else { return nil }
+        return overlays.values.first { $0.view === selectedImage }?.lineIndex
+    }
+
     /// Put the picture on the clipboard: the file's own bytes under its type (PNG,
     /// JPEG…), a TIFF for apps that only take that, and the file's URL so Finder
     /// and Mail can paste it as a file. Returns false when the file cannot be read.

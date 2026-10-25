@@ -643,8 +643,26 @@ public final class MarkdownTextView: NSTextView {
     }
 
     public override func keyDown(with event: NSEvent) {
+        // ⌫ or ⌦ with a picture selected (clicked) removes its line, undoably.
+        if overlays.selectedImage != nil, let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first?.value,
+           scalar == 0x7F || scalar == UInt32(NSDeleteFunctionKey),
+           let index = overlays.selectedImageLineIndex, removeLine(index) {
+            overlays.select(nil)
+            return
+        }
         overlays.select(nil)
         super.keyDown(with: event)
+    }
+
+    // A picture or link card under or over the caret goes whole: see `deleteCollapsedNeighbour`.
+    public override func deleteBackward(_ sender: Any?) {
+        if deleteCollapsedNeighbour(backward: true) { return }
+        super.deleteBackward(sender)
+    }
+
+    public override func deleteForward(_ sender: Any?) {
+        if deleteCollapsedNeighbour(backward: false) { return }
+        super.deleteForward(sender)
     }
 
     // MARK: Clicks

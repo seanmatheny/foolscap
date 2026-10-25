@@ -472,6 +472,43 @@ extension MarkdownEditing {
     }
 
     /// Insert text at the selection; `ownLine` puts it on a line of its own.
+    /// ⌫ at the start of the line under a picture or link card, or ⌦ at the end of the line
+    /// above one, removes that line, markdown and newline together, instead of joining it
+    /// to its neighbour: the caret cannot rest on a collapsed line, so the join only sent it
+    /// up a line and left the picture standing (found 2026-10-26). Folded sections are left
+    /// to the toolkit. False when the caret is not beside a collapsed line.
+    @discardableResult
+    func deleteCollapsedNeighbour(backward: Bool) -> Bool {
+        let selection = markdownSelection
+        guard selection.length == 0, let line = styler.blockMap.line(at: selection.location) else { return false }
+        if backward {
+            guard selection.location == line.range.location, line.index > 0,
+                  styler.isCollapsed(line: line.index - 1) else { return false }
+            return removeLine(line.index - 1)
+        } else {
+            guard selection.location == line.range.location + line.range.length,
+                  line.index + 1 < styler.blockMap.lines.count, styler.isCollapsed(line: line.index + 1) else { return false }
+            return removeLine(line.index + 1)
+        }
+    }
+
+    /// Remove a whole line with its newline (the newline before it when it ends the note),
+    /// undoably; the caret lands where the line began.
+    @discardableResult
+    func removeLine(_ index: Int) -> Bool {
+        let map = styler.blockMap
+        guard index < map.lines.count else { return false }
+        var range = map.lines[index].range
+        if range.location + range.length < markdownText.length {
+            range.length += 1
+        } else if range.location > 0 {
+            range = NSRange(location: range.location - 1, length: range.length + 1)
+        }
+        guard replace(range, with: "") else { return false }
+        markdownSelection = NSRange(location: range.location, length: 0)
+        return true
+    }
+
     func insertMarkdown(_ text: String, ownLine: Bool) {
         let ns = markdownText
         var range = markdownSelection
