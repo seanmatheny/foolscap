@@ -305,6 +305,22 @@ public final class MarkdownTextView: NSTextView {
         return super.resignFirstResponder()
     }
 
+    /// Set by the editor wrapper: the view takes the keys whenever it enters a window
+    /// and nothing else there is being typed into.
+    var claimsFocusWhenShown = false
+
+    /// Make this view the first responder unless a text field is being edited (the
+    /// search palette, a task's title): a window whose first responder is itself or a
+    /// hosting view sends ⌘V and keystrokes nowhere. An earlier editor still fading out
+    /// of the page is not spared, since the keys are the new note's.
+    func claimFocusIfFree() {
+        guard let window, isEditable else { return }
+        let current = window.firstResponder
+        if current === self { return }
+        if let field = current as? NSTextView, field.isFieldEditor { return }
+        window.makeFirstResponder(self)
+    }
+
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil { hideTagList() }
         super.viewWillMove(toWindow: newWindow)
@@ -320,6 +336,11 @@ public final class MarkdownTextView: NSTextView {
         }
         if let window {
             NotificationCenter.default.addObserver(self, selector: #selector(tagListContextLost), name: NSWindow.didResignKeyNotification, object: window)
+        }
+        if window != nil, claimsFocusWhenShown {
+            // After the pass that attached the view, not inside it: the responder change
+            // restyles the selection's lines.
+            DispatchQueue.main.async { [weak self] in self?.claimFocusIfFree() }
         }
     }
 

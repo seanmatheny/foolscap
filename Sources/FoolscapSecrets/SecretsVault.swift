@@ -3,19 +3,44 @@ import CryptoKit
 import LocalAuthentication
 import FoolscapStore
 
+/// One enrolled device's wrapped copy of the vault key (since 0.19). Its id is the
+/// fingerprint of the device's public key, so a device finds its own slot by its key
+/// alone, nothing stored beside it; the name is for the Settings pane's list.
+public struct DeviceWrap: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    /// Which store holds the key (`DeviceKeyStore.kindID`).
+    public var kind: String
+    /// "Sean's MacBook Pro", "iPhone".
+    public var name: String
+    public var enrolled: Date
+    public var wrapped: WrappedKey
+
+    /// 24 hex characters of SHA-256 over the key's X9.63 bytes.
+    public static func fingerprint(_ key: P256.KeyAgreement.PublicKey) -> String {
+        SHA256.hash(data: key.x963Representation).prefix(12).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 /// What sits in front of the ciphertext. Its stored bytes are the GCM's additional
-/// authenticated data, so a header edited on disk fails to open.
+/// authenticated data, so a header edited on disk fails to open. Still format 1: the
+/// `devices` list (0.19) is an addition older builds skip over, and they still open
+/// the vault with the passphrase, or with the legacy "device" slot while it is kept.
 public struct VaultHeader: Codable, Hashable, Sendable {
     public var format = 1
     public var cipher = "AES-256-GCM"
     public var created: Date
     public var modified: Date
-    /// "device" (this Mac's key) and "passphrase" (the recovery passphrase).
+    /// "passphrase" (the recovery passphrase) and, in vaults from before 0.19, "device":
+    /// the one Mac's key, before devices had slots of their own.
     public var wraps: [String: WrappedKey]
-    /// Which device key store made the "device" wrap (`DeviceKeyStore.kindID`).
+    /// Which device key store made the legacy "device" wrap (`DeviceKeyStore.kindID`).
     public var deviceKind: String?
+    /// One wrapped key per enrolled device; absent in files from before 0.19.
+    public var devices: [DeviceWrap]?
 
     public static let deviceSlot = "device", passphraseSlot = "passphrase"
+    /// The legacy slot's id in `enrolledDevices`, so it can be removed like the others.
+    public static let legacyDeviceID = "legacy"
 }
 
 public enum VaultError: LocalizedError, Equatable {
@@ -32,7 +57,7 @@ public enum VaultError: LocalizedError, Equatable {
         case .unsupportedFormat(let v): return "This vault was written by a newer Foolscap (format \(v))."
         case .damaged: return "The vault has been altered or damaged and cannot be opened."
         case .locked: return "The vault is locked."
-        case .noSuchWrap(let s): return s == VaultHeader.deviceSlot ? "Touch ID is not set up for this vault." : "This vault has no recovery passphrase."
+        case .noSuchWrap(let s): return s == VaultHeader.deviceSlot ? "\(DeviceAuth.biometryName) is not set up for this vault on this \(DeviceAuth.deviceWord)." : "This vault has no recovery passphrase."
         case .cancelled: return "Unlock cancelled."
         }
     }
@@ -112,7 +137,12 @@ public final class SecretsVault {
     /// Device key stores in order of preference; the first that enrols is used.
     public let deviceStores: [any DeviceKeyStore]
     public private(set) var state: State = .absent
-    public private(set) var header: VaultHeader?
+    public private(set) var header: VaultHeader? {
+        didSet { refreshDeviceSlot() }
+    }
+    /// The slot this device's key opens, found once per header change (the stores'
+    /// keys are read from disk to fingerprint them, not something for a view body).
+    private var thisDeviceSlot: DeviceSlot?
     public private(set) var document: SecretsDocument?
     public private(set) var isDirty = false
     public private(set) var lastError: String?
@@ -130,16 +160,67 @@ public final class SecretsVault {
         self.deviceStores = deviceStores
     }
 
-    /// The store that made this vault's device wrap (or the preferred one before enrolment).
-    public var deviceStore: (any DeviceKeyStore)? {
-        if let kind = header?.deviceKind, let s = deviceStores.first(where: { $0.kindID == kind }) { return s }
-        return deviceStores.first
+    /// A wrapped key this device can open, and the store whose key opens it.
+    struct DeviceSlot {
+        let store: any DeviceKeyStore
+        let wrapped: WrappedKey
+        /// The pre-0.19 "device" slot rather than one of this device's own.
+        let legacy: Bool
     }
-    public var hasDeviceWrap: Bool {
-        guard let header, header.wraps[VaultHeader.deviceSlot] != nil, let store = deviceStore else { return false }
-        return store.isEnrolled
+
+    /// This device's slot: the one fingerprinted for a key its stores hold; on a Mac,
+    /// failing that, the legacy "device" slot when a store of the kind that made it is
+    /// enrolled (the slot was always a Mac's, so a phone never takes it for its own).
+    private func findDeviceSlot() -> DeviceSlot? {
+        guard let header else { return nil }
+        for store in deviceStores where store.isEnrolled {
+            guard let publicKey = try? store.publicKey() else { continue }
+            let id = DeviceWrap.fingerprint(publicKey)
+            if let wrap = header.devices?.first(where: { $0.id == id }) { return DeviceSlot(store: store, wrapped: wrap.wrapped, legacy: false) }
+        }
+        #if os(macOS)
+        if let legacy = header.wraps[VaultHeader.deviceSlot], let kind = header.deviceKind,
+           let store = deviceStores.first(where: { $0.kindID == kind }), store.isEnrolled {
+            return DeviceSlot(store: store, wrapped: legacy, legacy: true)
+        }
+        #endif
+        return nil
     }
+
+    private func refreshDeviceSlot() { thisDeviceSlot = findDeviceSlot() }
+
+    /// The store that opens this vault here (or the preferred one before enrolment).
+    public var deviceStore: (any DeviceKeyStore)? { thisDeviceSlot?.store ?? deviceStores.first }
+    /// This device has a key that opens the vault.
+    public var hasDeviceWrap: Bool { thisDeviceSlot != nil }
+    /// A device key store is there to enrol with.
+    public var canEnrolDevice: Bool { !deviceStores.isEmpty }
     public var hasPassphraseWrap: Bool { header?.wraps[VaultHeader.passphraseSlot] != nil }
+
+    /// Every device with a slot, this one's first, the legacy Mac slot (if still there)
+    /// last under its own id.
+    public var enrolledDevices: [DeviceWrap] {
+        guard let header else { return [] }
+        var list = header.devices ?? []
+        let mine = thisDeviceIDs
+        list.sort { (mine.contains($0.id) ? 0 : 1, $0.enrolled) < (mine.contains($1.id) ? 0 : 1, $1.enrolled) }
+        if let legacy = header.wraps[VaultHeader.deviceSlot] {
+            let kind = header.deviceKind ?? ""
+            let name = kind == "login-keychain" ? "A Mac's keychain (enrolled before 0.19)" : "A Mac's Touch ID (enrolled before 0.19)"
+            list.append(DeviceWrap(id: VaultHeader.legacyDeviceID, kind: kind, name: name, enrolled: header.created, wrapped: legacy))
+        }
+        return list
+    }
+
+    /// The slot ids this device's keys answer to (the legacy id too when it opened here).
+    public var thisDeviceIDs: Set<String> {
+        var ids = Set(deviceStores.compactMap { store -> String? in
+            guard store.isEnrolled, let key = try? store.publicKey() else { return nil }
+            return DeviceWrap.fingerprint(key)
+        })
+        if thisDeviceSlot?.legacy == true { ids.insert(VaultHeader.legacyDeviceID) }
+        return ids
+    }
     public var byteCount: Int { (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0 }
 
     // MARK: Opening
@@ -157,17 +238,14 @@ public final class SecretsVault {
     }
 
     /// First run: a fresh key wrapped with the passphrase and, where a device key
-    /// store accepts, with this Mac's key. Writes an empty vault and opens it.
+    /// store accepts, with this device's key. Writes an empty vault and opens it.
     public func create(passphrase: String) throws {
         let key = VaultKey.random()
         var wraps: [String: WrappedKey] = [:]
         wraps[VaultHeader.passphraseSlot] = try PassphraseWrap.wrap(key, passphrase: passphrase, iterations: passphraseIterations ?? PassphraseWrap.calibratedIterations(passphraseLength: passphrase.utf8.count))
         let now = Date()
         var header = VaultHeader(created: now, modified: now, wraps: wraps, deviceKind: nil)
-        if let (store, wrapped) = enrolAnyDevice(key) {
-            header.wraps[VaultHeader.deviceSlot] = wrapped
-            header.deviceKind = store.kindID
-        }
+        if let slot = enrolAnyDevice(key) { header.devices = [slot] }
         self.key = key
         self.header = header
         document = SecretsDocument()
@@ -176,14 +254,15 @@ public final class SecretsVault {
         try write()
     }
 
-    private func enrolAnyDevice(_ key: VaultKey) -> ((any DeviceKeyStore), WrappedKey)? {
+    /// Wrap the key for this device: the first store that has (or makes) a key.
+    private func enrolAnyDevice(_ key: VaultKey) -> DeviceWrap? {
         var problems: [String] = []
         for store in deviceStores {
             do {
                 let publicKey = try store.enrol()
                 let wrapped = try AgreementWrap.wrap(key, recipient: publicKey)
                 deviceEnrolError = problems.isEmpty ? nil : problems.joined(separator: " ")
-                return (store, wrapped)
+                return DeviceWrap(id: DeviceWrap.fingerprint(publicKey), kind: store.kindID, name: DeviceAuth.deviceName, enrolled: Date(), wrapped: wrapped)
             } catch {
                 problems.append("\(store.displayName): \(error.localizedDescription)")
             }
@@ -192,25 +271,31 @@ public final class SecretsVault {
         return nil
     }
 
-    /// Touch ID (or the login password): the device key unwraps the vault key off
-    /// the main thread while the system's sheet is up.
+    /// Touch ID or Face ID (or the password or passcode): the device key unwraps the
+    /// vault key off the main thread while the system's sheet is up.
     public func unlockWithDevice() async {
-        guard state == .locked, let header, let wrapped = header.wraps[VaultHeader.deviceSlot], let store = deviceStore else {
+        guard state == .locked, let slot = thisDeviceSlot else {
             lastError = VaultError.noSuchWrap(VaultHeader.deviceSlot).localizedDescription
             return
         }
         state = .unlocking
         lastError = nil
+        let store = slot.store, wrapped = slot.wrapped
         do {
             let parsed = try VaultEnvelope.decode(try Data(contentsOf: url))
             let key = try await Task.detached(priority: .userInitiated) {
                 let context = LAContext()
-                context.localizedReason = "unlock your secrets"
-                context.localizedFallbackTitle = "Use Password…"
+                // The Mac's sheet reads "Foolscap is trying to …"; the phone's shows the reason on its own.
+                context.localizedReason = DeviceAuth.isPhone ? "Unlock your secrets" : "unlock your secrets"
+                context.localizedFallbackTitle = DeviceAuth.fallbackTitle
                 let device = try store.privateKey(context: context)
                 return try AgreementWrap.unwrap(wrapped, using: device)
             }.value
             try finishUnlock(key: key, parsed: parsed)
+            // A vault from before 0.19 opened through its one Mac slot: this Mac takes a slot
+            // of its own as well, so the device list names it. The legacy slot stays for
+            // older builds until it is removed from the list.
+            if slot.legacy, state == .unlocked { try? enrolDevice() }
         } catch let error as LAError where error.code == .userCancel || error.code == .appCancel || error.code == .systemCancel {
             state = .locked
         } catch {
@@ -252,8 +337,8 @@ public final class SecretsVault {
     static func describe(_ error: Error) -> String {
         if let e = error as? LAError {
             switch e.code {
-            case .biometryNotAvailable, .biometryNotEnrolled: return "Touch ID is not available; use the recovery passphrase."
-            case .biometryLockout: return "Touch ID is locked out; use your password or the recovery passphrase."
+            case .biometryNotAvailable, .biometryNotEnrolled: return "\(DeviceAuth.biometryName) is not available; use the recovery passphrase."
+            case .biometryLockout: return "\(DeviceAuth.biometryName) is locked out; use \(DeviceAuth.fallbackName) or the recovery passphrase."
             default: return e.localizedDescription
             }
         }
@@ -306,6 +391,8 @@ public final class SecretsVault {
         key = nil
         document = nil
         if state == .unlocked || state == .unlocking { state = .locked }
+        // A device key made or dropped meanwhile (tests; a reset) shows on the padlock page.
+        refreshDeviceSlot()
     }
 
     // MARK: Re-keying (unlocked only)
@@ -318,30 +405,35 @@ public final class SecretsVault {
         try write()
     }
 
-    /// Whether this device may take the vault's one device slot. The phone may not:
-    /// the slot holds the Mac's key, and a phone's would replace it (per-device
-    /// slots are a format change still to come), so the phone opens with the passphrase.
-    public static var allowsDeviceEnrolment: Bool {
-        #if os(iOS)
-        false
-        #else
-        true
-        #endif
-    }
-
-    /// Make a new device key on this Mac and wrap the vault key with it (a first
-    /// enrolment after a passphrase-only unlock on a new Mac, or a fresh key).
+    /// Give this device a slot: wrap the vault key with its key (the one it already has,
+    /// which every other vault on it is wrapped against; a new one only when it has none)
+    /// and file it under the key's fingerprint, replacing any older slot of the same key.
+    /// A first enrolment after a passphrase unlock on a new device, or a repair. Other
+    /// devices' slots are not touched.
     public func enrolDevice() throws {
-        guard Self.allowsDeviceEnrolment else {
-            throw NSError(domain: "FoolscapSecrets", code: 2, userInfo: [NSLocalizedDescriptionKey: "Face ID is not set up for the vault on the phone yet; the recovery passphrase opens it."])
-        }
         guard state == .unlocked, let key, var header else { throw VaultError.locked }
-        for store in deviceStores { try? store.destroy() }
-        guard let (store, wrapped) = enrolAnyDevice(key) else {
+        guard let slot = enrolAnyDevice(key) else {
             throw NSError(domain: "FoolscapSecrets", code: 1, userInfo: [NSLocalizedDescriptionKey: deviceEnrolError ?? "No device key store accepted a key."])
         }
-        header.wraps[VaultHeader.deviceSlot] = wrapped
-        header.deviceKind = store.kindID
+        var devices = header.devices ?? []
+        devices.removeAll { $0.id == slot.id }
+        devices.append(slot)
+        header.devices = devices
+        self.header = header
+        isDirty = true
+        try write()
+    }
+
+    /// Drop a device's slot (a phone that is gone; the legacy Mac slot once this Mac has
+    /// one of its own). The passphrase still opens the vault whatever is removed.
+    public func removeDevice(id: String) throws {
+        guard state == .unlocked, var header else { throw VaultError.locked }
+        if id == VaultHeader.legacyDeviceID {
+            header.wraps[VaultHeader.deviceSlot] = nil
+            header.deviceKind = nil
+        } else {
+            header.devices?.removeAll { $0.id == id }
+        }
         self.header = header
         isDirty = true
         try write()

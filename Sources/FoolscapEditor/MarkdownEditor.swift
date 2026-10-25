@@ -60,8 +60,21 @@ public struct MarkdownEditor: NSViewRepresentable {
         updateFooter(textView)
         context.coordinator.hostedHeader = header != nil
         context.coordinator.hostedFooter = footer != nil
-        DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
+        // Keys and pastes go to the note as soon as it is on the page. The view is not
+        // always in a window yet here (a day's note arrives once it has loaded, after the
+        // page has drawn without it), so `viewDidMoveToWindow` claims the focus too, and a
+        // last look after the page's 0.25 s insertion transition catches a focus the swap
+        // dropped: with none, ⌘V went nowhere until the note was clicked (found 2026-10-26).
+        textView.claimsFocusWhenShown = true
+        DispatchQueue.main.async { textView.claimFocusIfFree() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { textView.claimFocusIfFree() }
         return scroll
+    }
+
+    /// An editor on its way out (the day before, fading from the page) must not take the
+    /// keys back from the one replacing it should SwiftUI re-attach it meanwhile.
+    public static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        coordinator.textView?.claimsFocusWhenShown = false
     }
 
     public func updateNSView(_ scroll: NSScrollView, context: Context) {

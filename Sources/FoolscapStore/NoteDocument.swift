@@ -87,13 +87,21 @@ public final class NoteDocument: Identifiable {
     }
 
     /// Load off the main actor; returns once the text is in place. Concurrent
-    /// callers share one read.
+    /// callers share one read. A note iCloud has not downloaded is asked for and
+    /// waited on here (`isDownloading` meanwhile), since the folder watcher does not
+    /// always report the download landing, the phone's Files provider least of all.
     public func loadIfNeeded(template: String = "") async {
         if isLoaded { return }
         if let loadTask { return await loadTask.value }
         let url = self.url
         let task = Task { [weak self] in
-            let read = await Task.detached(priority: .userInitiated) { DiskRead.read(url) }.value
+            var read = await Task.detached(priority: .userInitiated) { DiskRead.read(url) }.value
+            if read.isPlaceholder {
+                guard let self, !self.isLoaded else { return }
+                self.isDownloading = true
+                self.loadError = nil
+                read = await Task.detached(priority: .userInitiated) { await DiskRead.awaitDownload(url) }.value
+            }
             guard let self, !self.isLoaded else { return }
             self.apply(read, template: template)
         }
@@ -102,14 +110,30 @@ public final class NoteDocument: Identifiable {
         loadTask = nil
     }
 
+    /// Read the file again after a failed load (`loadError`).
+    public func reload() async {
+        guard !isLoaded else { return }
+        loadError = nil
+        await loadIfNeeded(template: templateText)
+    }
+
     private func apply(_ read: DiskRead, template: String) {
+        templateText = template
         if read.isPlaceholder {
-            isDownloading = true
-            ICloudPlaceholders.startDownload(url)
+            // Still in the cloud after the wait: leave the padlock on the page, not a blank
+            // note; the watcher's `applyExternal` or a Try Again finishes the job.
+            isDownloading = false
+            loadError = CocoaError(.fileReadNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "iCloud has not finished downloading it."])
             return
         }
         isDownloading = false
-        templateText = template
+        if read.data == nil, read.stat != nil {
+            // The file exists but could not be read: showing the template here would let the
+            // first keystroke save an empty page over the note.
+            loadError = read.error ?? CocoaError(.fileReadUnknown)
+            return
+        }
+        loadError = nil
         setText(String(decoding: read.data ?? Data(template.utf8), as: UTF8.self))
         lastSavedHash = read.data.map(FileIO.hash)
         knownStat = read.stat
@@ -438,15 +462,37 @@ public final class NoteDocument: Identifiable {
 
 /// What a coordinated read found on disk, gathered off the main actor.
 public struct DiskRead: Sendable {
+    /// The file is iCloud's and its bytes are not here yet: a `.icloud` stub, a
+    /// dataless file, or (through the phone's Files provider) a file of its own name
+    /// that iCloud reports as not downloaded.
     public var isPlaceholder = false
     public var data: Data?
     public var stat: FileIO.Stat?
+    /// Why an existing file gave no data.
+    public var error: Error?
 
-    /// A missing or unreadable file gives `data == nil`.
+    /// A missing file gives `data == nil` with no stat; an unreadable one keeps its stat
+    /// and the error.
     public static func read(_ url: URL, presenter: NSFilePresenter? = nil) -> DiskRead {
-        if ICloudPlaceholders.isPlaceholder(url) { return DiskRead(isPlaceholder: true) }
+        if ICloudPlaceholders.needsDownload(url) { return DiskRead(isPlaceholder: true) }
         guard FileManager.default.fileExists(atPath: url.path) else { return DiskRead() }
-        return DiskRead(data: try? FileIO.read(url, presenter: presenter), stat: FileIO.stat(url))
+        do {
+            return DiskRead(data: try FileIO.read(url, presenter: presenter), stat: FileIO.stat(url))
+        } catch {
+            return DiskRead(data: nil, stat: FileIO.stat(url), error: error)
+        }
+    }
+
+    /// Ask iCloud for the file and wait, up to `timeout`, for its bytes to land, then
+    /// read it; a placeholder still when the time is up. Off the main actor.
+    public static func awaitDownload(_ url: URL, timeout: Duration = .seconds(90), presenter: NSFilePresenter? = nil) async -> DiskRead {
+        ICloudPlaceholders.startDownload(url)
+        let deadline = ContinuousClock.now + timeout
+        while ICloudPlaceholders.needsDownload(url) {
+            if ContinuousClock.now >= deadline { return DiskRead(isPlaceholder: true) }
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+        return read(url, presenter: presenter)
     }
 }
 

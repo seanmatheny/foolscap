@@ -50,10 +50,10 @@ public enum KeyWrapError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .wrongPassphrase: return "That is not the recovery passphrase."
-        case .wrongDeviceKey: return "This Mac's Touch ID key does not fit this vault (it was wrapped with another key). Unlock with the recovery passphrase, then Re-enrol in Settings ▸ Secrets."
+        case .wrongDeviceKey: return "This \(DeviceAuth.deviceWord)'s key does not fit this vault (it was wrapped with another key). Unlock with the recovery passphrase, then enrol this \(DeviceAuth.deviceWord) again in Settings ▸ Secrets."
         case .wrongKind(let k): return "This vault was wrapped another way (\(k))."
         case .keyDerivationFailed(let s): return "Key derivation failed (\(s))."
-        case .deviceKeyMissing: return "No Touch ID key on this Mac; use the recovery passphrase."
+        case .deviceKeyMissing: return "No \(DeviceAuth.biometryName) key on this \(DeviceAuth.deviceWord); use the recovery passphrase."
         }
     }
 }
@@ -151,11 +151,11 @@ public enum AgreementWrap {
     }
 }
 
-/// Where this Mac's half of the device wrap lives.
+/// Where this device's half of a device wrap lives.
 public protocol DeviceKeyStore: AnyObject, Sendable {
     /// Recorded in the vault header so the same store opens it next time.
     var kindID: String { get }
-    /// What the Settings pane calls it ("Touch ID", "this Mac's keychain").
+    /// What the Settings pane calls it ("Touch ID", "Face ID", "this Mac's keychain").
     var displayName: String { get }
     var isEnrolled: Bool { get }
     /// The public key to wrap with; nil when not enrolled. Never prompts.
@@ -168,14 +168,15 @@ public protocol DeviceKeyStore: AnyObject, Sendable {
 }
 
 /// The Secure Enclave: the key never leaves the chip, and `.userPresence` makes
-/// every agreement ask for Touch ID (or the login password, the system's own
-/// fallback). Its encrypted blob sits in Application Support, useless elsewhere.
+/// every agreement ask for Touch ID or Face ID (or the password or passcode, the
+/// system's own fallback). Its encrypted blob sits in Application Support, useless
+/// elsewhere.
 public final class EnclaveKeyStore: DeviceKeyStore, @unchecked Sendable {
     public let blobURL: URL
     public init(blobURL: URL) { self.blobURL = blobURL }
 
     public var kindID: String { "secure-enclave" }
-    public var displayName: String { "Touch ID" }
+    public var displayName: String { DeviceAuth.biometryName }
     public static var isAvailable: Bool { SecureEnclave.isAvailable }
     public var isEnrolled: Bool { FileManager.default.fileExists(atPath: blobURL.path) }
 
@@ -185,9 +186,9 @@ public final class EnclaveKeyStore: DeviceKeyStore, @unchecked Sendable {
         return try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: blob).publicKey
     }
 
-    /// The Mac's one key: an existing blob is kept (every vault on this Mac, scratch
+    /// The device's one key: an existing blob is kept (every vault on this device, scratch
     /// notebooks included, is wrapped against it; a fresh key would orphan the others)
-    /// and a new key is only made when there is none.
+    /// and a new key is only made when there is none, or the blob no longer reads as one.
     public func enrol() throws -> P256.KeyAgreement.PublicKey {
         if let existing = try? publicKey() { return existing }
         var error: Unmanaged<CFError>?
@@ -214,15 +215,16 @@ public final class EnclaveKeyStore: DeviceKeyStore, @unchecked Sendable {
 }
 
 /// The fallback when the Enclave refuses this (self-signed) app: a software P-256
-/// key in the login keychain, read only after Touch ID or the password has been
-/// checked through LocalAuthentication. Device-bound in practice, not in silicon.
+/// key in the keychain, read only after Touch ID or the password (Face ID or the
+/// passcode on a phone) has been checked through LocalAuthentication. Device-bound in
+/// practice, not in silicon.
 public final class KeychainKeyStore: DeviceKeyStore, @unchecked Sendable {
     public static let service = "com.seanmatheny.foolscap.secrets"
     let item: KeychainItem
     public init(account: String = "device-key") { item = KeychainItem(service: Self.service, account: account, label: "Foolscap Secrets") }
 
     public var kindID: String { "login-keychain" }
-    public var displayName: String { "this Mac's keychain" }
+    public var displayName: String { "this \(DeviceAuth.deviceWord)'s keychain" }
     public var isEnrolled: Bool { (try? item.read()) != nil }
 
     public func publicKey() throws -> P256.KeyAgreement.PublicKey? {

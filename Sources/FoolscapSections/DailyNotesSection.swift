@@ -148,8 +148,20 @@ struct DailyNotesPage: View {
                 if document.isDownloading {
                     Text("Downloading from iCloud…")
                         .font(theme.type.body.face(13)).foregroundStyle(theme.dimInk.color)
-                        .padding(.top, 60).padding(.leading, 64)
+                        .padding(.top, 60).padding(.leading, compact ? PageRuling.textLeft : 64)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                } else if let error = document.loadError, !document.isLoaded {
+                    // The file is there but could not be read (iCloud still fetching it, a
+                    // permission gone): say so rather than show an empty page in its place,
+                    // which the first keystroke would save over the note.
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("This note could not be read: \(error.localizedDescription)")
+                            .font(theme.type.body.face(13)).foregroundStyle(theme.dimInk.color)
+                        Button("Try Again") { Task { await document.reload() } }
+                            .font(theme.type.body.face(12, weight: .semibold))
+                    }
+                    .padding(.top, 60).padding(.leading, compact ? PageRuling.textLeft : 64).padding(.trailing, 44)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if document.externalChangePending {
                     ExternalChangeBanner(document: document)
@@ -164,6 +176,11 @@ struct DailyNotesPage: View {
         .task(id: "\(section.selectedDay.string)/\(section.library.generation)") {
             let library = section.library
             let doc = library.document(forDay: section.selectedDay)
+            #if os(iOS)
+            // Read with `devicectl device process launch --console`: which day the page is
+            // on and whether its note was already in memory.
+            NSLog("Daily page: \(doc.path), loaded \(doc.isLoaded), downloading \(doc.isDownloading)")
+            #endif
             document = doc
             await library.save()
             // Only the page on screen (and the Tasks file) stays open, so a folder
@@ -202,6 +219,7 @@ struct SearchCapsule: View {
 
 struct DayNavigator: View {
     @Environment(\.notebookTheme) private var theme
+    @Environment(\.compactPage) private var compact
     @Bindable var section: DailyNotesSection
     @Binding var showCalendar: Bool
 
@@ -212,10 +230,18 @@ struct DayNavigator: View {
                 Text(section.selectedDay.shortTitle)
                     .font(theme.type.body.face(12, weight: .medium))
                     .padding(.horizontal, 8).frame(height: 24)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .popover(isPresented: $showCalendar) {
+            // A popover on the Mac; on a phone a popover becomes a full-height sheet with the
+            // month floating in its middle, so the calendar takes a half-height sheet instead
+            // and a tapped day turns the page by itself.
+            .popover(isPresented: compact ? .constant(false) : $showCalendar) {
                 CalendarPopover(section: section, dismiss: { showCalendar = false })
+            }
+            .sheet(isPresented: compact ? $showCalendar : .constant(false)) {
+                CalendarPopover(section: section, compact: true, dismiss: { showCalendar = false })
+                    .presentationDetents([.medium])
             }
             navButton("chevron.right", help: "Next day (⌘])") { section.go(days: 1) }
             if section.selectedDay != .today {
@@ -232,9 +258,12 @@ struct DayNavigator: View {
         .background(Capsule().fill(theme.page.paperColor.color.opacity(0.85)).shadow(color: .black.opacity(0.08), radius: 2, y: 1))
     }
 
+    /// A chevron, with a finger's worth of hit area on a phone (the symbol stays small).
     private func navButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24)
+            Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+                .frame(width: compact ? 32 : 24, height: compact ? 32 : 24)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(help)
@@ -242,7 +271,10 @@ struct DayNavigator: View {
 }
 
 struct CalendarPopover: View {
+    @Environment(\.notebookTheme) private var theme
     @Bindable var section: DailyNotesSection
+    /// A phone's sheet: a tapped day goes there at once, no Go button.
+    var compact = false
     let dismiss: () -> Void
     @State private var date: Date = Date()
 
@@ -254,12 +286,31 @@ struct CalendarPopover: View {
             HStack {
                 Text("\(section.library.days.count) days with notes").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Go") { section.selectedDay = DayKey(date); dismiss() }.keyboardShortcut(.defaultAction)
+                if compact {
+                    Button("Today") { go(to: .today) }.disabled(section.selectedDay == .today)
+                } else {
+                    Button("Go") { go(to: DayKey(date)) }.keyboardShortcut(.defaultAction)
+                }
             }
         }
         .padding(12)
-        .frame(width: 280)
+        .frame(width: compact ? nil : 280)
+        .frame(maxWidth: compact ? .infinity : nil, maxHeight: compact ? .infinity : nil, alignment: .top)
+        // The phone's sheet is a sheet of the notebook's paper; the Mac's popover is the system's.
+        .background { if compact { theme.page.paperColor.color.ignoresSafeArea() } }
+        .tint(compact ? theme.accent.color : nil)
+        .paperScheme(compact, dark: theme.isDark)
         .onAppear { date = section.selectedDay.date }
+        .onChange(of: date) { _, picked in
+            // The picker hands back the chosen day at the time the old date had; only a day
+            // the reader chose (not the one `onAppear` set) turns the page.
+            if compact, DayKey(picked) != section.selectedDay { go(to: DayKey(picked)) }
+        }
+    }
+
+    private func go(to day: DayKey) {
+        section.selectedDay = day
+        dismiss()
     }
 }
 
@@ -320,5 +371,11 @@ private extension View {
     @ViewBuilder
     func ignoresPageInsets(_ on: Bool) -> some View {
         if on { ignoresSafeArea(.container, edges: .vertical) } else { self }
+    }
+
+    /// System controls on the notebook's paper take the paper's light or dark scheme.
+    @ViewBuilder
+    func paperScheme(_ on: Bool, dark: Bool) -> some View {
+        if on { colorScheme(dark ? .dark : .light) } else { self }
     }
 }

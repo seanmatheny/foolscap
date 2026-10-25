@@ -253,6 +253,96 @@ import CryptoKit
         try? FileManager.default.removeItem(at: dir)
     }
 
+    /// Two devices, one vault file: each enrols a key of its own (0.19) and neither
+    /// disturbs the other's; a slot removed on one device shuts that device out, the
+    /// passphrase still gets in.
+    @MainActor @Test func everyDeviceGetsASlotOfItsOwn() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-secrets-devices-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("vault.foolscap-secrets")
+        let macStore = MemoryKeyStore(), phoneStore = MemoryKeyStore()
+        let mac = SecretsVault(url: file, deviceStores: [macStore])
+        mac.passphraseIterations = 1000
+        mac.load()
+        try mac.create(passphrase: "open sesame")
+        #expect(mac.hasDeviceWrap && mac.header?.devices?.count == 1 && mac.header?.wraps[VaultHeader.deviceSlot] == nil)
+        mac.edit { $0.insert("## GitHub\n- password: `x`") }
+        mac.saveNow()
+        mac.lock()
+
+        // The phone: no key for this vault yet, so the passphrase, then its own slot.
+        let phone = SecretsVault(url: file, deviceStores: [phoneStore])
+        phone.passphraseIterations = 1000
+        phone.load()
+        #expect(phone.state == .locked && !phone.hasDeviceWrap && phone.canEnrolDevice)
+        await phone.unlockWithDevice()
+        #expect(phone.state == .locked && phone.lastError != nil)
+        await phone.unlock(passphrase: "open sesame")
+        #expect(phone.state == .unlocked)
+        try phone.enrolDevice()
+        #expect(phone.hasDeviceWrap && phone.header?.devices?.count == 2)
+        #expect(phone.thisDeviceIDs.count == 1 && phone.enrolledDevices.first.map { phone.thisDeviceIDs.contains($0.id) } == true)
+        phone.lock()
+        await phone.unlockWithDevice()
+        #expect(phone.state == .unlocked && phone.document?.entries.map(\.title) == ["GitHub"])
+        phone.lock()
+
+        // The Mac still opens with its key, sees both devices, and can drop the phone's.
+        mac.load()
+        await mac.unlockWithDevice()
+        #expect(mac.state == .unlocked && mac.enrolledDevices.count == 2)
+        let other = try #require(mac.enrolledDevices.first { !mac.thisDeviceIDs.contains($0.id) })
+        try mac.removeDevice(id: other.id)
+        #expect(mac.header?.devices?.count == 1 && mac.hasDeviceWrap)
+        mac.lock()
+        phone.load()
+        #expect(!phone.hasDeviceWrap)
+        await phone.unlock(passphrase: "open sesame")
+        #expect(phone.state == .unlocked)
+    }
+
+    /// A vault from before 0.19 has one "device" slot and no list: the Mac whose key fits
+    /// it still opens it, takes a named slot of its own on the way, and keeps the old slot
+    /// (older builds read it) until it is removed from the list.
+    @MainActor @Test func legacyMacSlotStillOpensAndGetsNamed() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-secrets-legacy-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("vault.foolscap-secrets")
+        let store = MemoryKeyStore()
+        let publicKey = try store.enrol()
+        let key = VaultKey.random()
+        let now = Date()
+        let header = VaultHeader(created: now, modified: now,
+                                 wraps: [VaultHeader.deviceSlot: try AgreementWrap.wrap(key, recipient: publicKey),
+                                         VaultHeader.passphraseSlot: try PassphraseWrap.wrap(key, passphrase: "words", iterations: 1000)],
+                                 deviceKind: store.kindID)
+        // Encoded without a `devices` key at all, as 0.18 wrote it.
+        let json = try #require(String(data: try VaultEnvelope.encoder.encode(header), encoding: .utf8))
+        #expect(!json.contains("devices"))
+        try VaultEnvelope.encode(header: header, plaintext: Data("## Old\n- pin: `1`\n".utf8), key: key).write(to: file)
+
+        let vault = SecretsVault(url: file, deviceStores: [store])
+        vault.passphraseIterations = 1000
+        vault.load()
+        #expect(vault.state == .locked && vault.hasDeviceWrap)
+        #expect(vault.enrolledDevices.map(\.id) == [VaultHeader.legacyDeviceID] && vault.thisDeviceIDs.contains(VaultHeader.legacyDeviceID))
+        await vault.unlockWithDevice()
+        #expect(vault.state == .unlocked && vault.document?.entries.map(\.title) == ["Old"])
+        let devices = try #require(vault.header?.devices)
+        #expect(devices.count == 1 && devices[0].id == DeviceWrap.fingerprint(publicKey) && vault.header?.wraps[VaultHeader.deviceSlot] != nil)
+        #expect(vault.enrolledDevices.map(\.id) == [devices[0].id, VaultHeader.legacyDeviceID])
+
+        // The old slot can go now; the named one opens the vault.
+        try vault.removeDevice(id: VaultHeader.legacyDeviceID)
+        #expect(vault.header?.wraps[VaultHeader.deviceSlot] == nil && vault.header?.deviceKind == nil && vault.hasDeviceWrap)
+        vault.lock()
+        await vault.unlockWithDevice()
+        #expect(vault.state == .unlocked)
+        // A second unlock through the named slot adds nothing more.
+        #expect(vault.header?.devices?.count == 1)
+    }
+
     @MainActor @Test func idleLockPolicy() {
         var now = Date(timeIntervalSince1970: 1_000_000)
         let lock = AutoLock(lockAfter: 300) { now }

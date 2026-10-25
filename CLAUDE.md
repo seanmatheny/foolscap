@@ -167,7 +167,13 @@
   from a box filled later. `TaskAggregator.undoManager` lets a test hand in a manager (there is no window).
 - The editor's caret starts at the end of the note (`MarkdownEditor.makeNSView`), below the
   Today panel on a daily note, so the opening heading keeps its `#` hidden and typing lands
-  under the tasks.
+  under the tasks. The Mac text view claims first responder itself (`claimsFocusWhenShown`,
+  `MarkdownTextView.claimFocusIfFree`: on creation, in `viewDidMoveToWindow`, and 0.4 s later,
+  after the page's insertion transition; never from a field editor, so the search palette and
+  the task fields keep their typing; `dismantleNSView` turns it off for an editor on its way
+  out). One `makeFirstResponder` a run-loop turn after `makeNSView` was not enough: a new day's
+  note arrives once it has loaded, after the page has drawn without it, and ⌘V then went
+  nowhere until the note was clicked (found 2026-10-26).
 - Ringed lanes (`View.ringed` in FoolscapUI/HighlightMark.swift): a dashed line around a faint
   wash of a colour, drawn as a background with negative padding so the rows inside keep to the
   ruling. The daily page's Today panel and the Tasks tab's Today lane are ringed in the Today
@@ -217,8 +223,10 @@
   screenshots, `--secrets-edit=Title` opens that card's form after unlocking (`=new` a new card); `--prefs-tab=secrets`; ⌘Y turns to it (⌘S was left to the Save reflex), ⌃⌘L
   locks; `--type` cannot press the Touch ID button, so Sean clicks it). One file,
   `Secrets/vault.foolscap-secrets`: `FSCV`, a big-endian header length, the header JSON
-  (`VaultHeader`: format, created/modified, `wraps`), then `AES.GCM.SealedBox.combined` over the
-  markdown with the header bytes as AAD. The random AES-256 key is wrapped twice: `device`
+  (`VaultHeader`: format, created/modified, `wraps`, and since 0.19 `devices`, one slot per
+  enrolled device: see "Secrets on the phone"), then `AES.GCM.SealedBox.combined` over the
+  markdown with the header bytes as AAD. The random AES-256 key is wrapped per device and once
+  by the passphrase: a device slot is
   (ECDH with a one-time P-256 key against this Mac's key + HKDF-SHA256 + AES-GCM; the key is a
   Secure Enclave key with `.userPresence` whose blob sits in Application Support/Foolscap/Secrets,
   or, when the Enclave refuses the self-signed app, a software P-256 key in the login keychain
@@ -512,6 +520,16 @@
   so the Tasks tab's rules land on the same pixels as the editor's; rows `pitch` tall move
   down by `PageRuling.rowShift` to sit on them. The editor's NSScrollView must not adjust
   its content insets automatically: the hidden title bar overlaps the page by ~2 pt.
+- Day navigation on the phone (0.19.0): the calendar is a half-height `.sheet` on a compact page
+  (a `.popover` there became a full-height sheet with the month floating in the middle) and a
+  tapped day turns the page by itself (`CalendarPopover(compact:)`, `onChange(of: date)`); the
+  chevrons have 32 pt hit areas. A note iCloud has not downloaded (`DiskRead.read` now asks
+  `ICloudPlaceholders.needsDownload`, which covers the phone's Files-provider case where the file
+  keeps its name) is waited for in `NoteDocument.loadIfNeeded` (`DiskRead.awaitDownload`, polling
+  up to 90 s with `isDownloading` set) rather than left to the folder watcher, which the phone's
+  provider does not reliably drive; a file that exists but cannot be read sets `loadError` and the
+  page shows it with Try Again instead of the template, which the first keystroke would have saved
+  over the note. The daily page `NSLog`s the day it shows on iOS, for `devicectl … --console`.
 - Verification against a scratch notebook: `open Foolscap.app --args -notesFolder /path/to/notes
   …` (the `-key value` argument domain overrides the `notesFolder` default for that launch
   without touching the real preference, and AppKit does not mistake the pair for a file to
@@ -656,12 +674,24 @@
   ending into `.net` on save and on read. A sync's outcome is `NSLog`ged (never the token); to read
   it, `xcrun devicectl device process launch --console --terminate-existing --device <udid>
   com.seanmatheny.foolscap.ios` with the phone unlocked (`log collect --device` needs root).
-- Secrets on the phone (since 0.10.0): the vault opens with the recovery passphrase only.
-  `SecretsVault.allowsDeviceEnrolment` is false on iOS and `enrolDevice()` refuses there, since
-  the header's one `device` slot holds the Mac's key and a phone's would replace it (the
-  2026-10-10 orphaning again); per-device slots are a format change still to come, and the
-  locked view and the settings pane say so. `hasDeviceWrap` is false on the phone anyway (its
-  enclave store has no blob), so nothing asks for Face ID. `AutoLock` on iOS counts taps and
+- Secrets on the phone (since 0.10.0; Face ID since 0.19.0, 2026-10-24): the vault's header
+  carries one wrapped key per enrolled device (`VaultHeader.devices: [DeviceWrap]?`, still
+  format 1 so older builds read the file; each slot's id is `DeviceWrap.fingerprint`, SHA-256 of
+  the device public key, so a device finds its own slot by its key alone, and carries the
+  device's name for Settings' list). The pre-0.19 `wraps["device"]` + `deviceKind` slot is the
+  legacy Mac slot: `findDeviceSlot` reads it only on macOS (a phone's Enclave store has the same
+  `kindID` and must not take it for its own), a Mac that opens through it adds a named slot for
+  the same key and keeps the old one for older builds until it is removed from the list (it shows
+  there as "A Mac's Touch ID (enrolled before 0.19)"). `hasDeviceWrap` is a stored result
+  (`thisDeviceSlot`, refreshed in `header`'s `didSet` and in `lock()`), since fingerprinting reads
+  the key blobs. `enrolDevice()` never destroys a key now (the one key is shared by every vault on
+  the device); `removeDevice(id:)` drops a slot; the passphrase slot is always there. On a device
+  with no slot, a passphrase unlock makes the page offer "Open with Face ID next time? Enrol / Not
+  now" (`SecretsSection.offersEnrolment`, declined into `secretsEnrolDeclined`), and Settings has
+  the same Enrol button plus the device list. `DeviceAuth` (FoolscapSecrets) names the biometry
+  ("Face ID"/"Touch ID"/"the passcode"), its symbol, the fallback title and this device's name;
+  `Mobile/Info.plist` has `NSFaceIDUsageDescription`, without which the prompt fails. The phone's
+  Enclave blob lives in its own Application Support/Foolscap/Secrets. `AutoLock` on iOS counts taps and
   drags the page reports (`SecretsSection.noteActivity`, a zero-distance drag gesture on the
   page) and locks at once on `didEnterBackground` and when protected data goes away; the phone
   model also locks in `flush()`. `ConcealedPasteboard` on iOS is a local-only pasteboard item

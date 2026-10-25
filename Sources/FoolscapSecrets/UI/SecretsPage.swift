@@ -86,7 +86,7 @@ struct SecretsPage: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("Secrets").font(theme.type.heading.font).fontWeight(.bold)
-                // The padlock is a switch: open, a click locks the vault; shut, it asks for Touch ID.
+                // The padlock is a switch: open, a click locks the vault; shut, it asks for Touch ID or Face ID.
                 Button {
                     if unlocked { section.lockNow() } else if section.vault.hasDeviceWrap { Task { await section.unlockWithDevice() } }
                 } label: {
@@ -96,7 +96,7 @@ struct SecretsPage: View {
                 }
                 .buttonStyle(.plain)
                 .linkPointer()
-                .help(unlocked ? "Lock (⌃⌘L)" : "Unlock with Touch ID")
+                .help(unlocked ? "Lock (⌃⌘L)" : "Unlock with \(DeviceAuth.biometryName)")
                 if !compact { statusText }
                 Spacer()
                 if unlocked {
@@ -198,9 +198,39 @@ struct SecretsPage: View {
         case .locked, .unlocking, .failed:
             LockedView(section: section)
         case .unlocked:
+            if section.offersEnrolment { enrolOffer }
             tagStrip.frame(height: pitch)
             cards(letters: group?.letters ?? [section.selectedLetter])
         }
+    }
+
+    /// Opened with the passphrase on a device that has no key for the vault (a phone, a
+    /// second Mac): offer Face ID or Touch ID for next time, here rather than in Settings.
+    private var enrolOffer: some View {
+        let buttons = HStack(spacing: 12) {
+            Button("Enrol") { section.enrolThisDevice() }.foregroundStyle(theme.accent.color)
+            Button("Not now") { section.declineEnrolment() }.foregroundStyle(theme.dimInk.color)
+        }
+        .font(theme.type.body.face(12.5 * scale, weight: .semibold))
+        .buttonStyle(.plain)
+        let line = HStack(spacing: 8) {
+            Image(systemName: DeviceAuth.biometrySymbol)
+            Text("Open with \(DeviceAuth.biometryName) next time?")
+        }
+        return VStack(alignment: .leading, spacing: 4) {
+            // One row where it fits (a window), the buttons under the question on a phone.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 14) { line; buttons }
+                VStack(alignment: .leading, spacing: 6) { line; buttons }
+            }
+            .font(theme.type.body.face(12.5 * scale))
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 14).fill(theme.accent.color.opacity(0.14)))
+            if let message = section.enrolMessage {
+                Text(message).font(theme.type.body.face(12 * scale)).foregroundStyle(.red)
+            }
+        }
+        .padding(.bottom, 6)
     }
 
     /// One-click tag filters, most used first, as on the Tasks tab.

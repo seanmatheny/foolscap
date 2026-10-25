@@ -2,7 +2,7 @@ import SwiftUI
 import FoolscapCore
 import FoolscapUI
 
-/// The page while the vault is shut: a padlock, Touch ID, and the passphrase as a fallback.
+/// The page while the vault is shut: a padlock, Touch ID or Face ID, and the passphrase as a fallback.
 struct LockedView: View {
     @Environment(\.notebookTheme) private var theme
     @Bindable var section: SecretsSection
@@ -22,9 +22,9 @@ struct LockedView: View {
                 .foregroundStyle(theme.ink.color.opacity(0.45))
                 .padding(.bottom, 6)
             Text("Secrets are locked").font(theme.type.heading.font).fontWeight(.bold)
-            Text(SecretsVault.allowsDeviceEnrolment
-                 ? "Nothing on this page can be read until you unlock it. It locks itself again after \(section.lockMinutes) minute\(section.lockMinutes == 1 ? "" : "s") without a keystroke, when the Mac sleeps or the screen locks."
-                 : "Nothing on this page can be read until you unlock it. It locks itself again after \(section.lockMinutes) minute\(section.lockMinutes == 1 ? "" : "s") without a tap, when Foolscap goes to the background or the phone locks.")
+            Text(DeviceAuth.isPhone
+                 ? "Nothing on this page can be read until you unlock it. It locks itself again after \(section.lockMinutes) minute\(section.lockMinutes == 1 ? "" : "s") without a tap, when Foolscap goes to the background or the phone locks."
+                 : "Nothing on this page can be read until you unlock it. It locks itself again after \(section.lockMinutes) minute\(section.lockMinutes == 1 ? "" : "s") without a keystroke, when the Mac sleeps or the screen locks.")
                 .font(theme.type.body.face(13.5 * scale))
                 .foregroundStyle(theme.dimInk.color)
                 .multilineTextAlignment(.center)
@@ -34,7 +34,7 @@ struct LockedView: View {
             }
             if hasDevice {
                 Button { Task { await section.unlockWithDevice() } } label: {
-                    Label("Unlock with Touch ID", systemImage: "touchid")
+                    Label("Unlock with \(DeviceAuth.biometryName)", systemImage: DeviceAuth.biometrySymbol)
                         .font(theme.type.body.face(13.5, weight: .semibold))
                         .foregroundStyle(theme.accent.color)
                         .padding(.horizontal, 16).padding(.vertical, 7)
@@ -70,10 +70,9 @@ struct LockedView: View {
                         .disabled(passphrase.isEmpty || unlocking)
                 }
                 .colorScheme(theme.isDark ? .dark : .light)
-                if !hasDevice {
-                    Text(SecretsVault.allowsDeviceEnrolment
-                         ? (section.vault.deviceStore.map { "\($0.displayName) is not set up for this vault on this Mac. Once it is open, Settings ▸ Secrets can enrol it." } ?? "")
-                         : "On the phone the vault opens with the recovery passphrase; Face ID for it is still to come.")
+                if !hasDevice, let store = section.vault.deviceStore {
+                    Text("\(store.displayName) is not set up for this vault on this \(DeviceAuth.deviceWord). Once it is open, the page offers to enrol it for next time"
+                         + (DeviceAuth.isPhone ? ", as does the Settings tab." : ", as does Settings ▸ Secrets."))
                         .font(theme.type.body.face(12 * scale))
                         .foregroundStyle(theme.dimInk.color)
                         .multilineTextAlignment(.center)
@@ -113,7 +112,7 @@ struct SetupView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Keep passwords, keys and codes here, filed A–Z like an address book.")
                 .font(theme.type.body.face(15 * scale)).opacity(0.8)
-            Text("The vault is one AES-256 encrypted file inside your notebook folder, so it travels with your backups. Day to day it opens with Touch ID or your login password. The recovery passphrase you choose now is the other way in, and the only way on another Mac: keep it somewhere safe. Nothing in the vault is indexed or searchable from the other tabs.")
+            Text("The vault is one AES-256 encrypted file inside your notebook folder, so it travels with your backups. Day to day it opens with \(DeviceAuth.biometryName)\(DeviceAuth.isPhone ? "" : " or your login password"). The recovery passphrase you choose now is the other way in, and the first way in on another Mac or phone, which can then enrol its own \(DeviceAuth.isPhone ? "Touch ID or Face ID" : "Face ID or Touch ID"): keep it somewhere safe. Nothing in the vault is indexed or searchable from the other tabs.")
                 .font(theme.type.body.face(13.5 * scale))
                 .foregroundStyle(theme.dimInk.color)
                 .fixedSize(horizontal: false, vertical: true)

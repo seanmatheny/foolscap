@@ -432,7 +432,7 @@ struct PhoneSettingsPage: View {
             }
             Section("Secrets") {
                 Toggle("Keep secrets in the notebook", isOn: $secretsEnabled)
-                Text("Adds a padlocked Secrets tab: the vault file in the notebook folder, opened on the phone with its recovery passphrase. Nothing in it is indexed or searchable from the other tabs.")
+                Text("Adds a padlocked Secrets tab: the vault file in the notebook folder, opened with Face ID once this phone is enrolled, or with its recovery passphrase. Nothing in it is indexed or searchable from the other tabs.")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(model.sectionSettingsPanes.filter { $0.id == SecretsSection.sectionID }) { pane in pane.view }
             }

@@ -18,6 +18,8 @@ public final class SecretsSection: NotebookSection {
     /// Turning to the tab while locked asks for Touch ID at once (default on; `-secretsAutoUnlock NO`
     /// in the argument domain keeps a screenshot launch quiet).
     public static let autoUnlockKey = "secretsAutoUnlock"
+    /// "Not now" on the page's offer to enrol this device: the offer stays away until Settings enrols it.
+    public static let enrolDeclinedKey = "secretsEnrolDeclined"
     public static let defaultLockMinutes = 5
     public static let vaultFileName = "vault.foolscap-secrets"
     /// The draft being edited is a marker, not an entry id.
@@ -61,6 +63,10 @@ public final class SecretsSection: NotebookSection {
     public private(set) var lockedAt: Date?
     /// Bumped when the lock deadline moves, so the countdown re-reads it.
     public private(set) var unlockGeneration = 0
+    /// The page's offer to enrol this device was declined ("Not now"), kept in the defaults.
+    public private(set) var enrolDeclined: Bool
+    /// What the page's Enrol button reported (an error; nil after success).
+    public private(set) var enrolMessage: String?
 
     public static func defaultVault(for library: NotebookLibrary) -> SecretsVault {
         let support = AppSupport.directory.appendingPathComponent("Secrets", isDirectory: true)
@@ -76,6 +82,7 @@ public final class SecretsSection: NotebookSection {
         self.defaults = defaults
         let minutes = defaults.object(forKey: Self.lockMinutesKey) == nil ? Self.defaultLockMinutes : defaults.integer(forKey: Self.lockMinutesKey)
         autoLock = AutoLock(lockAfter: TimeInterval(max(1, minutes)) * 60)
+        enrolDeclined = defaults.bool(forKey: Self.enrolDeclinedKey)
         autoLock.onLock = { [weak self] in self?.lockNow() }
     }
 
@@ -164,6 +171,33 @@ public final class SecretsSection: NotebookSection {
     public func createVault(passphrase: String) throws {
         try vault.create(passphrase: passphrase)
         didUnlock()
+    }
+
+    // MARK: Enrolling this device
+
+    /// The vault is open on a device that has no key for it (a phone, or a second Mac, after
+    /// a passphrase unlock): the page offers Face ID or Touch ID for next time, until it is
+    /// taken up here or in Settings, or declined.
+    public var offersEnrolment: Bool {
+        isUnlocked && vault.canEnrolDevice && !vault.hasDeviceWrap && !enrolDeclined
+    }
+
+    /// Enrol this device from the page's offer (Settings ▸ Secrets has the same button).
+    public func enrolThisDevice() {
+        do {
+            try vault.enrolDevice()
+            enrolMessage = nil
+            setEnrolDeclined(false)
+        } catch {
+            enrolMessage = "Could not enrol: \(error.localizedDescription)"
+        }
+    }
+
+    public func declineEnrolment() { setEnrolDeclined(true) }
+
+    private func setEnrolDeclined(_ declined: Bool) {
+        enrolDeclined = declined
+        defaults.set(declined, forKey: Self.enrolDeclinedKey)
     }
 
     private func didUnlock() {

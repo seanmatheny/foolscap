@@ -27,26 +27,38 @@ struct SecretsSettingsPane: View {
             }
         }
         .onChange(of: lockMinutes) { _, _ in section.settingsChanged() }
-        Text(SecretsVault.allowsDeviceEnrolment
-             ? "Minutes without a keystroke or click in Foolscap before the vault locks. It also locks at once when the Mac sleeps, the screen locks and Foolscap quits."
-             : "Minutes without a tap on the page before the vault locks. It also locks at once when Foolscap goes to the background or the phone locks.")
+        Text(DeviceAuth.isPhone
+             ? "Minutes without a tap on the page before the vault locks. It also locks at once when Foolscap goes to the background or the phone locks."
+             : "Minutes without a keystroke or click in Foolscap before the vault locks. It also locks at once when the Mac sleeps, the screen locks and Foolscap quits.")
             .font(.caption).foregroundStyle(.secondary)
         Toggle("Lock when I turn to another tab", isOn: $lockOnLeave)
-        if SecretsVault.allowsDeviceEnrolment {
-            Toggle("Ask for Touch ID when I turn to the tab", isOn: $autoUnlock)
-                .disabled(!section.vault.hasDeviceWrap)
-            LabeledContent("Touch ID") {
-                HStack {
-                    Text(deviceStatus).foregroundStyle(.secondary)
-                    Button(section.vault.hasDeviceWrap ? "Re-enrol…" : "Enrol…") { enrol() }
-                        .disabled(!section.isUnlocked)
+        Toggle("Ask for \(DeviceAuth.biometryName) when I turn to the tab", isOn: $autoUnlock)
+            .disabled(!section.vault.hasDeviceWrap)
+        LabeledContent(DeviceAuth.biometryName) {
+            HStack {
+                Text(deviceStatus).foregroundStyle(.secondary)
+                Button(section.vault.hasDeviceWrap ? "Re-enrol…" : "Enrol…") { enrol() }
+                    .disabled(!section.isUnlocked)
+            }
+        }
+        if let why = section.vault.deviceEnrolError {
+            Text(why).font(.caption).foregroundStyle(.secondary)
+        }
+        let devices = section.vault.enrolledDevices
+        if !devices.isEmpty {
+            let mine = section.vault.thisDeviceIDs
+            ForEach(devices) { device in
+                LabeledContent(mine.contains(device.id) ? "\(device.name) (this \(DeviceAuth.deviceWord))" : device.name) {
+                    HStack {
+                        Text("enrolled " + DateFormatter.localizedString(from: device.enrolled, dateStyle: .medium, timeStyle: .none))
+                            .foregroundStyle(.secondary)
+                        Button("Remove") { remove(device) }
+                            .disabled(!section.isUnlocked)
+                    }
                 }
             }
-            if let why = section.vault.deviceEnrolError {
-                Text(why).font(.caption).foregroundStyle(.secondary)
-            }
-        } else {
-            Text("The vault opens with the recovery passphrase on the phone; Face ID for it is still to come.")
+            Text("Each enrolled Mac or phone opens the vault with a key of its own; remove one that is gone. The recovery passphrase always opens it."
+                 + (devices.contains { $0.id == VaultHeader.legacyDeviceID } ? " The slot from before 0.19 is the Mac's old one: once that Mac is listed by name as well, it can go." : ""))
                 .font(.caption).foregroundStyle(.secondary)
         }
         LabeledContent("Recovery passphrase") {
@@ -72,7 +84,7 @@ struct SecretsSettingsPane: View {
             .font(.caption).foregroundStyle(.secondary)
         #else
         if !section.isUnlocked {
-            Text("Unlock Secrets in the notebook first to change the passphrase.").font(.caption).foregroundStyle(.secondary)
+            Text("Unlock Secrets in the notebook first to enrol \(DeviceAuth.biometryName) or change the passphrase.").font(.caption).foregroundStyle(.secondary)
         }
         #endif
         Text(vaultStatus).font(.caption).foregroundStyle(.secondary)
@@ -82,7 +94,7 @@ struct SecretsSettingsPane: View {
     private var deviceStatus: String {
         guard let store = section.vault.deviceStore else { return "No device key store" }
         if section.vault.hasDeviceWrap { return "Enrolled with \(store.displayName)" }
-        return section.vault.state == .absent ? "Set up with the vault" : "Not enrolled on this Mac"
+        return section.vault.state == .absent ? "Set up with the vault" : "Not enrolled on this \(DeviceAuth.deviceWord)"
     }
 
     private var vaultStatus: String {
@@ -101,9 +113,18 @@ struct SecretsSettingsPane: View {
     private func enrol() {
         do {
             try section.vault.enrolDevice()
-            message = "Enrolled. The next unlock asks \(section.vault.deviceStore?.displayName ?? "the device key")."
+            message = "Enrolled. The next unlock asks for \(section.vault.deviceStore?.displayName ?? "the device key")."
         } catch {
             message = "Could not enrol: \(error.localizedDescription)"
+        }
+    }
+
+    private func remove(_ device: DeviceWrap) {
+        do {
+            try section.vault.removeDevice(id: device.id)
+            message = "\(device.name) no longer opens the vault."
+        } catch {
+            message = "Could not remove \(device.name): \(error.localizedDescription)"
         }
     }
 
