@@ -86,6 +86,18 @@ public enum LinePrefix {
         return String(s)
     }
 
+    // ^(indent)(bullet or number, space)?[] or [ ]
+    private static let taskShorthandRegex = try! NSRegularExpression(pattern: #"^([ \t]*)(?:([-*+]|\d+[.)]) )?\[ ?\]$"#)
+
+    /// The task prefix (`- [ ] `, keeping any indent and bullet) for the start of a line typed
+    /// as `[]` or `[ ]` with or without a bullet, before the space that completes it; nil otherwise.
+    public static func taskShorthand(_ typed: String) -> String? {
+        let ns = typed as NSString
+        guard let m = taskShorthandRegex.firstMatch(in: typed, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        let bullet = m.range(at: 2).location != NSNotFound ? ns.substring(with: m.range(at: 2)) : "-"
+        return ns.substring(with: m.range(at: 1)) + marker(.task(bullet: bullet, status: .notStarted))
+    }
+
     /// UTF-16 length of a heading marker (`## `) at the start of the line, or 0.
     public static func headingMarkerLength(_ line: String) -> Int {
         headingRegex.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length))?.range.length ?? 0
@@ -244,6 +256,22 @@ extension MarkdownEditing {
         let insert = "\n" + LinePrefix.continuation(of: prefix)
         replace(caret, with: insert)
         markdownSelection = NSRange(location: caret.location + (insert as NSString).length, length: 0)
+        return true
+    }
+
+    // MARK: Space
+
+    /// A space typed after `[]` or `[ ]` at the start of a line (after a bullet or not) makes the
+    /// line a task, `- [ ] `, in one undoable edit (⌘Z gives back the brackets as typed).
+    /// False when a plain space is wanted.
+    func spacePressed() -> Bool {
+        let caret = markdownSelection
+        guard caret.length == 0, let line = styler.blockMap.line(at: caret.location), !isCodeLine(line) else { return false }
+        let typed = NSRange(location: line.range.location, length: caret.location - line.range.location)
+        let before = markdownText.substring(with: typed)
+        guard let prefix = LinePrefix.taskShorthand(before), prefix != before + " " else { return false }
+        grouped { replace(typed, with: prefix) }
+        markdownSelection = NSRange(location: line.range.location + (prefix as NSString).length, length: 0)
         return true
     }
 
@@ -591,6 +619,14 @@ extension MarkdownTextView: MarkdownEditing {
         let flags = NSApp.currentEvent?.modifierFlags ?? []
         if !flags.contains(.shift), !flags.contains(.option), returnPressed() { return }
         super.insertNewline(sender)
+    }
+
+    /// A typed space after `[]` at a line's start makes a task (`spacePressed`).
+    public override func insertText(_ string: Any, replacementRange: NSRange) {
+        let typed = (string as? String) ?? (string as? NSAttributedString)?.string
+        if typed == " ", !hasMarkedText(), replacementRange.location == NSNotFound || replacementRange == selectedRange(),
+           spacePressed() { return }
+        super.insertText(string, replacementRange: replacementRange)
     }
 
     /// Tab and ⇧Tab move list items and tasks in and out a level; elsewhere they

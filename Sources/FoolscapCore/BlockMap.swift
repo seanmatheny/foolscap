@@ -37,7 +37,8 @@ public struct BlockMap: Sendable {
     private static let imageRegex = try! NSRegularExpression(pattern: #"^\s*!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$"#)
     private static let urlRegex = try! NSRegularExpression(pattern: #"^\s*<?(https?://[^\s<>]+)>?\s*$"#)
     private static let headingRegex = try! NSRegularExpression(pattern: #"^(#{1,6})\s+\S"#)
-    private static let listRegex = try! NSRegularExpression(pattern: #"^\s*([-*+]|\d+[.)])\s+\S"#)
+    // A bare `- ` already counts, so the bullet shows the moment its space is typed.
+    private static let listRegex = try! NSRegularExpression(pattern: #"^\s*([-*+]|\d+[.)])(\s+\S|\s+$)"#)
     private static let fenceRegex = try! NSRegularExpression(pattern: #"^\s{0,3}(```+|~~~+)\s*([\w+#.-]*)"#)
     private static let ruleRegex = try! NSRegularExpression(pattern: #"^\s{0,3}([-*_])(\s*\1){2,}\s*$"#)
 

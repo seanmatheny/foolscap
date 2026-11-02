@@ -4,6 +4,11 @@
   so he can finish what he is typing and hand over the machine. Building is fine
   to do unprompted; stop at the build step unless he has said in the current
   request that Claude may go straight on into testing and verification.
+- Keep the Mac and iPhone apps from drifting apart: after any change to shared code (the editor,
+  sections, Core/Store/UI), build the phone app too (`make ios-check`). Whenever Claude cannot build
+  or check the iPhone side itself (no Xcode, no device, a phone-only path it cannot drive), it must
+  say so plainly at the end of the turn and remind Sean to try the change on his iPhone, naming what
+  to try. Never let an untested phone change pass silently.
 - Versioning (from 0.2.0, 2026-10-20): `CFBundleShortVersionString` in
   `Sources/FoolscapApp/Info.plist` is MAJOR.MINOR.PATCH and goes up in the same commit as
   every change to the app: a new feature or visible change of behaviour bumps MINOR (0.2.0 →

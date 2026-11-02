@@ -201,6 +201,7 @@ struct EditorDecorations {
             let visible = geometry.decorations(in: rect)
             drawCodeBlocks(visible, in: ctx)
             drawQuoteBars(visible, in: ctx)
+            drawRules(in: ctx, rect: rect)
             drawTaskMarkHover(in: ctx, rect: rect)
             drawFoldControls(in: ctx, rect: rect)
         }
@@ -384,6 +385,30 @@ struct EditorDecorations {
 
     /// The dot standing in for a `-`, `*` or `+` (drawn as text in the body font so
     /// it shares the line's baseline); nested items get a ring, then a small square.
+    /// A `---` line off the caret is drawn as a rule across the text column, midway down its
+    /// band so it does not merge into the paper's ruling; the dashes themselves are hidden.
+    private func drawRules(in ctx: CGContext, rect: CGRect) {
+        guard let span = geometry.characterSpan(under: rect) else { return }
+        let lines = styler.blockMap.lines
+        let inset = geometry.textOrigin.x
+        var i = styler.blockMap.line(at: span.first)?.index ?? 0
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        ctx.setStrokeColor(palette.dimInk.withAlphaComponent(0.4).cgColor)
+        ctx.setLineWidth(0.75)
+        while i < lines.count, lines[i].range.location <= span.last {
+            defer { i += 1 }
+            let line = lines[i]
+            guard case .rule = line.kind, !styler.isHidden(line: i), !styler.isRevealed(line: i),
+                  let band = geometry.fragmentRect(for: line.range), band.intersects(rect) else { continue }
+            // From the top: a note's last paragraph also holds the empty line after it.
+            let y = (band.minY + palette.pitch / 2).rounded() + 0.5
+            ctx.move(to: CGPoint(x: inset, y: y))
+            ctx.addLine(to: CGPoint(x: geometry.viewWidth - inset, y: y))
+            ctx.strokePath()
+        }
+    }
+
     private func drawBullets(in ctx: CGContext, rect: CGRect) {
         guard let span = geometry.characterSpan(under: rect) else { return }
         let lines = styler.blockMap.lines
@@ -394,7 +419,7 @@ struct EditorDecorations {
         while i < lines.count, lines[i].range.location <= span.last {
             defer { i += 1 }
             let line = lines[i]
-            guard case .listItem = line.kind, !styler.isHidden(line: i), !styler.isRevealed(line: i),
+            guard case .listItem = line.kind, !styler.isHidden(line: i), !styler.showsBulletMarker(line: i),
                   let prefix = LinePrefix.parse(line.text), case .bullet = prefix.kind else { continue }
             let marker = NSRange(location: line.range.location + (prefix.indent as NSString).length, length: 1)
             guard let glyph = geometry.characterRect(for: marker), glyph.intersects(rect) else { continue }
