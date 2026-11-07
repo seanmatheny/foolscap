@@ -344,6 +344,17 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     private static let quoteMarker = try! NSRegularExpression(pattern: #"^>\s?"#)
     private static let listMarker = try! NSRegularExpression(pattern: #"^\s*([-*+]|\d+[.)])\s"#)
 
+    /// The extra indent a nested list or task line's paragraph starts with, so that every level
+    /// of nesting steps in by `EditorPalette.listIndent` (a tab's width) however narrow the two
+    /// spaces of the file's indent measure: the spaces themselves make up the rest.
+    private func nestingIndent(_ lineText: String) -> CGFloat {
+        guard let indent = LinePrefix.parse(lineText)?.indent, !indent.isEmpty else { return 0 }
+        let level = LinePrefix.level(of: indent)
+        guard level > 0 else { return 0 }
+        let measured = (indent as NSString).size(withAttributes: [.font: palette.body]).width
+        return max(0, CGFloat(level) * palette.listIndent - measured)
+    }
+
     /// First match's range, or `NSNotFound` (like `range(of:options: .regularExpression)`).
     private static func match(_ regex: NSRegularExpression, in text: String) -> NSRange {
         regex.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length))?.range
@@ -435,8 +446,10 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             inlineRange = NSRange(location: marker.length, length: text.length - marker.length)
         case .task(let status):
             if let parsed = TaskLineParser.parse(line.text) {
-                // Wrapped lines hang under the title, not the mark.
-                ps.headIndent = (text.substring(to: parsed.markOffset + 2) as NSString).size(withAttributes: [.font: p.mono]).width
+                // Each level of nesting steps in a tab; wrapped lines hang under the title, not the mark.
+                ps.firstLineHeadIndent = nestingIndent(line.text)
+                ps.headIndent = ps.firstLineHeadIndent
+                    + (text.substring(to: parsed.markOffset + 2) as NSString).size(withAttributes: [.font: p.mono]).width
                     + (" " as NSString).size(withAttributes: [.font: p.body]).width
             }
             storage.setAttributes(base, range: para)
@@ -468,8 +481,9 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         case .listItem:
             let prefix = LinePrefix.parse(line.text)
             if let prefix {
-                // Wrapped lines hang under the item's text.
-                ps.headIndent = (text.substring(to: prefix.length) as NSString).size(withAttributes: [.font: p.body]).width
+                // Each level of nesting steps in a tab; wrapped lines hang under the item's text.
+                ps.firstLineHeadIndent = nestingIndent(line.text)
+                ps.headIndent = ps.firstLineHeadIndent + (text.substring(to: prefix.length) as NSString).size(withAttributes: [.font: p.body]).width
             }
             storage.setAttributes(base, range: para)
             // A task with no title yet (`- [ ] `) is not a task to the index, but it looks like one.

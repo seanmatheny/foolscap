@@ -683,12 +683,35 @@ public final class MarkdownTextView: NSTextView {
             if NSLocationInRange(index, NSRange(location: markRange.location, length: markRange.length + 1)),
                let replaced = TaskLineParser.replacingStatus(in: line.text, with: parsed.status.next),
                shouldChangeText(in: line.range, replacementString: replaced) {
+                // A task ticked done goes up in a little cloud of smoke.
+                if parsed.status.next == .completed { Poof.play(in: self, at: point) }
                 textStorage?.replaceCharacters(in: line.range, with: replaced)
                 didChangeText()
                 return
             }
         }
         super.mouseDown(with: event)
+    }
+
+    /// The context menu on a `<url>` line leads with Show as Preview Card, the way back from
+    /// a card's Show as Text.
+    public override func menu(for event: NSEvent) -> NSMenu? {
+        let standard = super.menu(for: event)
+        let point = convert(event.locationInWindow, from: nil)
+        guard features.contains(.linkPreviews), let line = styler.blockMap.line(at: characterIndexForInsertion(at: point)),
+              LinkLine.autolink(line.text) != nil else { return standard }
+        let menu = standard ?? NSMenu()
+        let item = NSMenuItem(title: "Show as Preview Card", action: #selector(showAsCard(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = line.index
+        menu.insertItem(item, at: 0)
+        menu.insertItem(.separator(), at: 1)
+        return menu
+    }
+
+    @objc private func showAsCard(_ sender: NSMenuItem) {
+        guard let index = sender.representedObject as? Int else { return }
+        showLinkAsCard(line: index)
     }
 
     // MARK: Ruling and the other decorations

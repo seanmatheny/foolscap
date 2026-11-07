@@ -59,11 +59,13 @@ final class ResizableImageView: UIView, UIContextMenuInteractionDelegate {
 }
 
 /// A LinkPresentation card; the card itself opens the link on a tap, a long press
-/// offers Copy Link and Show Markdown.
+/// offers Copy Link, Show as Text and Show Markdown.
 final class LinkCardView: UIView, UIContextMenuInteractionDelegate {
     let linkView: LPLinkView
     private let url: URL
     var onReveal: (() -> Void)?
+    /// Show as Text: the line is rewritten as `<url>`.
+    var onShowAsText: (() -> Void)?
 
     init(url: URL) {
         self.url = url
@@ -85,6 +87,7 @@ final class LinkCardView: UIView, UIContextMenuInteractionDelegate {
                     guard let self else { return }
                     UIPasteboard.general.url = self.url
                 },
+                UIAction(title: "Show as Text", image: UIImage(systemName: "text.alignleft")) { _ in self?.onShowAsText?() },
                 UIAction(title: "Show Markdown", image: UIImage(systemName: "doc.text")) { _ in self?.onReveal?() },
             ])
         }

@@ -183,6 +183,10 @@ final class OverlayController {
             guard textView.features.contains(.linkPreviews), let url = URL(string: urlString) else { return nil }
             let card = LinkCardView(url: url)
             card.onReveal = { [weak self] in self?.revealLine(forKey: key) }
+            card.onShowAsText = { [weak self] in
+                guard let self, let overlay = self.overlays[key] else { return }
+                self.textView.showLinkAsText(line: overlay.lineIndex)
+            }
             if let metadata = LinkPreviewCache.shared.cached(url) {
                 card.linkView.metadata = metadata
             } else {
@@ -503,6 +507,8 @@ final class LinkCardView: NSView {
     private let url: URL
     private var trackingArea: NSTrackingArea?
     var onReveal: (() -> Void)?
+    /// The context menu's Show as Text: the line is rewritten as `<url>`.
+    var onShowAsText: (() -> Void)?
 
     init(url: URL) {
         self.url = url
@@ -542,6 +548,26 @@ final class LinkCardView: NSView {
     }
 
     @objc private func reveal() { onReveal?() }
+    @objc private func showAsText() { onShowAsText?() }
+
+    /// A right click anywhere on the card is ours, not the link view's (which would
+    /// show its own menu or none): the menu offers the copy, the text form and the markdown.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let event = NSApp.currentEvent,
+           event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
+           let superview, bounds.contains(convert(point, from: superview)) {
+            return self
+        }
+        return super.hitTest(point)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Copy Link", action: #selector(copyLink), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Show as Text", action: #selector(showAsText), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Show Markdown", action: #selector(reveal), keyEquivalent: "").target = self
+        return menu
+    }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 

@@ -472,6 +472,8 @@ struct TaskRow: View {
     @State private var hovering = false
     @State private var editing = false
     @State private var askTag = false
+    /// Where the poof plays when the task is ticked done: over the tick.
+    @State private var poof = PoofHandle()
     /// On a phone, the title's measured height: a long one takes two ruled lines.
     @State private var titleHeight: CGFloat = 0
     private var scale: CGFloat { theme.type.body.size / 15 }
@@ -564,11 +566,12 @@ struct TaskRow: View {
     }
 
     private var tick: some View {
-        Button(action: onToggle) {
+        Button(action: { complete(task.status.toggled, onToggle) }) {
             Image(systemName: symbol)
                 .font(.system(size: 14 * scale, weight: .regular))
                 .foregroundStyle(task.status == .notStarted || task.status == .someday ? theme.dimInk.color : theme.accent.color)
                 .frame(width: 20)
+                .overlay(PoofAnchor(poof))
         }
         .buttonStyle(.plain)
         .linkPointer()
@@ -674,12 +677,18 @@ struct TaskRow: View {
                     }
                 }
                 ForEach(TaskStatus.allCases.filter { groupCount > 1 || $0 != task.status }, id: \.self) { target in
-                    Button(groupCount > 1 ? "Move \(groupCount) Tasks to \(target.title)" : "Mark \(target.title)") { onSetStatus(target) }
+                    Button(groupCount > 1 ? "Move \(groupCount) Tasks to \(target.title)" : "Mark \(target.title)") { complete(target) { onSetStatus(target) } }
                 }
                 Divider()
             }
             if task.source.day != nil { Button("Open in Daily Note") { onOpen() } }
             if let onOpenIssue { Button("Open in Jira Tab") { onOpenIssue() } }
+    }
+
+    /// A move to Completed goes up in a little cloud of smoke (the classic poof) before the lanes change.
+    private func complete(_ target: TaskStatus, _ move: () -> Void) {
+        if target == .completed, task.status != .completed { poof.play() }
+        move()
     }
 
     private var title: some View { title(lines: 1, lineHeight: 0) }

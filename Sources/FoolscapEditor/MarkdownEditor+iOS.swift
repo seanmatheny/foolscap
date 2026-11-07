@@ -161,6 +161,17 @@ public struct MarkdownEditor: UIViewRepresentable {
             (textView as? MarkdownTextView)?.shouldChange(in: range, replacement: text) ?? true
         }
 
+        /// The edit menu on a `<url>` line leads with Show as Card, the way back from Show as Text.
+        public func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let view = textView as? MarkdownTextView, view.features.contains(.linkPreviews),
+                  let line = view.styler.blockMap.line(at: range.location), LinkLine.autolink(line.text) != nil else { return nil }
+            let index = line.index
+            let card = UIAction(title: "Show as Card", image: UIImage(systemName: "rectangle.on.rectangle")) { [weak view] _ in
+                view?.showLinkAsCard(line: index)
+            }
+            return UIMenu(children: [card] + suggestedActions)
+        }
+
         public func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
             if case .link(let url) = textItem.content {
                 return UIAction { _ in Platform.openURL(url) }

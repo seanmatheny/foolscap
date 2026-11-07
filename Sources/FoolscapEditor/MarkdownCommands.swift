@@ -78,6 +78,11 @@ public enum LinePrefix {
         }
     }
 
+    /// How many levels deep an indent is: two spaces, or a tab, each (a lone space rounds up).
+    public static func level(of indent: String) -> Int {
+        (indent.reduce(0) { $0 + ($1 == "\t" ? 2 : 1) } + 1) / 2
+    }
+
     /// One level less indent: a leading tab or up to two spaces go.
     public static func outdented(_ indent: String) -> String {
         if indent.hasPrefix("\t") { return String(indent.dropFirst()) }
@@ -101,6 +106,19 @@ public enum LinePrefix {
     /// UTF-16 length of a heading marker (`## `) at the start of the line, or 0.
     public static func headingMarkerLength(_ line: String) -> Int {
         headingRegex.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length))?.range.length ?? 0
+    }
+}
+
+/// A link shown as text: `<https://…>` alone on its line, the form a preview card is
+/// turned into (and back) from its context menu. The address is selectable and copies
+/// clean; the angle brackets are syntax, hidden until the caret is on the line.
+public enum LinkLine {
+    private static let autolinkRegex = try! NSRegularExpression(pattern: #"^([ \t]*)<(https?://[^\s<>]+)>[ \t]*$"#)
+
+    public static func autolink(_ line: String) -> (indent: String, url: String)? {
+        let ns = line as NSString
+        guard let m = autolinkRegex.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        return (ns.substring(with: m.range(at: 1)), ns.substring(with: m.range(at: 2)))
     }
 }
 
@@ -248,15 +266,68 @@ extension MarkdownEditing {
             } else {
                 let indentLength = (prefix.indent as NSString).length
                 let outdented = LinePrefix.outdented(prefix.indent)
-                replace(NSRange(location: line.range.location, length: indentLength), with: outdented)
-                markdownSelection = NSRange(location: line.range.location + line.range.length - indentLength + (outdented as NSString).length, length: 0)
+                grouped {
+                    replace(NSRange(location: line.range.location, length: indentLength), with: outdented)
+                    markdownSelection = NSRange(location: line.range.location + line.range.length - indentLength + (outdented as NSString).length, length: 0)
+                    renumberList(around: line.index)
+                }
             }
             return true
         }
         let insert = "\n" + LinePrefix.continuation(of: prefix)
-        replace(caret, with: insert)
-        markdownSelection = NSRange(location: caret.location + (insert as NSString).length, length: 0)
+        grouped {
+            replace(caret, with: insert)
+            markdownSelection = NSRange(location: caret.location + (insert as NSString).length, length: 0)
+            renumberList(around: line.index + 1)
+        }
         return true
+    }
+
+    // MARK: Numbering
+
+    /// Put the numbers of the list around line `index` in order: each level counts on from
+    /// its first item (the outermost keeps the number it starts with, so a list continuing
+    /// after a paragraph is left alone) and a nested list starts again at 1 under each item
+    /// above it. The list is the run of list, task and indented lines around `index`; a blank
+    /// or other line ends it either way. Lines already right are not touched.
+    func renumberList(around index: Int) {
+        let lines = styler.blockMap.lines
+        guard index >= 0, index < lines.count else { return }
+        func inList(_ line: ScannedLine) -> Bool {
+            switch line.kind {
+            case .listItem, .task: return true
+            case .plain: return line.text.first.map { $0 == " " || $0 == "\t" } ?? false
+            default: return false
+            }
+        }
+        guard inList(lines[index]) else { return }
+        var first = index, last = index
+        while first > 0, inList(lines[first - 1]) { first -= 1 }
+        while last + 1 < lines.count, inList(lines[last + 1]) { last += 1 }
+        // One counter per open level, by indent width in columns.
+        var counters: [(columns: Int, number: Int)] = []
+        var wanted: [Int: String] = [:]
+        for line in lines[first...last] {
+            guard let prefix = LinePrefix.parse(line.text) else { continue }
+            if case .quote = prefix.kind { continue }
+            let columns = prefix.indent.reduce(0) { $0 + ($1 == "\t" ? 2 : 1) }
+            while let open = counters.last, open.columns > columns { counters.removeLast() }
+            guard case .numbered(let number, _) = prefix.kind else { continue }
+            if let open = counters.last, open.columns == columns {
+                counters[counters.count - 1].number += 1
+            } else {
+                counters.append((columns, counters.isEmpty ? number : 1))
+            }
+            let right = counters[counters.count - 1].number
+            guard right != number else { continue }
+            let indentLength = (prefix.indent as NSString).length
+            let ns = line.text as NSString
+            var digits = 0
+            while indentLength + digits < ns.length, (0x30...0x39).contains(ns.character(at: indentLength + digits)) { digits += 1 }
+            wanted[line.index] = prefix.indent + String(right) + ns.substring(from: indentLength + digits)
+        }
+        guard !wanted.isEmpty else { return }
+        rewriteLines(lines[first...last].filter { wanted[$0.index] != nil }) { wanted[$0.index] ?? $0.text }
     }
 
     // MARK: Space
@@ -301,11 +372,13 @@ extension MarkdownEditing {
                 coveredEnd += change
                 if caret >= line.range.location { caret = max(line.range.location, caret + change) }
             }
-        }
-        if selection.length == 0 {
-            markdownSelection = NSRange(location: caret, length: 0)
-        } else {
-            markdownSelection = NSRange(location: coveredStart, length: coveredEnd - coveredStart)
+            if selection.length == 0 {
+                markdownSelection = NSRange(location: caret, length: 0)
+            } else {
+                markdownSelection = NSRange(location: coveredStart, length: coveredEnd - coveredStart)
+            }
+            // A numbered item moved to another level takes that level's next number (1 under a new parent).
+            renumberList(around: lines[0].index)
         }
         return true
     }
@@ -457,6 +530,23 @@ extension MarkdownEditing {
                   let replaced = TaskLineParser.replacingStatus(in: line.text, with: parsed.status.toggled) else { return line.text }
             return replaced
         }
+    }
+
+    // MARK: Link cards
+
+    /// Write a card's line as `<url>`: a link in the text, with no card standing in for it.
+    func showLinkAsText(line index: Int) {
+        let lines = styler.blockMap.lines
+        guard index < lines.count, case .urlLine(let url) = lines[index].kind else { return }
+        let indent = String(lines[index].text.prefix { $0 == " " || $0 == "\t" })
+        replace(lines[index].range, with: indent + "<" + url + ">")
+    }
+
+    /// The reverse: a `<url>` line becomes the bare address, which a card stands in for.
+    func showLinkAsCard(line index: Int) {
+        let lines = styler.blockMap.lines
+        guard index < lines.count, let link = LinkLine.autolink(lines[index].text) else { return }
+        replace(lines[index].range, with: link.indent + link.url)
     }
 
     // MARK: Blocks

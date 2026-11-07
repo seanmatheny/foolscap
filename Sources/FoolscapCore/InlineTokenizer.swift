@@ -24,6 +24,7 @@ public enum InlineTokenizer {
     private static let italicRegex = try! NSRegularExpression(pattern: #"(?<![\*\w])(\*|_)(?=[^\s\*_])(.+?)(?<=[^\s\*_])\1(?![\*\w])"#)
     private static let strikeRegex = try! NSRegularExpression(pattern: #"~~(?=\S)(.+?)(?<=\S)~~"#)
     private static let linkRegex = try! NSRegularExpression(pattern: #"(?<!!)\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)"#)
+    private static let autolinkRegex = try! NSRegularExpression(pattern: #"<(https?://[^\s<>]+)>"#)
     private static let urlRegex = try! NSRegularExpression(pattern: #"(?<![\w\(\[])(https?://[^\s<>\)\]]+)"#)
     private static let tagRegex = try! NSRegularExpression(pattern: #"(?<![\w/#`])#([\p{L}\p{N}_][\p{L}\p{N}_\-/]*)"#)
 
@@ -48,6 +49,13 @@ public enum InlineTokenizer {
             claim(InlineToken(kind: .link(url: ns.substring(with: url)), range: m.range, content: text,
                               syntax: [NSRange(location: m.range.location, length: 1),
                                        NSRange(location: text.location + text.length, length: m.range.location + m.range.length - text.location - text.length)]))
+        }
+        // `<https://…>`: a link whose text is the address, the brackets its syntax.
+        for m in autolinkRegex.matches(in: line, range: full) where free(m.range) {
+            let url = m.range(at: 1)
+            claim(InlineToken(kind: .link(url: ns.substring(with: url)), range: m.range, content: url,
+                              syntax: [NSRange(location: m.range.location, length: 1),
+                                       NSRange(location: m.range.location + m.range.length - 1, length: 1)]))
         }
         for m in urlRegex.matches(in: line, range: full) where free(m.range) {
             claim(InlineToken(kind: .url(ns.substring(with: m.range)), range: m.range, content: m.range, syntax: []))

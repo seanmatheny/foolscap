@@ -34,6 +34,9 @@ public struct EditorPalette {
     public var priorityColors: [TaskPriority: PlatformColor]
     /// Line pitch: every body line is exactly this tall so text sits on the ruling.
     public var pitch: CGFloat
+    /// How far each level of list nesting steps in: a tab's width (two ems of the body face,
+    /// 29 pt at the default size), whatever the two spaces in the file measure.
+    public var listIndent: CGFloat { (body.pointSize * 2).rounded() }
     public var isDark: Bool
 
     public init(theme: NotebookTheme) {

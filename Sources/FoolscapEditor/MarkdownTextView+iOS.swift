@@ -518,6 +518,8 @@ public final class MarkdownTextView: UITextView {
             let line = styler.blockMap.lines[hit.line]
             if let parsed = TaskLineParser.parse(line.text),
                let replaced = TaskLineParser.replacingStatus(in: line.text, with: parsed.status.next) {
+                // A task ticked done goes up in a little cloud of smoke.
+                if parsed.status.next == .completed { Poof.play(in: self, at: point) }
                 replace(line.range, with: replaced)
                 restore(selection: selection, editing: wasEditing)
             }

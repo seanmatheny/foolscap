@@ -423,7 +423,7 @@ struct EditorDecorations {
                   let prefix = LinePrefix.parse(line.text), case .bullet = prefix.kind else { continue }
             let marker = NSRange(location: line.range.location + (prefix.indent as NSString).length, length: 1)
             guard let glyph = geometry.characterRect(for: marker), glyph.intersects(rect) else { continue }
-            let level = prefix.indent.reduce(0) { $0 + ($1 == "\t" ? 2 : 1) } / 2
+            let level = LinePrefix.level(of: prefix.indent)
             let dot = level == 0 ? "•" : level == 1 ? "◦" : "▪"
             let attrs: [NSAttributedString.Key: Any] = [.font: palette.body, .foregroundColor: palette.accent, .paragraphStyle: ps]
             let width = (dot as NSString).size(withAttributes: [.font: palette.body]).width + 2

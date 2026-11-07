@@ -92,7 +92,7 @@ app-debug:
 scribe-vlm:
 	@if [ "$(XCODE_OK)" != "yes" ]; then \
 	  echo "(scribe-vlm skipped: Xcode not installed or licence not accepted; Vision stays the handwriting engine)"; \
-	elif ! DEVELOPER_DIR=$(XCODE_DEV) xcrun -f metal >/dev/null 2>&1; then \
+	elif ! DEVELOPER_DIR=$(XCODE_DEV) xcrun metal --version >/dev/null 2>&1; then \
 	  echo "(scribe-vlm skipped: no Metal Toolchain; run: xcodebuild -downloadComponent MetalToolchain)"; \
 	else \
 	  cd $(VLM_DIR) && ( $(VLM_XCODEBUILD) || $(VLM_XCODEBUILD) MTL_LANGUAGE_REVISION=Metal40 ) && \

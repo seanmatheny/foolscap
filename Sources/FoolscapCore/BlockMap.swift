@@ -35,7 +35,8 @@ public struct BlockMap: Sendable {
     public init(lines: [ScannedLine]) { self.lines = lines }
 
     private static let imageRegex = try! NSRegularExpression(pattern: #"^\s*!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$"#)
-    private static let urlRegex = try! NSRegularExpression(pattern: #"^\s*<?(https?://[^\s<>]+)>?\s*$"#)
+    // A bare address alone on its line; `<https://…>` is the same link shown as text (an autolink).
+    private static let urlRegex = try! NSRegularExpression(pattern: #"^\s*(https?://[^\s<>]+)\s*$"#)
     private static let headingRegex = try! NSRegularExpression(pattern: #"^(#{1,6})\s+\S"#)
     // A bare `- ` already counts, so the bullet shows the moment its space is typed.
     private static let listRegex = try! NSRegularExpression(pattern: #"^\s*([-*+]|\d+[.)])(\s+\S|\s+$)"#)
