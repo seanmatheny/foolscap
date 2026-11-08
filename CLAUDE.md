@@ -641,8 +641,13 @@
   44), `TaskRow` is `compactRow`: the title may wrap onto a second ruled line (each line `pitch`
   tall through `lineSpacing`, the row's height a whole number of pitches from the measured
   title), tags (the pen's in its colour, not removable by tap) and the notes/link marks on a
-  line of their own, no hover cluster, no drag (a long press is the context menu, which moves,
-  edits and tags; a double tap edits in a sheet). The daily page's search capsule is the
+  line of their own, no hover cluster (a long press held still is the context menu, which moves,
+  edits and tags; held and moved it drags the row to another lane; a double tap edits in a
+  sheet). Since 0.22.0 a phone row swipes: right into Today (out to To do from Today), left done
+  (`TaskRow.swipeTarget`), through a UIKit pan (`SidewaysPan`) that begins only when the finger
+  sets off sideways, so scrolling and the drag are left alone; the row's taps there are a
+  `simultaneousGesture` (`RowTaps`), since a double tap owning the touch let the drag lift only
+  from the row's date button. The daily page's search capsule is the
   magnifier alone and the iCloud banners (`NoteBanner`, a `ViewThatFits`) wrap their buttons.
   The Today panel is handed `taskPens` and `compactPage` explicitly, since its hosting view
   inherits no environment. The phone's text column is 28/14: `PageColumn` (FoolscapUI) holds

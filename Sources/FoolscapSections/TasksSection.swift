@@ -5,6 +5,9 @@ import FoolscapCore
 import FoolscapEditor
 import FoolscapStore
 import FoolscapUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 extension UTType {
     static let foolscapTask = UTType(exportedAs: "com.seanmatheny.foolscap.task")
@@ -360,14 +363,11 @@ struct TaskSectionView: View {
                                       onUpdate: { onUpdate(task, $0, $1) }, onAddTag: { onAddTag(task, $0) },
                                       onRemoveTag: { onRemoveTag(task, $0) },
                                       onSetPriority: { onSetPriority(task, $0) })
-                    if compact {
-                        // A long press is the menu on a phone; a drag would fight it. The menu moves tasks.
-                        row
-                    } else {
-                        row.draggable(TaskDrag(tasks: group)) {
-                            Text(group.count > 1 ? "\(group.count) tasks" : task.displayTitle).font(theme.type.body.face(14))
-                                .padding(6).background(theme.page.paperColor.color).cornerRadius(4)
-                        }
+                    // On a phone a long press held still opens the menu; moving the finger
+                    // while held turns it into the drag, as in Files and Photos.
+                    row.draggable(TaskDrag(tasks: group)) {
+                        Text(group.count > 1 ? "\(group.count) tasks" : task.displayTitle).font(theme.type.body.face(14))
+                            .padding(6).background(theme.page.paperColor.color).cornerRadius(4)
                     }
                 }
                 if status == .completed, tasks.count > Self.recentLimit {
@@ -407,7 +407,7 @@ struct TaskSectionView: View {
 
     private var emptyText: String {
         switch status {
-        case .today: return "Nothing for today; drag tasks here"
+        case .today: return compact ? "Nothing for today; swipe a task right or drag it here" : "Nothing for today; drag tasks here"
         case .someday: return "Nothing parked"
         default: return "Nothing here"
         }
@@ -476,6 +476,8 @@ struct TaskRow: View {
     @State private var poof = PoofHandle()
     /// On a phone, the title's measured height: a long one takes two ruled lines.
     @State private var titleHeight: CGFloat = 0
+    /// How far the row is swiped aside (phone only), as shown.
+    @State private var swipe: CGFloat = 0
     private var scale: CGFloat { theme.type.body.size / 15 }
 
     var body: some View {
@@ -486,18 +488,78 @@ struct TaskRow: View {
         .opacity(task.status == .completed ? 0.55 : 1)
         .padding(.leading, 8)
         .background(RoundedRectangle(cornerRadius: 5).fill(theme.accent.color.opacity(isSelected ? 0.16 : 0)).padding(.vertical, 2))
+        // A swiped row slides aside over the strip that says what letting go will do.
+        .offset(x: swipe)
+        .background(alignment: swipe < 0 ? .trailing : .leading) { swipeStrip }
         .contentShape(Rectangle())
         // A click selects at once; a second click edits (the buttons in the row keep their own clicks).
-        .gesture(TapGesture(count: 2).onEnded { if !task.isReadOnly { editing = true } }
-            .simultaneously(with: TapGesture().onEnded { onSelect() }))
+        .modifier(RowTaps(simultaneous: compact,
+                          onDouble: { if !task.isReadOnly { editing = true } },
+                          onSingle: onSelect))
+        .modifier(RowSwipe(enabled: compact && !task.isReadOnly,
+                           onChange: { swipe = resisted($0) }, onEnd: endSwipe))
+        .sensoryFeedback(.impact(weight: .light), trigger: abs(swipe) >= Self.swipeThreshold) { _, past in past }
         .onHover { hovering = $0 }
         .contextMenu { menuItems }
+    }
+
+    // MARK: Swipes (phone)
+
+    static let swipeThreshold: CGFloat = 72
+
+    /// Where a swipe takes the task: right into Today (out to To do when it is
+    /// already there), left done (or not done). Nil when that way does nothing.
+    private func swipeTarget(right: Bool) -> TaskStatus? {
+        guard right else { return task.status.toggled }
+        switch task.status {
+        case .today: return .notStarted
+        case .completed: return nil
+        default: return .today
+        }
+    }
+
+    /// The finger's travel as the row shows it: one-for-one up to the threshold,
+    /// then dragging; a way that does nothing barely gives.
+    private func resisted(_ dx: CGFloat) -> CGFloat {
+        let reach = abs(dx), sign: CGFloat = dx < 0 ? -1 : 1
+        if swipeTarget(right: dx > 0) == nil { return sign * reach * 0.15 }
+        return reach <= Self.swipeThreshold ? dx : sign * (Self.swipeThreshold + (reach - Self.swipeThreshold) * 0.3)
+    }
+
+    private func endSwipe(_ dx: CGFloat) {
+        let target = abs(dx) >= Self.swipeThreshold ? swipeTarget(right: dx > 0) : nil
+        withAnimation(.spring(duration: 0.3)) { swipe = 0 }
+        guard let target else { return }
+        if dx < 0 { complete(target, onToggle) } else { onSetStatus(target) }
+    }
+
+    @ViewBuilder private var swipeStrip: some View {
+        if swipe != 0, let target = swipeTarget(right: swipe > 0) {
+            let past = abs(swipe) >= Self.swipeThreshold
+            let toToday = target == .today
+            let tint = swipe > 0 ? (toToday ? (theme.highlighter[.today] ?? theme.accent).opacity(1) : theme.dimInk) : theme.accent
+            let symbol = swipe > 0 ? (toToday ? "sun.max.fill" : "moon.fill")
+                : (target == .completed ? "checkmark" : "arrow.uturn.backward")
+            RoundedRectangle(cornerRadius: 5)
+                .fill(tint.color.opacity(past ? 0.9 : 0.4))
+                .overlay {
+                    Image(systemName: symbol)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(toToday ? theme.ink.color : theme.page.paperColor.color)
+                        .scaleEffect(past ? 1.15 : 1)
+                        .opacity(abs(swipe) > 28 ? 1 : 0)
+                }
+                .frame(width: abs(swipe))
+                .padding(.vertical, 2)
+                .animation(.easeOut(duration: 0.12), value: past)
+        }
     }
 
     /// The phone's row: the title may wrap onto a second ruled line, and the tags
     /// (the pen's in its colour) and the notes and link marks take a line of their
     /// own under it when there are any. Nothing here waits for a pointer: the long
-    /// press menu moves, edits and tags, a double tap edits, the tick ticks.
+    /// press menu moves, edits and tags, a long press moved drags, a swipe right
+    /// takes the task into Today (or out), a swipe left ticks it, a double tap edits.
     private var compactRow: some View {
         let face = FontSpec(family: theme.type.body.family, size: 14.5 * scale, design: theme.type.body.design).platformFont
         let lineHeight = face.ascender - face.descender + face.leading
@@ -805,3 +867,68 @@ struct PriorityLight: View {
         .help("\(priority.title) priority")
     }
 }
+
+/// A task row's taps: one selects, two edit. On the Mac the row owns them; on a
+/// phone they run beside the system's own recognisers, since a double tap that
+/// owns the touch kept the long press from lifting the row into a drag.
+private struct RowTaps: ViewModifier {
+    let simultaneous: Bool
+    let onDouble: () -> Void
+    let onSingle: () -> Void
+
+    func body(content: Content) -> some View {
+        let taps = TapGesture(count: 2).onEnded(onDouble)
+            .simultaneously(with: TapGesture().onEnded(onSingle))
+        if simultaneous { content.simultaneousGesture(taps) } else { content.gesture(taps) }
+    }
+}
+
+/// A sideways swipe on a phone's task row. A UIKit pan that begins only when the
+/// finger sets off clearly sideways, so the page still scrolls and a held row still
+/// lifts into a drag; a SwiftUI drag gesture inside the scroll view fought both.
+private struct RowSwipe: ViewModifier {
+    let enabled: Bool
+    let onChange: (CGFloat) -> Void
+    let onEnd: (CGFloat) -> Void
+
+    func body(content: Content) -> some View {
+        #if canImport(UIKit)
+        if enabled { content.gesture(SidewaysPan(onChange: onChange, onEnd: onEnd)) } else { content }
+        #else
+        content
+        #endif
+    }
+}
+
+#if canImport(UIKit)
+private struct SidewaysPan: UIGestureRecognizerRepresentable {
+    let onChange: (CGFloat) -> Void
+    let onEnd: (CGFloat) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let pan = UIPanGestureRecognizer()
+        pan.delegate = context.coordinator
+        return pan
+    }
+
+    func handleUIGestureRecognizerAction(_ pan: UIPanGestureRecognizer, context: Context) {
+        let dx = pan.translation(in: pan.view).x
+        switch pan.state {
+        case .began, .changed: onChange(dx)
+        case .ended: onEnd(dx)
+        case .cancelled, .failed: onEnd(0)
+        default: break
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = recognizer as? UIPanGestureRecognizer else { return false }
+            let v = pan.velocity(in: pan.view)
+            return abs(v.x) > abs(v.y) * 1.5
+        }
+    }
+}
+#endif
