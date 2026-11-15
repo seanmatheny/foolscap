@@ -113,4 +113,89 @@ import AppKit
         view.undoManager?.undo()
         #expect(doc.text == "[]")
     }
+
+    // MARK: Leaving a code block
+
+    private func typeMark(_ view: MarkdownTextView, _ mark: String = "`") {
+        view.insertText(mark, replacementRange: NSRange(location: NSNotFound, length: 0))
+    }
+
+    @Test func theClosingFenceTypedAtTheNotesEndLeavesTheBlock() {
+        let (view, doc) = editor("```\nlet a = 1\n``", caret: 16)
+        typeMark(view)
+        #expect(doc.text == "```\nlet a = 1\n```\n")
+        #expect(view.selectedRange() == NSRange(location: 18, length: 0))
+        #expect(view.styler.blockMap.lines.map(\.kind) == [.fenceOpen(language: ""), .fenceInside, .fenceClose, .blank])
+    }
+
+    @Test func theClosingFenceLandsOnTheBlankLineAlreadyUnderIt() {
+        let (view, doc) = editor("```\ncode\n``\n\nafter", caret: 11)
+        typeMark(view)
+        #expect(doc.text == "```\ncode\n```\n\nafter")
+        #expect(view.selectedRange() == NSRange(location: 13, length: 0))
+    }
+
+    @Test func theClosingFenceMakesALineAboveTextThatFollows() {
+        let (view, doc) = editor("```\ncode\n``\nafter", caret: 11)
+        typeMark(view)
+        #expect(doc.text == "```\ncode\n```\n\nafter")
+        #expect(view.selectedRange() == NSRange(location: 13, length: 0))
+    }
+
+    /// The Format command writes both fences; the lower one is hidden, so it gets typed again.
+    @Test func aClosingFenceTypedOverTheBlocksOwnIsTakenBack() {
+        let (view, doc) = editor("```\ncode\n\n```", caret: 9)
+        typeMark(view); typeMark(view)
+        #expect(doc.text == "```\ncode\n``\n```")
+        typeMark(view)
+        #expect(doc.text == "```\ncode\n```\n")
+        #expect(view.selectedRange() == NSRange(location: 13, length: 0))
+        #expect(view.styler.blockMap.lines.map(\.kind) == [.fenceOpen(language: ""), .fenceInside, .fenceClose, .blank])
+    }
+
+    @Test func anOpeningFenceAndBackticksInCodeStayAsTyped() {
+        let (v1, d1) = editor("``", caret: 2)
+        typeMark(v1)
+        #expect(d1.text == "```")
+        #expect(v1.selectedRange() == NSRange(location: 3, length: 0))
+        // Not at the line's end, and not the fence's own mark.
+        let (v2, d2) = editor("```\n``x\n```\n", caret: 6)
+        typeMark(v2)
+        #expect(d2.text == "```\n```x\n```\n")
+        let (v3, d3) = editor("```\n~~\n", caret: 6)
+        typeMark(v3, "~")
+        #expect(d3.text == "```\n~~~\n")
+    }
+
+    @Test func aTildeFenceClosesWithTildes() {
+        let (view, doc) = editor("~~~\ncode\n~~", caret: 11)
+        typeMark(view, "~")
+        #expect(doc.text == "~~~\ncode\n~~~\n")
+        #expect(view.selectedRange() == NSRange(location: 13, length: 0))
+    }
+
+    @Test func returnOnTheClosingFenceOpensALineUnderIt() {
+        let (view, doc) = editor("```\ncode\n```\nafter", caret: 9)   // at the fence's start
+        view.insertNewline(nil)
+        #expect(doc.text == "```\ncode\n```\n\nafter")
+        #expect(view.selectedRange() == NSRange(location: 13, length: 0))
+    }
+
+    @Test func downOnAClosingFenceThatEndsTheNoteMakesALine() {
+        let (view, doc) = editor("```\ncode\n```", caret: 10)
+        view.moveDown(nil)
+        #expect(doc.text == "```\ncode\n```\n")
+        #expect(view.selectedRange() == NSRange(location: 13, length: 0))
+        // With a line there already, nothing is added.
+        view.setSelectedRange(NSRange(location: 12, length: 0))
+        view.moveRight(nil)
+        #expect(doc.text == "```\ncode\n```\n")
+    }
+
+    @Test func theFormatCommandsBlockAtTheNotesEndHasALineAfterIt() {
+        let (view, doc) = editor("", caret: 0)
+        view.toggleCodeBlock(nil)
+        #expect(doc.text == "```\n\n```\n")
+        #expect(view.selectedRange() == NSRange(location: 4, length: 0))
+    }
 }

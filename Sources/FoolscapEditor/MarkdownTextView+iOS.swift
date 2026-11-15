@@ -206,6 +206,8 @@ public final class MarkdownTextView: UITextView {
         if text == "\t", range.length == 0, range == selectedRange, indentListLines(by: 1) { return false }
         // A space after `[]` at a line's start makes a task.
         if text == " ", range.length == 0, range == selectedRange, markedTextRange == nil, spacePressed() { return false }
+        // The mark that completes a block's closing fence leaves the block.
+        if range.length == 0, range == selectedRange, markedTextRange == nil, fenceMarkTyped(text) { return false }
         // ⌫ on the newline that ends a picture or card line takes the whole line (the caret
         // cannot rest on it); `removeLine`'s own replacement selects first, so it is not this.
         if text.isEmpty, range.length == 1, selectedRange.length == 0, range.location + 1 == selectedRange.location,

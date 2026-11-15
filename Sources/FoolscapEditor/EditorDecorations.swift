@@ -127,6 +127,13 @@ extension DecorationGeometry {
             guard var r = fragmentRect(for: NSRange(location: clipStart, length: clipEnd - clipStart)) else { return }
             if start < first { r.origin.y -= pitch; r.size.height += pitch }
             if end > last { r.size.height += pitch }
+            // A block whose last line is followed only by the note's empty last line: TextKit
+            // keeps that line in the block's last layout fragment, so the backdrop ran on under
+            // it and the caret, already out of the block, still looked to be inside.
+            if end <= last, j + 2 == lines.count, lines[j + 1].range.length == 0,
+               let bottom = lineBottom(for: lines[j].range), bottom > r.minY, bottom < r.maxY {
+                r.size.height = bottom - r.minY
+            }
             guard r.intersects(rect) else { return }
             if let code {
                 out.append(EditorDecorations.Decoration(kind: .code(language: start < first ? nil : code), rect: r))

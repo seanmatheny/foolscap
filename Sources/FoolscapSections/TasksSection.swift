@@ -666,10 +666,8 @@ struct TaskRow: View {
                 TagChip(tag: pen.tag, scale: scale, removable: !task.isReadOnly, tint: pen.colour.rgba(onDark: theme.isDark)) { onRemoveTag(pen.tag) }
                     .opacity(hovering || showsPenTag ? 1 : 0)
             }
-            if let notes = task.notes {
-                Button { editing = true } label: { Image(systemName: "text.alignleft").font(.system(size: 11)) }
-                    .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help(notes)
-            }
+            // Notes get no mark of their own here: it opened the same editor as the pencil
+            // (two edit buttons on every Jira task, whose notes are its link).
             if let link = task.firstLink {
                 Button { Platform.openURL(link) } label: { Image(systemName: "link").font(.system(size: 11)) }
                     .buttonStyle(.plain).foregroundStyle(theme.accent.color).help(link.absoluteString)

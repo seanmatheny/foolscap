@@ -256,6 +256,14 @@ extension MarkdownEditing {
             return true
         }
         if case .rule = line.kind { return false }
+        // Return on a block's closing fence leaves the block wherever on the fence the caret
+        // is: at its start a plain newline pushed the fence down a line and stayed inside.
+        if line.kind == .fenceClose {
+            let end = line.range.location + line.range.length
+            guard replace(NSRange(location: end, length: 0), with: "\n") else { return false }
+            markdownSelection = NSRange(location: end + 1, length: 0)
+            return true
+        }
         guard !isCodeLine(line), let prefix = LinePrefix.parse(line.text),
               caret.location >= line.range.location + prefix.length else { return false }
         if prefix.length >= line.range.length {
@@ -280,6 +288,77 @@ extension MarkdownEditing {
             markdownSelection = NSRange(location: caret.location + (insert as NSString).length, length: 0)
             renumberList(around: line.index + 1)
         }
+        return true
+    }
+
+    // MARK: Leaving a code block
+
+    /// The run of backticks or tildes on the fence that opens the block code line `index` is in.
+    private func openingFence(ofBlockAt index: Int) -> String? {
+        let lines = styler.blockMap.lines
+        var i = index - 1
+        while i >= 0 {
+            if case .fenceOpen = lines[i].kind {
+                let marks = lines[i].text.drop { $0 == " " || $0 == "\t" }
+                guard let mark = marks.first else { return nil }
+                return String(marks.prefix { $0 == mark })
+            }
+            guard lines[i].kind == .fenceInside else { return nil }
+            i -= 1
+        }
+        return nil
+    }
+
+    /// The backtick (or tilde) that completes a block's closing fence also leaves the block:
+    /// the caret goes to the line under the fence, a new one unless a blank line is there
+    /// already. Typed on the line just above a closing fence the block already has (the Format
+    /// command writes both fences, and the lower one is hidden until the caret is on it), the
+    /// typed fence is taken back rather than left to close the block early and turn the old
+    /// fence into the opening of a second block running to the end of the note. One undoable
+    /// edit; false when the mark is just a character.
+    func fenceMarkTyped(_ mark: String) -> Bool {
+        let caret = markdownSelection
+        guard mark == "`" || mark == "~", caret.length == 0,
+              let line = styler.blockMap.line(at: caret.location), line.kind == .fenceInside,
+              caret.location == line.range.location + line.range.length,
+              let fence = openingFence(ofBlockAt: line.index) else { return false }
+        let typed = line.text + mark
+        let marks = typed.drop { $0 == " " }
+        guard typed.count - marks.count <= 3, marks == Substring(fence) else { return false }
+        let lines = styler.blockMap.lines
+        grouped {
+            if line.index + 1 < lines.count, lines[line.index + 1].kind == .fenceClose {
+                let close = lines[line.index + 1]
+                let typedOver = NSRange(location: line.range.location - 1, length: line.range.length + 1)
+                guard replace(typedOver, with: "") else { return }
+                landBelowFence(endingAt: close.range.location + close.range.length - typedOver.length)
+            } else if replace(caret, with: mark) {
+                landBelowFence(endingAt: caret.location + 1)
+            }
+        }
+        return true
+    }
+
+    /// Put the caret on the line under the closing fence that ends at `end`: the blank line
+    /// there, else a new one.
+    private func landBelowFence(endingAt end: Int) {
+        let lines = styler.blockMap.lines
+        if let fence = styler.blockMap.line(at: end), fence.index + 1 < lines.count, lines[fence.index + 1].kind == .blank {
+            markdownSelection = NSRange(location: lines[fence.index + 1].range.location, length: 0)
+            return
+        }
+        guard replace(NSRange(location: end, length: 0), with: "\n") else { return }
+        markdownSelection = NSRange(location: end + 1, length: 0)
+    }
+
+    /// ↓ (or → at the very end) on a closing fence that is the note's last line: there is no
+    /// line to step onto, so one is made. False anywhere else.
+    func stepOutBelowLastBlock() -> Bool {
+        let caret = markdownSelection
+        let length = markdownText.length
+        guard caret.length == 0, let line = styler.blockMap.line(at: caret.location), line.kind == .fenceClose,
+              line.range.location + line.range.length == length else { return false }
+        landBelowFence(endingAt: length)
         return true
     }
 
@@ -580,16 +659,16 @@ extension MarkdownEditing {
             // Nothing selected: an empty block, caret inside it.
             let before = start > 0 && ns.substring(with: NSRange(location: start - 1, length: 1)) != "\n" ? "\n" : ""
             let insert = before + "```\n\n```"
-            let after = end < ns.length && ns.substring(with: NSRange(location: end, length: 1)) != "\n" ? "\n" : ""
+            // A block that ends the note gets a line after it, or there is nowhere to step out to.
+            let after = end >= ns.length ? "\n" : ""
             replace(NSRange(location: start, length: end - start), with: insert + after)
             markdownSelection = NSRange(location: start + (before as NSString).length + 4, length: 0)
             return
         }
-        replace(NSRange(location: start, length: end - start), with: "```\n" + body + "\n```")
+        replace(NSRange(location: start, length: end - start), with: "```\n" + body + "\n```" + (end >= ns.length ? "\n" : ""))
         markdownSelection = NSRange(location: start, length: (body as NSString).length + 8)
     }
 
-    /// Insert text at the selection; `ownLine` puts it on a line of its own.
     /// ⌫ at the start of the line under a picture or link card, or ⌦ at the end of the line
     /// above one, removes that line, markdown and newline together, instead of joining it
     /// to its neighbour: the caret cannot rest on a collapsed line, so the join only sent it
@@ -606,7 +685,11 @@ extension MarkdownEditing {
         } else {
             guard selection.location == line.range.location + line.range.length,
                   line.index + 1 < styler.blockMap.lines.count, styler.isCollapsed(line: line.index + 1) else { return false }
-            return removeLine(line.index + 1)
+            // The caret stays at the end of its own line: `removeLine` leaves it where the
+            // removed line began, a line further down.
+            guard removeLine(line.index + 1) else { return false }
+            markdownSelection = selection
+            return true
         }
     }
 
@@ -627,6 +710,7 @@ extension MarkdownEditing {
         return true
     }
 
+    /// Insert text at the selection; `ownLine` puts it on a line of its own.
     func insertMarkdown(_ text: String, ownLine: Bool) {
         let ns = markdownText
         var range = markdownSelection
@@ -714,9 +798,24 @@ extension MarkdownTextView: MarkdownEditing {
     /// A typed space after `[]` at a line's start makes a task (`spacePressed`).
     public override func insertText(_ string: Any, replacementRange: NSRange) {
         let typed = (string as? String) ?? (string as? NSAttributedString)?.string
-        if typed == " ", !hasMarkedText(), replacementRange.location == NSNotFound || replacementRange == selectedRange(),
-           spacePressed() { return }
+        if !hasMarkedText(), replacementRange.location == NSNotFound || replacementRange == selectedRange(), let typed {
+            if typed == " ", spacePressed() { return }
+            // The mark that completes a closing fence leaves the block (`fenceMarkTyped`).
+            if fenceMarkTyped(typed) { return }
+        }
         super.insertText(string, replacementRange: replacementRange)
+    }
+
+    /// ↓, or → at the end of the text, on the closing fence of a block that ends the note
+    /// makes the line under it and goes there.
+    public override func moveDown(_ sender: Any?) {
+        if stepOutBelowLastBlock() { return }
+        super.moveDown(sender)
+    }
+
+    public override func moveRight(_ sender: Any?) {
+        if selectedRange().location == (string as NSString).length, stepOutBelowLastBlock() { return }
+        super.moveRight(sender)
     }
 
     /// Tab and ⇧Tab move list items and tasks in and out a level; elsewhere they

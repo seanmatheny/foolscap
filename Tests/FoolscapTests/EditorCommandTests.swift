@@ -155,10 +155,11 @@ private func makeView(_ text: String, caret: Int? = nil) -> (MarkdownTextView, N
         #expect(doc.text == "a\nb")
         view.setSelectedRange(NSRange(location: 0, length: 3))
         view.toggleCodeBlock(nil)
-        #expect(doc.text == "```\na\nb\n```")
+        // A block that ends the note is given a line after it, to step out onto.
+        #expect(doc.text == "```\na\nb\n```\n")
         view.setSelectedRange(NSRange(location: 5, length: 0))
         view.toggleCodeBlock(nil)
-        #expect(doc.text == "a\nb")
+        #expect(doc.text == "a\nb\n")
     }
 
     @Test func linkUsesAClipboardAddress() {
