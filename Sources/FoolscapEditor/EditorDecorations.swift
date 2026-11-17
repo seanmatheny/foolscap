@@ -392,8 +392,9 @@ struct EditorDecorations {
 
     /// The dot standing in for a `-`, `*` or `+` (drawn as text in the body font so
     /// it shares the line's baseline); nested items get a ring, then a small square.
-    /// A `---` line off the caret is drawn as a rule across the text column, midway down its
-    /// band so it does not merge into the paper's ruling; the dashes themselves are hidden.
+    /// A `---` line is drawn as a rule across the text column, midway down its band so it does
+    /// not merge into the paper's ruling, from the moment the third dash is typed; the dashes
+    /// themselves show only while the caret is inside them.
     private func drawRules(in ctx: CGContext, rect: CGRect) {
         guard let span = geometry.characterSpan(under: rect) else { return }
         let lines = styler.blockMap.lines
@@ -406,7 +407,7 @@ struct EditorDecorations {
         while i < lines.count, lines[i].range.location <= span.last {
             defer { i += 1 }
             let line = lines[i]
-            guard case .rule = line.kind, !styler.isHidden(line: i), !styler.isRevealed(line: i),
+            guard case .rule = line.kind, !styler.isHidden(line: i), !styler.showsRuleMarks(line: i),
                   let band = geometry.fragmentRect(for: line.range), band.intersects(rect) else { continue }
             // From the top: a note's last paragraph also holds the empty line after it.
             let y = (band.minY + palette.pitch / 2).rounded() + 0.5

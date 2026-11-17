@@ -92,6 +92,7 @@ struct FoolscapApp: App {
                 Button(EditorCommand.bold.title) { EditorCommand.bold.perform() }.keyboardShortcut("b")
                 Button(EditorCommand.italic.title) { EditorCommand.italic.perform() }.keyboardShortcut("i")
                 Button(EditorCommand.strikethrough.title) { EditorCommand.strikethrough.perform() }.keyboardShortcut("x", modifiers: [.command, .shift])
+                Button(EditorCommand.highlight.title) { EditorCommand.highlight.perform() }.keyboardShortcut("h", modifiers: [.command, .shift])
                 Button(EditorCommand.code.title) { EditorCommand.code.perform() }.keyboardShortcut("c", modifiers: [.command, .shift])
                 Button(EditorCommand.link.title) { EditorCommand.link.perform() }.keyboardShortcut("k")
                 Divider()

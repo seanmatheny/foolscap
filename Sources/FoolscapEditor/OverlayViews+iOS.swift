@@ -5,7 +5,7 @@ import LinkPresentation
 /// The picture under an image line on the phone, the twin of the Mac's: a tap
 /// selects it (outlined in the accent colour), a long press offers Copy Image and
 /// Show Markdown. Resizing by drag is the Mac's; the markdown's `|width` is honoured.
-final class ResizableImageView: UIView, UIContextMenuInteractionDelegate {
+final class ResizableImageView: UIView, UIContextMenuInteractionDelegate, SelectableOverlayView {
     let imageView = UIImageView()
     let path: String
     var onResize: ((CGFloat) -> Void)?
@@ -60,17 +60,27 @@ final class ResizableImageView: UIView, UIContextMenuInteractionDelegate {
 
 /// A LinkPresentation card; the card itself opens the link on a tap, a long press
 /// offers Copy Link, Show as Text and Show Markdown.
-final class LinkCardView: UIView, UIContextMenuInteractionDelegate {
+final class LinkCardView: UIView, UIContextMenuInteractionDelegate, SelectableOverlayView {
     let linkView: LPLinkView
     private let url: URL
     var onReveal: (() -> Void)?
     /// Show as Text: the line is rewritten as `<url>`.
     var onShowAsText: (() -> Void)?
+    var selectionColor: UIColor = .tintColor
+    /// Outlined in the accent colour while the caret rests on the card's line.
+    var isSelected = false {
+        didSet {
+            guard isSelected != oldValue else { return }
+            layer.borderWidth = isSelected ? 2 : 0
+            layer.borderColor = selectionColor.cgColor
+        }
+    }
 
     init(url: URL) {
         self.url = url
         linkView = LPLinkView(url: url)
         super.init(frame: CGRect(x: 0, y: 0, width: OverlayController.linkCardMaxWidth, height: OverlayController.linkCardHeight))
+        layer.cornerRadius = 12
         linkView.frame = bounds
         linkView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         addSubview(linkView)

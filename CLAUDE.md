@@ -140,13 +140,20 @@
   `insertMarkdown(ownLine:)` therefore always leaves a line after a block. When the
   text ends with a newline, TextKit 2 puts the empty extra line fragment inside the
   last paragraph's layout fragment, so `lineBottom` skips zero-length line fragments
-  (else the image draws over the line below it). A note ending on an image line with
-  no newline gets one added when the caret steps past the image
-  (`addLineAfterLastOverlay`). `--type={paste}` sends ⌘V for testing pastes. A picture or card
-  is removed whole (`MarkdownEditing.deleteCollapsedNeighbour`/`removeLine`, undoable): ⌫ at the
-  start of the line under it, ⌦ at the end of the line above it, or ⌫/⌦ with the picture clicked
-  (`OverlayController.selectedImageLineIndex`; the phone's `shouldChange` catches the ⌫). Before
-  2026-10-26 the ⌫ only joined the lines and the caret skip sent the caret up to the heading.
+  (else the image draws over the line below it). `--type={paste}` sends ⌘V for testing pastes.
+  A picture or card is a block the caret rests on (0.23.0): a collapsed image/URL line holds
+  the caret only at its end (`MarkdownEditing.restingCaret`, applied in the Mac's
+  `setSelectedRanges` and the phone's `selectionDidChange`; folded sections are still stepped
+  over whole), where the block shows selected, outlined in the accent colour
+  (`OverlayController.select(line:)`, `SelectableOverlayView`, kept in step with every
+  selection change; a click on a picture puts the caret there). ↓/↑ stop on every block, ← from
+  a block's end goes to the line above, Return there opens a line under it, typing or pasting
+  goes on a new line under it (`typedOnBlock`, `insertMarkdown`, the views' paste), ⌫/⌦ remove
+  it. Before 0.23.0 the caret skipped collapsed lines whole, so nothing could be typed between
+  two cards. A picture or card is also removed whole from beside it
+  (`deleteCollapsedNeighbour`/`removeLine`, undoable): ⌫ at the start of the line under it,
+  ⌦ at the end of the line above it (the phone's `shouldChange` catches both). Before
+  2026-10-26 the ⌫ only joined the lines.
 - `NSTextView.maxSize` must be set to greatestFiniteMagnitude or the view never
   grows past the clip view and scrolling silently stops.
 - Rotated SwiftUI labels keep their unrotated layout size: collapse them with
@@ -563,8 +570,18 @@
   (`textView(_:didCheckTextIn:…)`) for fenced lines and inline spans (`MarkdownTextView.isCode`,
   which reads the block map and the code background attribute).
 - Return continues lists, tasks and quotes (`LinePrefix`, `MarkdownCommands.swift`); ⇧↩/⌥↩ do
-  not; Tab/⇧Tab indent list lines by two spaces. The Format menu sends `EditorCommand`
-  selectors down the responder chain to `MarkdownTextView`.
+  not; Tab/⇧Tab indent list lines by two spaces. Return on an empty item ends the list (a
+  nested one steps out a level first); Return before a space in an item drops the space, so
+  the new item does not start with one (0.23.0). ⌫ just after a line's marker (`- `, `1. `,
+  `- [ ] `, `> `, `## `) takes the marker off, a nested item stepping out a level first
+  (`backspaceOnMarker`, 0.23.0), rather than eating the space and leaving a bare `-`. The
+  Format menu sends `EditorCommand` selectors down the responder chain to `MarkdownTextView`.
+- Entering a code block (0.23.0): Return at the end of an opening fence just typed closes the
+  block (`returnPressed`: a blank line to type into and the closing fence under it, plus a line
+  after a fence that would end the note), so the rest of the note is not swept into it. "Just
+  typed" is read off the note: the fence lines after it pair off among themselves when they are
+  even in number (`fenceLinesAfter`), an odd count meaning one of them is this block's own close
+  already (Return on the opening fence of a closed block is a plain newline).
 - Leaving a code block (0.22.1, `MarkdownCommands.swift` "Leaving a code block"): the mark that
   completes a closing fence (`fenceMarkTyped`, from the Mac's `insertText` and the phone's
   `shouldChange`) puts the caret on the line under the block, a new one unless a blank line is

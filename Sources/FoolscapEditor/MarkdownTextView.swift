@@ -147,6 +147,7 @@ public final class MarkdownTextView: NSTextView {
         styler.attach(to: document.textStorage)
         if features.contains(.attachments) { registerForDraggedTypes(registeredDraggedTypes + [.fileURL, .png, .tiff]) }
         if !features.contains(.textChecking) { isContinuousSpellCheckingEnabled = false }
+        ready = true
     }
 
     /// True when the characters at `range` are code: a fenced block's lines, or an
@@ -174,52 +175,23 @@ public final class MarkdownTextView: NSTextView {
 
     private var lastCaret = 0
 
+    /// Set once `init` is through: the selection hook may run from AppKit's own setup before then.
+    private var ready = false
+
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         var ranges = ranges
-        // A caret can't rest on a collapsed image/URL line or inside a folded section:
-        // step over the whole run in the direction of travel, so clicks and arrow keys
-        // never expand the markdown or land in hidden text.
+        // A caret never lands inside a folded section and rests on a picture or card line
+        // only at its end, where the block shows selected (`restingCaret`).
         if ranges.count == 1, ranges[0].rangeValue.length == 0 {
             let caret = ranges[0].rangeValue.location
-            let lines = styler.blockMap.lines
-            if let line = styler.blockMap.line(at: caret), styler.skipsCaret(line: line.index) {
-                let length = (string as NSString).length
-                let forward = caret >= lastCaret
-                var first = line.index, last = line.index
-                while first > 0, styler.skipsCaret(line: first - 1) { first -= 1 }
-                while last + 1 < lines.count, styler.skipsCaret(line: last + 1) { last += 1 }
-                let runEnd = lines[last].range.location + lines[last].range.length
-                let target: Int
-                if forward, last + 1 < lines.count {
-                    target = runEnd + 1
-                } else if forward, styler.isCollapsed(line: last) {
-                    // The note ends on the image or link line: there is no line below it to
-                    // land on, so make one (after this selection change has finished).
-                    target = length
-                    DispatchQueue.main.async { [weak self] in self?.addLineAfterLastOverlay() }
-                } else if first > 0 {
-                    target = lines[first].range.location - 1
-                } else {
-                    target = min(length, runEnd + 1)
-                }
-                ranges = [NSValue(range: NSRange(location: target, length: 0))]
-            }
+            let resting = restingCaret(caret, lastCaret: lastCaret)
+            if resting != caret { ranges = [NSValue(range: NSRange(location: resting, length: 0))] }
         }
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         if ranges.count == 1, ranges[0].rangeValue.length == 0 { lastCaret = ranges[0].rangeValue.location }
+        if ready { overlays.select(line: blockUnderCaret?.index) }
         invalidate(lines: styler.selectionChanged())
         scheduleTagListUpdate(open: false)
-    }
-
-    private func addLineAfterLastOverlay() {
-        let length = (string as NSString).length
-        guard let line = styler.blockMap.line(at: length), styler.isCollapsed(line: line.index),
-              line.range.location + line.range.length >= length else { return }
-        let end = NSRange(location: length, length: 0)
-        guard shouldChangeText(in: end, replacementString: "\n") else { return }
-        textStorage?.replaceCharacters(in: end, with: "\n")
-        didChangeText()
-        setSelectedRange(NSRange(location: length + 1, length: 0))
     }
 
     // MARK: Tag completion
@@ -466,6 +438,8 @@ public final class MarkdownTextView: NSTextView {
         updateMinSize()
         let before = styler.overlayHeights
         if overlays.sync(map: styler.blockMap) {
+            // Lines moved: the selected block follows the caret, not its old line number.
+            overlays.select(line: blockUnderCaret?.index)
             let after = styler.overlayHeights
             let changed = Set(before.keys).union(after.keys).filter { before[$0] != after[$0] }
             if !changed.isEmpty {
@@ -529,6 +503,7 @@ public final class MarkdownTextView: NSTextView {
 
     public override func paste(_ sender: Any?) {
         let pb = NSPasteboard.general
+        stepOffBlock()
         if pasteImage(from: pb) { return }
         // A bare web address becomes a link or a card's line only where the editor shows
         // link cards; elsewhere (the Secrets editor) it is pasted where the caret is.
@@ -560,6 +535,15 @@ public final class MarkdownTextView: NSTextView {
     }
 
     // `insertMarkdown(_:ownLine:)` is the shared one in MarkdownCommands.swift.
+
+    /// A paste with a picture or card selected goes on a new line under it: the caret is moved
+    /// there first, so the toolkit's own plain-text paste lands right too.
+    private func stepOffBlock() {
+        guard blockUnderCaret != nil else { return }
+        let caret = selectedRange()
+        guard replace(caret, with: "\n") else { return }
+        setSelectedRange(NSRange(location: caret.location + 1, length: 0))
+    }
 
     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         if droppableImageURLs(sender) != nil { return .copy }
@@ -642,21 +626,11 @@ public final class MarkdownTextView: NSTextView {
         super.copy(sender)
     }
 
-    public override func keyDown(with event: NSEvent) {
-        // ⌫ or ⌦ with a picture selected (clicked) removes its line, undoably.
-        if overlays.selectedImage != nil, let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first?.value,
-           scalar == 0x7F || scalar == UInt32(NSDeleteFunctionKey),
-           let index = overlays.selectedImageLineIndex, removeLine(index) {
-            overlays.select(nil)
-            return
-        }
-        overlays.select(nil)
-        super.keyDown(with: event)
-    }
-
-    // A picture or link card under or over the caret goes whole: see `deleteCollapsedNeighbour`.
+    // A picture or link card selected, under or over the caret goes whole (`deleteCollapsedNeighbour`);
+    // ⌫ just after a line's marker takes the marker off (`backspaceOnMarker`).
     public override func deleteBackward(_ sender: Any?) {
         if deleteCollapsedNeighbour(backward: true) { return }
+        if backspaceOnMarker() { return }
         super.deleteBackward(sender)
     }
 
@@ -669,7 +643,6 @@ public final class MarkdownTextView: NSTextView {
 
     /// Clicking a task's checkbox cycles its status; clicks on links open them.
     public override func mouseDown(with event: NSEvent) {
-        overlays.select(nil)
         let point = convert(event.locationInWindow, from: nil)
         if event.clickCount == 1, let heading = foldControl(at: point) {
             toggleFold(heading: heading)

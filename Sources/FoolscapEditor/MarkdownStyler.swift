@@ -45,6 +45,13 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     /// Bulleted lines whose `-`/`*`/`+` shows (dimmed) instead of the drawn dot: only while the
     /// selection touches the marker itself, so a bullet turns into a dot as soon as it is typed.
     private var revealedMarkers: Set<Int> = []
+    /// The syntax runs the selection touches, by line, as ranges within the line's text: a
+    /// heading's hashes or a quote's `>` with the caret anywhere from the line's start to just
+    /// after the marker, a span's delimiters (`**`, `` ` ``, `[`…`](url)`) or a rule's dashes with
+    /// the caret strictly inside them or a selection crossing them. Everything else is hidden,
+    /// so `**bold**` folds up on the keystroke that completes it and a heading's `#` goes as its
+    /// first letter is typed (Bear's way); the markers come back when the caret steps into them.
+    private var revealedSyntax: [Int: [NSRange]] = [:]
     /// An image/URL line whose markdown was revealed from its hover badge.
     /// It collapses again as soon as the selection leaves it.
     private(set) var forcedRevealLine: Int?
@@ -84,14 +91,14 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
 
     func isHidden(line index: Int) -> Bool { hiddenLines.contains(index) }
 
-    /// Lines the caret may not rest on: collapsed image/URL lines and folded-away text.
-    func skipsCaret(line index: Int) -> Bool { isCollapsed(line: index) || hiddenLines.contains(index) }
-
     /// True while the line's syntax is showing (the selection is on it).
     func isRevealed(line index: Int) -> Bool { activeLines.contains(index) }
 
     /// True while a bulleted line shows its marker character rather than the dot.
     func showsBulletMarker(line index: Int) -> Bool { revealedMarkers.contains(index) }
+
+    /// True while a `---` line shows its dashes (the caret is inside them) rather than the drawn rule.
+    func showsRuleMarks(line index: Int) -> Bool { !(revealedSyntax[index] ?? []).isEmpty }
 
     private func recomputeHidden() {
         var hidden: Set<Int> = []
@@ -164,7 +171,97 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         previousFenceLines = fenceLineCount(blockMap)
         activeLines = linesUnderSelection(blockMap)
         revealedMarkers = markersUnderSelection(blockMap)
+        revealedSyntax = syntaxUnderSelection(blockMap)
         style(range: NSRange(location: 0, length: storage.length), map: blockMap)
+    }
+
+    /// A syntax run on a line: `hit` is what the selection must touch, `shown` the ranges that
+    /// are then revealed (a span's two delimiters for the span's whole extent), all within the
+    /// line's text. `leading` marks a line-start marker, touched by a caret at either side of it.
+    private struct SyntaxRun {
+        var hit: NSRange
+        var shown: [NSRange]
+        var leading: Bool
+    }
+
+    /// The part of a line the inline spans are read from: after the heading hashes stay in
+    /// (nothing matches across them), after a quote's `>`, a task's mark or a bullet. Empty for
+    /// code, rules and overlay lines, and for a task prefix with no title yet.
+    private static func inlineRange(of line: ScannedLine) -> NSRange {
+        let text = line.text as NSString
+        let whole = NSRange(location: 0, length: text.length)
+        switch line.kind {
+        case .heading, .plain, .blank: return whole
+        case .quote:
+            let marker = match(quoteMarker, in: line.text)
+            let n = marker.location == NSNotFound ? 0 : marker.length
+            return NSRange(location: n, length: text.length - n)
+        case .task:
+            guard let parsed = TaskLineParser.parse(line.text) else { return whole }
+            let start = parsed.markOffset + 2
+            return NSRange(location: start, length: text.length - start)
+        case .listItem:
+            if let prefix = LinePrefix.parse(line.text), case .task = prefix.kind { return NSRange(location: text.length, length: 0) }
+            let bullet = match(listMarker, in: line.text)
+            let n = bullet.location == NSNotFound ? 0 : bullet.length
+            return NSRange(location: n, length: text.length - n)
+        case .fenceOpen, .fenceInside, .fenceClose, .imageLine, .urlLine, .rule:
+            return NSRange(location: text.length, length: 0)
+        }
+    }
+
+    private static func syntaxRuns(of line: ScannedLine) -> [SyntaxRun] {
+        var runs: [SyntaxRun] = []
+        switch line.kind {
+        case .heading:
+            let hashes = match(headingMarker, in: line.text)
+            if hashes.location != NSNotFound { runs.append(SyntaxRun(hit: hashes, shown: [hashes], leading: true)) }
+        case .quote:
+            let marker = match(quoteMarker, in: line.text)
+            if marker.location != NSNotFound { runs.append(SyntaxRun(hit: marker, shown: [marker], leading: true)) }
+        case .rule:
+            let whole = NSRange(location: 0, length: (line.text as NSString).length)
+            runs.append(SyntaxRun(hit: whole, shown: [whole], leading: false))
+        default: break
+        }
+        let inline = inlineRange(of: line)
+        guard inline.length > 0 else { return runs }
+        let sub = (line.text as NSString).substring(with: inline)
+        for t in InlineTokenizer.tokenize(sub) where !t.syntax.isEmpty {
+            let shift = { (r: NSRange) in NSRange(location: inline.location + r.location, length: r.length) }
+            runs.append(SyntaxRun(hit: shift(t.range), shown: t.syntax.map(shift), leading: false))
+        }
+        return runs
+    }
+
+    /// The syntax the selection touches on each of its lines (see `revealedSyntax`).
+    private func syntaxUnderSelection(_ map: BlockMap) -> [Int: [NSRange]] {
+        guard let host else { return [:] }
+        var out: [Int: [NSRange]] = [:]
+        for r in host.selectedCharacterRanges {
+            guard let first = map.line(at: r.location), let last = map.line(at: r.location + r.length) else { continue }
+            for i in first.index...last.index {
+                let line = map.lines[i]
+                let runs = Self.syntaxRuns(of: line)
+                guard !runs.isEmpty else { continue }
+                var shown: [NSRange] = []
+                if r.length == 0 {
+                    let caret = r.location - line.range.location
+                    for run in runs {
+                        let touched = run.leading ? caret >= run.hit.location && caret <= run.hit.location + run.hit.length
+                            : caret > run.hit.location && caret < run.hit.location + run.hit.length
+                        if touched { shown += run.shown }
+                    }
+                } else {
+                    let local = NSRange(location: max(0, r.location - line.range.location),
+                                        length: min(line.range.length, r.location + r.length - line.range.location) - max(0, r.location - line.range.location))
+                    guard local.length > 0 else { continue }
+                    for run in runs where NSIntersectionRange(local, run.hit).length > 0 { shown += run.shown }
+                }
+                if !shown.isEmpty { out[i, default: []] += shown }
+            }
+        }
+        return out
     }
 
     /// Bulleted lines whose marker character the selection touches (a caret just before or
@@ -200,8 +297,11 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     func selectionChanged() -> Set<Int> {
         let now = linesUnderSelection(blockMap)
         let markers = markersUnderSelection(blockMap)
+        let syntax = syntaxUnderSelection(blockMap)
         var changed = now.symmetricDifference(activeLines).union(markers.symmetricDifference(revealedMarkers))
+        for i in Set(syntax.keys).union(revealedSyntax.keys) where syntax[i] != revealedSyntax[i] { changed.insert(i) }
         revealedMarkers = markers
+        revealedSyntax = syntax
         if let forced = forcedRevealLine, !now.contains(forced) {
             forcedRevealLine = nil
             changed.insert(forced)
@@ -241,6 +341,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             let paragraphRange = text.paragraphRange(for: editedRange)
             activeLines = linesUnderSelection(newMap)
             revealedMarkers = markersUnderSelection(newMap)
+            revealedSyntax = syntaxUnderSelection(newMap)
             let fenceNow = fenceLineCount(newMap)
             let touchesFence = touchesFenceLine(newMap, range: paragraphRange) || touchesFenceLine(blockMap, range: NSRange(location: paragraphRange.location, length: max(0, paragraphRange.length - delta)))
             blockMap = newMap
@@ -403,12 +504,17 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             storage.addAttributes(attrs, range: a)
         }
 
-        // Syntax is dimmed on the caret's line and hidden everywhere else (Bear-style).
-        // Image and URL lines are different: the caret never rests on them, so they
-        // only reveal when asked from the picture's or card's badge.
+        // Syntax is hidden unless the selection touches it (`revealedSyntax`), when it shows
+        // dimmed; a fence line shows whole while the caret is on it, since the language is typed
+        // after the marks. Image and URL lines are different: the caret rests only at their end,
+        // selecting the block, so they reveal only when asked from the picture's or card's badge.
         let reveal = isOverlay ? forcedRevealLine == line.index : activeLines.contains(line.index)
-        let syntaxAttrs: [NSAttributedString.Key: Any] = reveal ? [.foregroundColor: p.dimInk] : p.hiddenAttributes
-        var inlineRange = NSRange(location: 0, length: text.length)
+        let shown = revealedSyntax[line.index] ?? []
+        let dimmed: [NSAttributedString.Key: Any] = [.foregroundColor: p.dimInk]
+        func syntaxAttrs(_ r: NSRange) -> [NSAttributedString.Key: Any] {
+            shown.contains(where: { NSEqualRanges($0, r) }) ? dimmed : p.hiddenAttributes
+        }
+        let inlineRange = Self.inlineRange(of: line)
         switch line.kind {
         case .heading(let level):
             base[.font] = p.headings[min(level, p.headings.count) - 1]
@@ -416,7 +522,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             if level == 1 { base[.foregroundColor] = p.accent }
             storage.setAttributes(base, range: para)
             let hashes = Self.match(Self.headingMarker, in: line.text)
-            if hashes.location != NSNotFound { set(syntaxAttrs, hashes) }
+            if hashes.location != NSNotFound { set(syntaxAttrs(hashes), hashes) }
         case .fenceOpen(let lang):
             language = lang; inBlockComment = false
             base[.font] = p.mono; base[.foregroundColor] = p.dimInk
@@ -441,9 +547,9 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             storage.setAttributes(base, range: para)
             let marker = Self.match(Self.quoteMarker, in: line.text)
             if marker.location != NSNotFound {
-                set(reveal ? [.foregroundColor: p.dimInk, .font: p.body] : p.hiddenAttributes, marker)
+                let attrs = syntaxAttrs(marker)
+                set(attrs[.font] == nil ? attrs.merging([.font: p.body]) { a, _ in a } : attrs, marker)
             }
-            inlineRange = NSRange(location: marker.length, length: text.length - marker.length)
         case .task(let status):
             if let parsed = TaskLineParser.parse(line.text) {
                 // Each level of nesting steps in a tab; wrapped lines hang under the title, not the mark.
@@ -476,7 +582,6 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
                     let trimmed = NSRange(location: titleStart + 1, length: max(0, title.length - 1))
                     set([.backgroundColor: hl], trimmed)
                 }
-                inlineRange = title
             }
         case .listItem:
             let prefix = LinePrefix.parse(line.text)
@@ -500,10 +605,9 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
                 // the dot appears as soon as the space after it is typed.
                 if let prefix, case .bullet = prefix.kind {
                     let marker = NSRange(location: (prefix.indent as NSString).length, length: 1)
-                    let shown = revealedMarkers.contains(line.index)
-                    set(shown ? [.foregroundColor: p.dimInk] : [.foregroundColor: PlatformColor.clear], marker)
+                    let markerShown = revealedMarkers.contains(line.index)
+                    set(markerShown ? [.foregroundColor: p.dimInk] : [.foregroundColor: PlatformColor.clear], marker)
                 }
-                inlineRange = NSRange(location: bullet.length, length: text.length - bullet.length)
             }
         case .imageLine:
             // The picture is the content: the markdown shows only while the caret is on the line.
@@ -523,16 +627,18 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             }
             return
         case .rule:
-            // Drawn as a line across the column (`EditorDecorations.drawRules`) unless the caret is on it.
+            // Drawn as a line across the column (`EditorDecorations.drawRules`) as soon as it is
+            // typed; the dashes show only with the caret inside them.
             base[.foregroundColor] = p.dimInk
             storage.setAttributes(base, range: para)
-            if !reveal { set(p.hiddenAttributes, NSRange(location: 0, length: text.length)) }
+            set(syntaxAttrs(NSRange(location: 0, length: text.length)), NSRange(location: 0, length: text.length))
             return
         case .blank, .plain:
             storage.setAttributes(base, range: para)
         }
 
         // Inline spans.
+        guard inlineRange.length > 0 else { return }
         let sub = text.substring(with: inlineRange)
         let tokens = InlineTokenizer.tokenize(sub)
         func sh(_ r: NSRange) -> NSRange { NSRange(location: inlineRange.location + r.location, length: r.length) }
@@ -543,13 +649,14 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             case .boldItalic: set([.font: p.boldItalic], sh(t.content))
             case .code: set([.font: p.mono, .backgroundColor: p.codeBackground], sh(t.content))
             case .strikethrough: set([.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: p.dimInk], sh(t.content))
+            case .highlight: set([.backgroundColor: p.marker], sh(t.content))
             case .link(let url):
                 set([.foregroundColor: p.accent, .link: url], sh(t.content))
             case .url(let url):
                 set([.foregroundColor: p.accent, .link: url], sh(t.range))
             case .tag: set([.foregroundColor: p.accent, .backgroundColor: p.tagBackground], sh(t.range))
             }
-            for s in t.syntax { set(syntaxAttrs, sh(s)) }
+            for s in t.syntax { set(syntaxAttrs(sh(s)), sh(s)) }
         }
     }
 }

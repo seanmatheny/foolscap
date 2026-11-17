@@ -29,7 +29,8 @@ public struct EditorAccessoryBar: View {
     public init(model: EditorAccessoryModel) { self.model = model }
 
     private static let commands: [(EditorCommand, String)] = [
-        (.bold, "bold"), (.italic, "italic"), (.strikethrough, "strikethrough"), (.code, "chevron.left.forwardslash.chevron.right"),
+        (.bold, "bold"), (.italic, "italic"), (.strikethrough, "strikethrough"), (.highlight, "highlighter"),
+        (.code, "chevron.left.forwardslash.chevron.right"),
         (.link, "link"), (.heading1, "1.square"), (.heading2, "2.square"), (.heading3, "3.square"),
         (.bulletList, "list.bullet"), (.numberedList, "list.number"), (.task, "checklist"), (.toggleTaskDone, "checkmark.circle"),
         (.quote, "text.quote"), (.codeBlock, "curlybraces"), (.horizontalRule, "minus"),

@@ -4,6 +4,8 @@ import Foundation
 public struct InlineToken: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case bold, italic, boldItalic, code, strikethrough
+        /// `==text==`, a highlighter stroke (Bear's and Obsidian's extension).
+        case highlight
         case link(url: String)
         case tag(String)
         case url(String)
@@ -23,6 +25,7 @@ public enum InlineTokenizer {
     private static let boldRegex = try! NSRegularExpression(pattern: #"(\*\*|__)(?=\S)(.+?)(?<=\S)\1"#)
     private static let italicRegex = try! NSRegularExpression(pattern: #"(?<![\*\w])(\*|_)(?=[^\s\*_])(.+?)(?<=[^\s\*_])\1(?![\*\w])"#)
     private static let strikeRegex = try! NSRegularExpression(pattern: #"~~(?=\S)(.+?)(?<=\S)~~"#)
+    private static let highlightRegex = try! NSRegularExpression(pattern: #"(?<!=)==(?=[^\s=])(.+?)(?<=[^\s=])==(?!=)"#)
     private static let linkRegex = try! NSRegularExpression(pattern: #"(?<!!)\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)"#)
     private static let autolinkRegex = try! NSRegularExpression(pattern: #"<(https?://[^\s<>]+)>"#)
     private static let urlRegex = try! NSRegularExpression(pattern: #"(?<![\w\(\[])(https?://[^\s<>\)\]]+)"#)
@@ -60,7 +63,8 @@ public enum InlineTokenizer {
         for m in urlRegex.matches(in: line, range: full) where free(m.range) {
             claim(InlineToken(kind: .url(ns.substring(with: m.range)), range: m.range, content: m.range, syntax: []))
         }
-        for (regex, kind, d) in [(boldItalicRegex, InlineToken.Kind.boldItalic, 3), (boldRegex, .bold, 2), (strikeRegex, .strikethrough, 2)] {
+        for (regex, kind, d) in [(boldItalicRegex, InlineToken.Kind.boldItalic, 3), (boldRegex, .bold, 2), (strikeRegex, .strikethrough, 2),
+                                 (highlightRegex, .highlight, 2)] {
             for m in regex.matches(in: line, range: full) where free(m.range) {
                 claim(InlineToken(kind: kind, range: m.range,
                                   content: NSRange(location: m.range.location + d, length: m.range.length - 2 * d),

@@ -126,7 +126,7 @@ public enum LinkLine {
 /// note being edited (`MarkdownTextView` implements them on both platforms; the
 /// phone's keyboard bar sends them straight to its view).
 public enum EditorCommand: CaseIterable, Sendable {
-    case bold, italic, strikethrough, code, link
+    case bold, italic, strikethrough, highlight, code, link
     case heading1, heading2, heading3, heading4, heading5, heading6
     case bulletList, numberedList, task, toggleTaskDone, quote, codeBlock, horizontalRule
     case foldSection, unfoldSection, foldAll, unfoldAll
@@ -136,6 +136,7 @@ public enum EditorCommand: CaseIterable, Sendable {
         case .bold: return #selector(MarkdownTextView.toggleBold(_:))
         case .italic: return #selector(MarkdownTextView.toggleItalic(_:))
         case .strikethrough: return #selector(MarkdownTextView.toggleStrikethrough(_:))
+        case .highlight: return #selector(MarkdownTextView.toggleHighlight(_:))
         case .code: return #selector(MarkdownTextView.toggleInlineCode(_:))
         case .link: return #selector(MarkdownTextView.insertLink(_:))
         case .heading1: return #selector(MarkdownTextView.heading1(_:))
@@ -164,6 +165,7 @@ public enum EditorCommand: CaseIterable, Sendable {
         case .bold: return "Bold"
         case .italic: return "Italic"
         case .strikethrough: return "Strikethrough"
+        case .highlight: return "Highlight"
         case .code: return "Inline Code"
         case .link: return "Link"
         case .heading1: return "Heading 1"
@@ -264,6 +266,17 @@ extension MarkdownEditing {
             markdownSelection = NSRange(location: end + 1, length: 0)
             return true
         }
+        // Return at the end of a fence just typed closes the block: a blank line to type into
+        // and the closing fence under it, so the rest of the note is not swept into the block
+        // (the fence lines after this one pair off among themselves when they are even in
+        // number; an odd count means one of them is this block's own close already).
+        if case .fenceOpen = line.kind, caret.location == line.range.location + line.range.length,
+           fenceLinesAfter(line.index) % 2 == 0, let marks = fenceMarks(line.text) {
+            let atEnd = caret.location >= markdownText.length
+            guard replace(caret, with: "\n\n" + marks + (atEnd ? "\n" : "")) else { return false }
+            markdownSelection = NSRange(location: caret.location + 1, length: 0)
+            return true
+        }
         guard !isCodeLine(line), let prefix = LinePrefix.parse(line.text),
               caret.location >= line.range.location + prefix.length else { return false }
         if prefix.length >= line.range.length {
@@ -283,11 +296,115 @@ extension MarkdownEditing {
             return true
         }
         let insert = "\n" + LinePrefix.continuation(of: prefix)
+        // Splitting an item before a space: the space goes, so the new item does not start with one.
+        var replaced = caret
+        if caret.location < line.range.location + line.range.length, markdownText.character(at: caret.location) == 0x20 { replaced.length = 1 }
         grouped {
-            replace(caret, with: insert)
+            replace(replaced, with: insert)
             markdownSelection = NSRange(location: caret.location + (insert as NSString).length, length: 0)
             renumberList(around: line.index + 1)
         }
+        return true
+    }
+
+    /// The run of backticks or tildes a fence line opens with, or nil.
+    private func fenceMarks(_ text: String) -> String? {
+        let marks = text.drop { $0 == " " || $0 == "\t" }
+        guard let mark = marks.first, mark == "`" || mark == "~" else { return nil }
+        return String(marks.prefix { $0 == mark })
+    }
+
+    /// How many lines after `index` open with a fence, whatever the block map makes of them.
+    private func fenceLinesAfter(_ index: Int) -> Int {
+        styler.blockMap.lines.dropFirst(index + 1).filter { (fenceMarks($0.text)?.count ?? 0) >= 3 }.count
+    }
+
+    // MARK: Backspace on a marker
+
+    /// ⌫ just after a line's marker — a bullet, number, task mark, quote mark or a heading's
+    /// hashes — takes the marker off (a nested item steps out a level first) instead of eating
+    /// the space after it and leaving a bare `-` in the text: the line goes back to plain text,
+    /// as it does in Bear and Notes. False when the caret is anywhere else.
+    func backspaceOnMarker() -> Bool {
+        let caret = markdownSelection
+        guard caret.length == 0, let line = styler.blockMap.line(at: caret.location), !isCodeLine(line) else { return false }
+        let heading = LinePrefix.headingMarkerLength(line.text)
+        if heading > 0 {
+            guard caret.location == line.range.location + heading else { return false }
+            guard replace(NSRange(location: line.range.location, length: heading), with: "") else { return false }
+            markdownSelection = NSRange(location: line.range.location, length: 0)
+            return true
+        }
+        guard let prefix = LinePrefix.parse(line.text), caret.location == line.range.location + prefix.length else { return false }
+        let indentLength = (prefix.indent as NSString).length
+        if case .quote = prefix.kind {
+        } else if !prefix.indent.isEmpty {
+            let outdented = LinePrefix.outdented(prefix.indent)
+            grouped {
+                replace(NSRange(location: line.range.location, length: indentLength), with: outdented)
+                markdownSelection = NSRange(location: caret.location - indentLength + (outdented as NSString).length, length: 0)
+                renumberList(around: line.index)
+            }
+            return true
+        }
+        grouped {
+            replace(NSRange(location: line.range.location, length: prefix.length), with: "")
+            markdownSelection = NSRange(location: line.range.location, length: 0)
+            if line.index + 1 < styler.blockMap.lines.count { renumberList(around: line.index + 1) }
+        }
+        return true
+    }
+
+    // MARK: The caret on a picture or card
+
+    /// The picture or link-card line the caret rests on. A collapsed line holds the caret only at
+    /// its end, where the block as a whole is selected (outlined): typing there goes to a new line
+    /// under it (`typedOnBlock`), Return opens one, ⌫ and ⌦ remove the block
+    /// (`deleteCollapsedNeighbour`), and ← steps back over it to the line above.
+    var blockUnderCaret: ScannedLine? {
+        let caret = markdownSelection
+        guard caret.length == 0, let line = styler.blockMap.line(at: caret.location), styler.isCollapsed(line: line.index),
+              caret.location == line.range.location + line.range.length else { return nil }
+        return line
+    }
+
+    /// Where a caret asked for at `caret` may rest: never inside a folded section, which is
+    /// stepped over whole in the direction of travel (from `lastCaret`), and on a picture or
+    /// card line only at its end. Coming onto such a line from either side lands there, so
+    /// ↓ and ↑ stop on every block and a click in the picture selects it; ← from the block's
+    /// end goes to the end of the line above it.
+    func restingCaret(_ caret: Int, lastCaret: Int) -> Int {
+        let lines = styler.blockMap.lines
+        guard let line = styler.blockMap.line(at: caret) else { return caret }
+        let forward = caret >= lastCaret
+        if styler.isHidden(line: line.index) {
+            var first = line.index, last = line.index
+            while first > 0, styler.isHidden(line: first - 1) { first -= 1 }
+            while last + 1 < lines.count, styler.isHidden(line: last + 1) { last += 1 }
+            let runEnd = lines[last].range.location + lines[last].range.length
+            if forward, last + 1 < lines.count { return restingCaret(runEnd + 1, lastCaret: runEnd) }
+            if forward { return min(markdownText.length, runEnd + 1) }
+            if first > 0 { return lines[first].range.location - 1 }
+            return min(markdownText.length, runEnd + 1)
+        }
+        let end = line.range.location + line.range.length
+        guard styler.isCollapsed(line: line.index), caret != end else { return caret }
+        // Onto the block from above or below: its end. From its end, stepping back: the line above.
+        if lastCaret > end || lastCaret < line.range.location || lastCaret == caret { return end }
+        guard line.index > 0 else { return end }
+        let above = lines[line.index - 1]
+        return restingCaret(above.range.location + above.range.length, lastCaret: caret)
+    }
+
+    /// Text typed with a block selected goes on a new line under it (its own line's markdown
+    /// is never written into). False when the caret is not on a block.
+    @discardableResult
+    func typedOnBlock(_ text: String) -> Bool {
+        guard text != "\n", blockUnderCaret != nil else { return false }
+        let caret = markdownSelection
+        let insert = "\n" + text
+        guard replace(caret, with: insert) else { return false }
+        markdownSelection = NSRange(location: caret.location + (insert as NSString).length, length: 0)
         return true
     }
 
@@ -678,6 +795,8 @@ extension MarkdownEditing {
     func deleteCollapsedNeighbour(backward: Bool) -> Bool {
         let selection = markdownSelection
         guard selection.length == 0, let line = styler.blockMap.line(at: selection.location) else { return false }
+        // The block itself is selected (the caret rests at its end): either key removes it.
+        if let block = blockUnderCaret { return removeLine(block.index) }
         if backward {
             guard selection.location == line.range.location, line.index > 0,
                   styler.isCollapsed(line: line.index - 1) else { return false }
@@ -694,7 +813,8 @@ extension MarkdownEditing {
     }
 
     /// Remove a whole line with its newline (the newline before it when it ends the note),
-    /// undoably; the caret lands where the line began.
+    /// undoably; the caret lands where the line began (on the next block, when another picture
+    /// or card has moved up into its place).
     @discardableResult
     func removeLine(_ index: Int) -> Bool {
         let map = styler.blockMap
@@ -706,15 +826,21 @@ extension MarkdownEditing {
             range = NSRange(location: range.location - 1, length: range.length + 1)
         }
         guard replace(range, with: "") else { return false }
-        markdownSelection = NSRange(location: range.location, length: 0)
+        var caret = range.location
+        if let next = styler.blockMap.line(at: caret), next.range.location == caret, styler.isCollapsed(line: next.index) {
+            caret = next.range.location + next.range.length
+        }
+        markdownSelection = NSRange(location: caret, length: 0)
         return true
     }
 
-    /// Insert text at the selection; `ownLine` puts it on a line of its own.
+    /// Insert text at the selection; `ownLine` puts it on a line of its own. With a picture or
+    /// card selected (the caret at its end), the text goes on a new line under it either way.
     func insertMarkdown(_ text: String, ownLine: Bool) {
         let ns = markdownText
         var range = markdownSelection
         var insert = text
+        if !ownLine, blockUnderCaret != nil { insert = "\n" + insert }
         if ownLine {
             let before = range.location > 0 ? ns.substring(with: NSRange(location: range.location - 1, length: 1)) : "\n"
             let afterIndex = range.location + range.length
@@ -795,10 +921,12 @@ extension MarkdownTextView: MarkdownEditing {
         super.insertNewline(sender)
     }
 
-    /// A typed space after `[]` at a line's start makes a task (`spacePressed`).
+    /// A typed space after `[]` at a line's start makes a task (`spacePressed`); text typed with
+    /// a picture or card selected goes on a new line under it (`typedOnBlock`).
     public override func insertText(_ string: Any, replacementRange: NSRange) {
         let typed = (string as? String) ?? (string as? NSAttributedString)?.string
         if !hasMarkedText(), replacementRange.location == NSNotFound || replacementRange == selectedRange(), let typed {
+            if typedOnBlock(typed) { return }
             if typed == " ", spacePressed() { return }
             // The mark that completes a closing fence leaves the block (`fenceMarkTyped`).
             if fenceMarkTyped(typed) { return }
@@ -831,6 +959,7 @@ extension MarkdownTextView: MarkdownEditing {
     @objc func toggleBold(_ sender: Any?) { toggleInline("**") }
     @objc func toggleItalic(_ sender: Any?) { toggleInline("*") }
     @objc func toggleStrikethrough(_ sender: Any?) { toggleInline("~~") }
+    @objc func toggleHighlight(_ sender: Any?) { toggleInline("==") }
     @objc func toggleInlineCode(_ sender: Any?) { toggleInline("`") }
     @objc func insertLink(_ sender: Any?) { insertLinkMarkdown() }
     @objc func heading1(_ sender: Any?) { setHeading(level: 1) }

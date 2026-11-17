@@ -131,7 +131,7 @@ final class OverlayController {
             heights[line.index] = reserved(for: overlay.displaySize(availableWidth: availableWidth()).height)
         }
         for (key, overlay) in overlays where !seen.contains(key) {
-            if overlay.view === selectedImage { select(nil) }
+            if overlay === selectedOverlay { select(line: nil) }
             overlay.view.removeFromSuperview()
             overlays[key] = nil
             changed = true
@@ -168,12 +168,12 @@ final class OverlayController {
             #if canImport(AppKit)
             iv.onShowInFinder = { [weak self] in self?.showInFinder(path: path) }
             #endif
-            iv.onSelect = { [weak self, weak iv] in
+            iv.onSelect = { [weak self] in
                 // The Mac's click takes the focus for ⌘C; a phone's tap must not raise the keyboard.
                 #if canImport(AppKit)
                 self?.focusTextView()
                 #endif
-                self?.select(iv)
+                self?.placeCaret(onKey: key)
             }
             let overlay = Overlay(key: key, view: iv, lineIndex: line.index, naturalSize: size, isImage: true,
                                   requestedWidth: BlockMap.imageAlt(alt).width.map { CGFloat($0) })
@@ -182,6 +182,7 @@ final class OverlayController {
         case .urlLine(let urlString):
             guard textView.features.contains(.linkPreviews), let url = URL(string: urlString) else { return nil }
             let card = LinkCardView(url: url)
+            card.selectionColor = textView.palette.accent
             card.onReveal = { [weak self] in self?.revealLine(forKey: key) }
             card.onShowAsText = { [weak self] in
                 guard let self, let overlay = self.overlays[key] else { return }
@@ -237,21 +238,26 @@ final class OverlayController {
 
     // MARK: Selecting and copying images
 
-    /// The picture last clicked, outlined in the accent colour; ⌘C copies it.
-    /// A click in the text or a caret move lets it go.
-    private(set) var selectedImage: ResizableImageView?
+    /// The picture or card the caret rests on (at the end of its collapsed line), outlined in
+    /// the accent colour; the text view keeps it in step with every selection change. ⌘C
+    /// copies a selected picture.
+    private(set) var selectedOverlay: Overlay?
 
-    func select(_ image: ResizableImageView?) {
-        guard image !== selectedImage else { return }
-        selectedImage?.isSelected = false
-        selectedImage = image
-        image?.isSelected = true
+    func select(line: Int?) {
+        let overlay = line.flatMap { l in overlays.values.first { $0.lineIndex == l } }
+        guard overlay !== selectedOverlay else { return }
+        (selectedOverlay?.view as? SelectableOverlayView)?.isSelected = false
+        selectedOverlay = overlay
+        (overlay?.view as? SelectableOverlayView)?.isSelected = true
     }
 
-    /// The line of the picture last clicked, for ⌫/⌦ to remove.
-    var selectedImageLineIndex: Int? {
-        guard let selectedImage else { return nil }
-        return overlays.values.first { $0.view === selectedImage }?.lineIndex
+    var selectedImage: ResizableImageView? { selectedOverlay?.view as? ResizableImageView }
+
+    /// A click or tap on a picture puts the caret at the end of its line, which selects it.
+    private func placeCaret(onKey key: Key) {
+        guard let overlay = overlays[key], overlay.lineIndex < textView.styler.blockMap.lines.count else { return }
+        let line = textView.styler.blockMap.lines[overlay.lineIndex]
+        textView.markdownSelection = NSRange(location: line.range.location + line.range.length, length: 0)
     }
 
     /// Put the picture on the clipboard: the file's own bytes under its type (PNG,
@@ -497,10 +503,17 @@ final class OverlayController {
     }
 }
 
+/// A picture or card that shows as selected (outlined in the accent colour) while the caret
+/// rests on its line.
+@MainActor
+protocol SelectableOverlayView: AnyObject {
+    var isSelected: Bool { get set }
+}
+
 #if canImport(AppKit)
 
 /// A LinkPresentation card with a discreet copy button that appears on hover.
-final class LinkCardView: NSView {
+final class LinkCardView: NSView, SelectableOverlayView {
     let linkView: LPLinkView
     private let copyButton = NSButton()
     private let revealButton = NSButton()
@@ -509,11 +522,22 @@ final class LinkCardView: NSView {
     var onReveal: (() -> Void)?
     /// The context menu's Show as Text: the line is rewritten as `<url>`.
     var onShowAsText: (() -> Void)?
+    var selectionColor: NSColor = .controlAccentColor
+    /// Outlined in the accent colour while the caret rests on the card's line.
+    var isSelected = false {
+        didSet {
+            guard isSelected != oldValue else { return }
+            layer?.borderWidth = isSelected ? 2 : 0
+            layer?.borderColor = selectionColor.cgColor
+        }
+    }
 
     init(url: URL) {
         self.url = url
         linkView = LPLinkView(url: url)
         super.init(frame: NSRect(x: 0, y: 0, width: OverlayController.linkCardMaxWidth, height: OverlayController.linkCardHeight))
+        wantsLayer = true
+        layer?.cornerRadius = 12
         linkView.frame = bounds
         linkView.autoresizingMask = [.width, .height]
         addSubview(linkView)
@@ -597,7 +621,7 @@ final class LinkCardView: NSView {
 /// copy badge and a path badge (top-right; the tooltip shows the file, a click
 /// reveals the markdown). A click selects the picture for ⌘C; a right click
 /// offers the same in a menu.
-final class ResizableImageView: NSView {
+final class ResizableImageView: NSView, SelectableOverlayView {
     let imageView = NSImageView()
     let path: String
     var onResize: ((CGFloat) -> Void)?

@@ -100,15 +100,18 @@ import AppKit
 }
 
 @Suite @MainActor struct CaretSkipTests {
-    @Test func caretStepsOverCollapsedImageLines() {
+    /// A picture's line holds the caret only at its end, where the picture is selected.
+    @Test func caretRestsAtTheEndOfACollapsedImageLine() {
         let doc = NoteDocument(path: "x.md", url: URL(fileURLWithPath: "/nonexistent/x.md"), day: nil)
         doc.setText("one\n![pic](a.png)\nthree\n")          // lines at 0, 4, 18
         let view = MarkdownTextView(document: doc, palette: EditorPalette(theme: .classicBlack))
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.setSelectedRange(NSRange(location: 8, length: 0))   // click inside the image line, moving forward
-        #expect(view.selectedRange().location == 18)             // start of "three"
+        #expect(view.selectedRange().location == 17)             // the end of the image line
         view.setSelectedRange(NSRange(location: 21, length: 0))
-        view.setSelectedRange(NSRange(location: 10, length: 0))  // moving backward
+        view.setSelectedRange(NSRange(location: 10, length: 0))  // moving backward, from below
+        #expect(view.selectedRange().location == 17)
+        view.setSelectedRange(NSRange(location: 16, length: 0))  // ← from the picture: the line above
         #expect(view.selectedRange().location == 3)              // end of "one"
         // Revealed from the badge: the caret may sit there.
         view.styler.forceReveal(line: 1)

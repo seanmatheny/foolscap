@@ -28,6 +28,8 @@ public struct EditorPalette {
     /// Opaque backdrop for fenced code blocks (hides the ruling).
     public var codeBlockBackground: PlatformColor
     public var tagBackground: PlatformColor
+    /// The stroke behind `==highlighted==` text: a marker yellow over the paper.
+    public var marker: PlatformColor
     public var selection: PlatformColor
     public var highlighter: [TaskStatus: PlatformColor]
     /// Colours of the `!` priority markers on task lines.
@@ -63,6 +65,7 @@ public struct EditorPalette {
         codeBlockBackground = theme.page.paperColor
             .mixed(with: theme.isDark ? .hex(0xFFFFFF) : .hex(0x000000), fraction: theme.isDark ? 0.08 : 0.055).platformColor
         tagBackground = theme.accent.platformColor.withAlphaComponent(0.14)
+        marker = (theme.isDark ? RGBA(1.0, 0.82, 0.25) : RGBA(1.0, 0.86, 0.2)).platformColor.withAlphaComponent(theme.isDark ? 0.32 : 0.5)
         selection = theme.accent.platformColor.withAlphaComponent(theme.isDark ? 0.35 : 0.22)
         highlighter = theme.highlighter.mapValues { $0.platformColor }
         priorityColors = Dictionary(uniqueKeysWithValues: TaskPriority.allCases.map { ($0, $0.color.platformColor) })

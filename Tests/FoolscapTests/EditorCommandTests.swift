@@ -71,7 +71,9 @@ private func makeView(_ text: String, caret: Int? = nil) -> (MarkdownTextView, N
 
     @Test func returnInsideThePrefixOrMidLineBehavesNormally() {
         let (v1, d1) = makeView("- one two", caret: 0); v1.insertNewline(nil); #expect(d1.text == "\n- one two")
-        let (v2, d2) = makeView("- one two", caret: 5); v2.insertNewline(nil); #expect(d2.text == "- one\n-  two")
+        // Split before a space, the space goes with the break.
+        let (v2, d2) = makeView("- one two", caret: 5); v2.insertNewline(nil); #expect(d2.text == "- one\n- two")
+        let (v3, d3) = makeView("- one two", caret: 7); v3.insertNewline(nil); #expect(d3.text == "- one t\n- wo")
     }
 
     @Test func tabIndentsAndOutdentsListLines() {

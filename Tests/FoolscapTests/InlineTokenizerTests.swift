@@ -10,6 +10,7 @@ import Foundation
         #expect(kinds("***both***") == [.boldItalic])
         #expect(kinds("snake_case_word is not italic") == [])
         #expect(kinds("2 * 3 * 4") == [])
+        #expect(kinds("==marked== but a == b and ===") == [.highlight])
     }
 
     @Test func codeWins() {

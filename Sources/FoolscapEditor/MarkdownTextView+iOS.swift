@@ -143,59 +143,37 @@ public final class MarkdownTextView: UITextView {
 
     /// Called after every edit, as the Mac's `didChangeText`.
     func textDidChange() {
-        overlays.select(nil)
         scheduleTagListUpdate(open: true)
     }
 
-    /// A caret can't rest on a collapsed image/URL line or inside a folded section:
-    /// step over the whole run in the direction of travel, so taps and arrow keys
-    /// never expand the markdown or land in hidden text.
+    /// A caret never lands inside a folded section and rests on a picture or card line only
+    /// at its end, where the block shows selected (`restingCaret`).
     func selectionDidChange() {
         guard !settingSelection else { return }
-        var selection = selectedRange
+        let selection = selectedRange
         if selection.length == 0 {
-            let caret = selection.location
-            let lines = styler.blockMap.lines
-            if let line = styler.blockMap.line(at: caret), styler.skipsCaret(line: line.index) {
-                let length = markdownText.length
-                let forward = caret >= lastCaret
-                var first = line.index, last = line.index
-                while first > 0, styler.skipsCaret(line: first - 1) { first -= 1 }
-                while last + 1 < lines.count, styler.skipsCaret(line: last + 1) { last += 1 }
-                let runEnd = lines[last].range.location + lines[last].range.length
-                let target: Int
-                if forward, last + 1 < lines.count {
-                    target = runEnd + 1
-                } else if forward, styler.isCollapsed(line: last) {
-                    target = length
-                    DispatchQueue.main.async { [weak self] in self?.addLineAfterLastOverlay() }
-                } else if first > 0 {
-                    target = lines[first].range.location - 1
-                } else {
-                    target = min(length, runEnd + 1)
-                }
-                selection = NSRange(location: target, length: 0)
+            let resting = restingCaret(selection.location, lastCaret: lastCaret)
+            if resting != selection.location {
                 settingSelection = true
-                selectedRange = selection
+                selectedRange = NSRange(location: resting, length: 0)
                 settingSelection = false
             }
-            lastCaret = selection.location
+            lastCaret = resting
         }
+        overlays.select(line: blockUnderCaret?.index)
         invalidate(lines: styler.selectionChanged())
         scheduleTagListUpdate(open: false)
     }
 
-    private func addLineAfterLastOverlay() {
-        let length = markdownText.length
-        guard let line = styler.blockMap.line(at: length), styler.isCollapsed(line: line.index),
-              line.range.location + line.range.length >= length else { return }
-        replace(NSRange(location: length, length: 0), with: "\n")
-        markdownSelection = NSRange(location: length + 1, length: 0)
-    }
+    /// Set while `replace` runs, since the text view consults the delegate for its own
+    /// insertions too: those are ours already, and must not be caught again.
+    private var replacing = false
 
     /// Return and Tab from the keyboard, before the text view inserts them: a Return
     /// accepts the highlighted tag, else continues a list; a Tab indents one.
     func shouldChange(in range: NSRange, replacement text: String) -> Bool {
+        if replacing { return true }
+        let typing = range.length == 0 && range == selectedRange && markedTextRange == nil
         if text == "\n" {
             if !accessory.tags.tags.isEmpty, let tag = accessory.tags.selectedTag {
                 acceptTag(tag)
@@ -203,15 +181,23 @@ public final class MarkdownTextView: UITextView {
             }
             if range.length == 0, range == selectedRange, returnPressed() { return false }
         }
+        // Text typed with a picture or card selected goes on a new line under it.
+        if typing, !text.isEmpty, typedOnBlock(text) { return false }
         if text == "\t", range.length == 0, range == selectedRange, indentListLines(by: 1) { return false }
         // A space after `[]` at a line's start makes a task.
-        if text == " ", range.length == 0, range == selectedRange, markedTextRange == nil, spacePressed() { return false }
+        if text == " ", typing, spacePressed() { return false }
         // The mark that completes a block's closing fence leaves the block.
-        if range.length == 0, range == selectedRange, markedTextRange == nil, fenceMarkTyped(text) { return false }
-        // ⌫ on the newline that ends a picture or card line takes the whole line (the caret
-        // cannot rest on it); `removeLine`'s own replacement selects first, so it is not this.
-        if text.isEmpty, range.length == 1, selectedRange.length == 0, range.location + 1 == selectedRange.location,
-           deleteCollapsedNeighbour(backward: true) { return false }
+        if typing, fenceMarkTyped(text) { return false }
+        if text.isEmpty, range.length == 1, selectedRange.length == 0 {
+            // ⌫: a selected picture or card, or the one above the caret's line, goes whole;
+            // just after a line's marker, the marker goes.
+            if range.location + 1 == selectedRange.location {
+                if deleteCollapsedNeighbour(backward: true) { return false }
+                if backspaceOnMarker() { return false }
+            }
+            // ⌦ (a hardware keyboard): the selected block, or the one under the caret's line.
+            if range.location == selectedRange.location, deleteCollapsedNeighbour(backward: false) { return false }
+        }
         return true
     }
 
@@ -411,6 +397,12 @@ public final class MarkdownTextView: UITextView {
     /// over a picture when both are on the pasteboard.
     public override func paste(_ sender: Any?) {
         let pb = UIPasteboard.general
+        // With a picture or card selected, the paste goes on a new line under it.
+        if blockUnderCaret != nil {
+            let caret = selectedRange
+            replace(caret, with: "\n")
+            markdownSelection = NSRange(location: caret.location + 1, length: 0)
+        }
         if features.contains(.attachments), !pb.hasStrings, pb.hasImages {
             let lines = pastedImageData(pb).compactMap { AttachmentImporter.importImageData($0, document: document) }
             if lines.isEmpty, let image = pb.image, let md = AttachmentImporter.importImage(image, document: document) {
@@ -445,6 +437,8 @@ public final class MarkdownTextView: UITextView {
         updateTopInset()
         let before = styler.overlayHeights
         if overlays.sync(map: styler.blockMap) {
+            // Lines moved: the selected block follows the caret, not its old line number.
+            overlays.select(line: blockUnderCaret?.index)
             let heights = styler.overlayHeights
             let changed = Set(before.keys).union(heights.keys).filter { before[$0] != heights[$0] }
             if !changed.isEmpty {
@@ -505,9 +499,8 @@ public final class MarkdownTextView: UITextView {
     /// the selection is put back and a keyboard the tap would have raised is not.
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: self)
-        // A picture or card takes its own taps; one on the text lets a selected picture go.
+        // A picture or card takes its own taps; one on the text moves the caret, which lets a selected picture go.
         if overlays.overlayView(at: point) != nil { return }
-        overlays.select(nil)
         let wasEditing = isFirstResponder
         let selection = selectedRange
         if let heading = foldControl(at: point) {
@@ -627,6 +620,7 @@ public final class MarkdownTextView: UITextView {
     @objc func toggleBold(_ sender: Any?) { toggleInline("**") }
     @objc func toggleItalic(_ sender: Any?) { toggleInline("*") }
     @objc func toggleStrikethrough(_ sender: Any?) { toggleInline("~~") }
+    @objc func toggleHighlight(_ sender: Any?) { toggleInline("==") }
     @objc func toggleInlineCode(_ sender: Any?) { toggleInline("`") }
     @objc func insertLink(_ sender: Any?) { insertLinkMarkdown() }
     @objc func heading1(_ sender: Any?) { setHeading(level: 1) }
@@ -713,6 +707,8 @@ extension MarkdownTextView: MarkdownEditing {
         settingSelection = true
         selectedRange = range
         settingSelection = false
+        replacing = true
+        defer { replacing = false }
         if text.isEmpty {
             if range.length > 0 { deleteBackward() }
         } else {
