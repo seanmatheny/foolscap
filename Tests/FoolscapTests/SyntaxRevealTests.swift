@@ -51,12 +51,40 @@ import AppKit
     @Test func aRuleDrawsAsSoonAsItIsTypedAndShowsItsDashesOnlyInsideThem() {
         let (view, doc) = editor("", caret: 0)
         type(view, "---")
-        #expect(doc.text == "---")
+        // The third dash completes the rule and puts the caret on a new line under it.
+        #expect(doc.text == "---\n")
+        #expect(view.selectedRange() == NSRange(location: 4, length: 0))
         #expect(hidden(view, at: 0))
         #expect(!view.styler.showsRuleMarks(line: 0))
         view.setSelectedRange(NSRange(location: 1, length: 0))
         #expect(!hidden(view, at: 0))
         #expect(view.styler.showsRuleMarks(line: 0))
+    }
+
+    @Test func aRuleTypedAboveTextGoesUnderItAndStarsDoNot() {
+        let (view, doc) = editor("\nbelow", caret: 0)
+        type(view, "---")
+        #expect(doc.text == "---\n\nbelow")
+        #expect(view.selectedRange() == NSRange(location: 4, length: 0))
+        type(view, "-")   // a fourth dash on the new line is a plain dash
+        #expect(doc.text == "---\n-\nbelow")
+        let (v2, d2) = editor("", caret: 0)
+        type(v2, "***")
+        #expect(d2.text == "***")
+        let (v3, d3) = editor("", caret: 0)
+        type(v3, "- - -")
+        #expect(d3.text == "- - -\n")
+    }
+
+    @Test func anEditNamesItsLinesForARedraw() {
+        let (view, doc) = editor("- a\n  - ", caret: 8)
+        _ = view.styler.takeEditedLines()
+        view.insertNewline(nil)
+        #expect(doc.text == "- a\n- ")
+        // didChangeText took them for the redraw; a further edit names its line again.
+        #expect(view.styler.takeEditedLines().isEmpty)
+        view.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(view.styler.takeEditedLines().isEmpty)
     }
 
     // MARK: Inline spans

@@ -203,6 +203,9 @@ public final class MarkdownTextView: NSTextView {
     /// the tag as typed.
     public override func didChangeText() {
         super.didChangeText()
+        // The whole band of every edited line: TextKit redraws only the new fragment's width,
+        // which left an outdented item's ring, or a rule's dashes, where they had been.
+        invalidate(lines: styler.takeEditedLines())
         scheduleTagListUpdate(open: true)
     }
 

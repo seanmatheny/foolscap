@@ -55,6 +55,16 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     /// An image/URL line whose markdown was revealed from its hover badge.
     /// It collapses again as soon as the selection leaves it.
     private(set) var forcedRevealLine: Int?
+    /// The lines the edits since the last `takeEditedLines` touched. The toolkit redraws only
+    /// the new layout fragment, which is as wide as the text now on the line: a drawn bullet
+    /// or rule standing further right (an outdented item's ring, the rule across a `---` line
+    /// whose dashes just hid) would be left on screen, so the view redraws the whole band.
+    private var editedLines: Set<Int> = []
+
+    func takeEditedLines() -> Set<Int> {
+        defer { editedLines = [] }
+        return editedLines
+    }
 
     // MARK: Folding
 
@@ -345,6 +355,10 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             let fenceNow = fenceLineCount(newMap)
             let touchesFence = touchesFenceLine(newMap, range: paragraphRange) || touchesFenceLine(blockMap, range: NSRange(location: paragraphRange.location, length: max(0, paragraphRange.length - delta)))
             blockMap = newMap
+            if let first = newMap.line(at: paragraphRange.location) {
+                let last = newMap.line(at: max(paragraphRange.location, paragraphRange.location + paragraphRange.length - 1))?.index ?? first.index
+                for i in first.index...max(first.index, last) { editedLines.insert(i) }
+            }
             // Folded sections move with the text above them: their lines are re-hidden after every edit.
             let hiddenBefore = hiddenLines
             recomputeHidden()
@@ -518,8 +532,8 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         switch line.kind {
         case .heading(let level):
             base[.font] = p.headings[min(level, p.headings.count) - 1]
-            // The top heading (a daily note's date) is written in the accent colour.
-            if level == 1 { base[.foregroundColor] = p.accent }
+            // Headings are written in the accent colour, every level (a daily note's date included).
+            base[.foregroundColor] = p.accent
             storage.setAttributes(base, range: para)
             let hashes = Self.match(Self.headingMarker, in: line.text)
             if hashes.location != NSNotFound { set(syntaxAttrs(hashes), hashes) }

@@ -456,6 +456,22 @@ extension MarkdownEditing {
         return true
     }
 
+    /// The dash that completes a `---` line draws the rule and puts the caret on a new line
+    /// under it: the dashes hide as soon as the rule is complete, so a caret left at the
+    /// line's end sat at its start, in front of the rule. Dashes only: `***` and `___` may be
+    /// the start of bold italics.
+    func ruleMarkTyped(_ mark: String) -> Bool {
+        let caret = markdownSelection
+        guard mark == "-", caret.length == 0,
+              let line = styler.blockMap.line(at: caret.location), line.kind != .rule, !isCodeLine(line),
+              caret.location == line.range.location + line.range.length else { return false }
+        let typed = line.text + mark
+        guard typed.allSatisfy({ $0 == "-" || $0 == " " }), BlockMap.scan(typed).lines.first?.kind == .rule,
+              replace(caret, with: mark + "\n") else { return false }
+        markdownSelection = NSRange(location: caret.location + 2, length: 0)
+        return true
+    }
+
     /// Put the caret on the line under the closing fence that ends at `end`: the blank line
     /// there, else a new one.
     private func landBelowFence(endingAt end: Int) {
@@ -922,14 +938,17 @@ extension MarkdownTextView: MarkdownEditing {
     }
 
     /// A typed space after `[]` at a line's start makes a task (`spacePressed`); text typed with
-    /// a picture or card selected goes on a new line under it (`typedOnBlock`).
+    /// a picture or card selected goes on a new line under it (`typedOnBlock`); a closing fence
+    /// or a `---` rule just completed puts the caret under it.
     public override func insertText(_ string: Any, replacementRange: NSRange) {
         let typed = (string as? String) ?? (string as? NSAttributedString)?.string
         if !hasMarkedText(), replacementRange.location == NSNotFound || replacementRange == selectedRange(), let typed {
             if typedOnBlock(typed) { return }
             if typed == " ", spacePressed() { return }
-            // The mark that completes a closing fence leaves the block (`fenceMarkTyped`).
+            // The mark that completes a closing fence leaves the block (`fenceMarkTyped`); the
+            // dash that completes a rule goes under it (`ruleMarkTyped`).
             if fenceMarkTyped(typed) { return }
+            if ruleMarkTyped(typed) { return }
         }
         super.insertText(string, replacementRange: replacementRange)
     }

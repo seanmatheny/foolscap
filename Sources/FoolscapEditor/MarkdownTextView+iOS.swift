@@ -143,6 +143,9 @@ public final class MarkdownTextView: UITextView {
 
     /// Called after every edit, as the Mac's `didChangeText`.
     func textDidChange() {
+        // The decoration layers are redrawn whole after each style pass (`overlaysChanged`);
+        // the Mac view redraws the edited bands from this set, so it is drained here too.
+        invalidate(lines: styler.takeEditedLines())
         scheduleTagListUpdate(open: true)
     }
 
@@ -186,8 +189,10 @@ public final class MarkdownTextView: UITextView {
         if text == "\t", range.length == 0, range == selectedRange, indentListLines(by: 1) { return false }
         // A space after `[]` at a line's start makes a task.
         if text == " ", typing, spacePressed() { return false }
-        // The mark that completes a block's closing fence leaves the block.
+        // The mark that completes a block's closing fence leaves the block; the dash that
+        // completes a rule goes under it.
         if typing, fenceMarkTyped(text) { return false }
+        if typing, ruleMarkTyped(text) { return false }
         if text.isEmpty, range.length == 1, selectedRange.length == 0 {
             // ⌫: a selected picture or card, or the one above the caret's line, goes whole;
             // just after a line's marker, the marker goes.

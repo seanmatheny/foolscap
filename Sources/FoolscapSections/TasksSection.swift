@@ -684,8 +684,12 @@ struct TaskRow: View {
                 }
                 Button { editing = true } label: { Image(systemName: "pencil").font(.system(size: 11)) }
                     .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help("Edit (double-click)")
-                    .popover(isPresented: $editing, arrowEdge: .bottom) {
+                    .persistentPopover(isPresented: $editing) {
+                        // Its own popover, so that it outlives a trip to another app (the hosted
+                        // view inherits no environment, hence the theme and pens by hand).
                         TaskEditPopover(task: task, allTags: allTags, onSave: { title, notes in onUpdate(title, notes); editing = false })
+                            .environment(\.notebookTheme, theme)
+                            .environment(\.taskPens, pens)
                     }
                 Button { askTag = true } label: { Image(systemName: "tag").font(.system(size: 11)) }
                     .buttonStyle(.plain).foregroundStyle(theme.dimInk.color).help("Add a tag")

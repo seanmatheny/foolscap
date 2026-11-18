@@ -133,7 +133,8 @@
   the flyleaf share `NotebookMetrics.pageInsets(tabsLeft:)`. The cover animation still
   hinges at the window edge. Leather tiles are 512 pt Retina tiles (`leather` pebbled,
   `leather-grain` full-grain); `make textures` takes ~25 s (bucketed Worley noise).
-- Level-one headings in the editor (a daily note's date) are set in the accent colour.
+- Headings in the editor are set in the accent colour at every level (until 0.24.0 only the
+  daily note's date, level one, was).
 - Overlays are positioned from the paragraph's last line bottom (`lineBottom(for:)`),
   not from the layout fragment's maxY: the last paragraph in a document gets no
   trailing paragraph spacing, so an image on the final line would float upward.
