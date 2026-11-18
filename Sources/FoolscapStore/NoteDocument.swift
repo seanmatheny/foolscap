@@ -363,6 +363,35 @@ public final class NoteDocument: Identifiable {
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: text)
     }
 
+    /// Cut a task line and the note lines indented under it, through the newline after them,
+    /// returning the text cut and the line it started on (for `insertLines` to undo it).
+    public func removeTaskBlock(line: Int, expectedKey: String) throws -> (text: String, line: Int) {
+        let target = try locateTask(line: line, expectedKey: expectedKey)
+        let map = blockMap
+        var end = target.index
+        while end + 1 < map.lines.count, TaskLineParser.isContinuation(map.lines[end + 1].text) { end += 1 }
+        let start = target.range.location
+        let last = map.lines[end].range
+        let stop = min(textStorage.length, last.location + last.length + 1)
+        let cut = NSRange(location: start, length: stop - start)
+        let text = (textStorage.string as NSString).substring(with: cut)
+        textStorage.replaceCharacters(in: cut, with: "")
+        return (text, target.index)
+    }
+
+    /// Put lines back in front of line `line`, or at the end when the note has fewer lines now.
+    public func insertLines(_ text: String, at line: Int) {
+        let block = text.hasSuffix("\n") ? text : text + "\n"
+        let map = blockMap
+        if line < map.lines.count {
+            textStorage.replaceCharacters(in: NSRange(location: map.lines[line].range.location, length: 0), with: block)
+        } else {
+            let tail = textStorage.string
+            let lead = tail.isEmpty || tail.hasSuffix("\n") ? "" : "\n"
+            textStorage.replaceCharacters(in: NSRange(location: textStorage.length, length: 0), with: lead + block)
+        }
+    }
+
     private func locateTask(line: Int, expectedKey: String) throws -> ScannedLine {
         let map = blockMap
         func matches(_ l: ScannedLine) -> Bool {

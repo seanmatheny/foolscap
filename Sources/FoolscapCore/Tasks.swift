@@ -140,6 +140,9 @@ public struct TaskItem: Identifiable, Codable, Hashable, Sendable {
 
     /// The first tag is the category.
     public var category: String? { tags.first }
+    /// A task in the standalone Tasks.md (not one written in a daily note), which the Tasks
+    /// tab's menu can remove: the file is the tab's own.
+    public var isStandalone: Bool { source.day == nil && source.path == "Tasks.md" && !isReadOnly }
 
     /// The tag the Jira section puts on the tasks it writes, and its tab's id.
     public static let jiraTag = "jira"
@@ -185,9 +188,24 @@ public protocol TaskProvider: AnyObject, Sendable {
     func setTitle(_ title: String, of task: TaskItem) async throws
     /// Replace the task's notes (nil or empty removes them).
     func setNotes(_ notes: String?, of task: TaskItem) async throws
+    /// Take the task's line, with the notes under it, out of its note. Read-only providers throw.
+    func remove(_ task: TaskItem) async throws -> RemovedTask
+    /// Put a removed task back on the line it stood on (⌘Z after `remove`).
+    func restore(_ removed: RemovedTask) async throws
 }
 
 public extension TaskProvider {
     func setTitle(_ title: String, of task: TaskItem) async throws { throw TaskWriteError.readOnly }
     func setNotes(_ notes: String?, of task: TaskItem) async throws { throw TaskWriteError.readOnly }
+    func remove(_ task: TaskItem) async throws -> RemovedTask { throw TaskWriteError.readOnly }
+    func restore(_ removed: RemovedTask) async throws { throw TaskWriteError.readOnly }
+}
+
+/// What `TaskProvider.remove` cut: the task, the text that went (its line and notes, newline
+/// included) and the line it started on, so `restore` can put it back where it was.
+public struct RemovedTask: Sendable {
+    public var task: TaskItem
+    public var text: String
+    public var line: Int
+    public init(task: TaskItem, text: String, line: Int) { self.task = task; self.text = text; self.line = line }
 }

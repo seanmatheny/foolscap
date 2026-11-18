@@ -84,6 +84,7 @@ struct TodayTasksPanel: View {
                         onRemoveTag: { aggregator.removeTag($0, from: task) },
                         onSetPriority: { aggregator.setPriority($0, of: task) },
                         onOpenIssue: task.jiraIssueKey.map { key in { section.openRoute?(TaskItem.jiraSectionID, SectionRoute(path: key)) } },
+                        onRemove: task.isStandalone ? { aggregator.remove(task) } : nil,
                         // No filter strip here to say which tag each colour is, so the pen's chip stays.
                         showsPenTag: true)
             }

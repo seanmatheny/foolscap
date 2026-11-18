@@ -90,6 +90,19 @@ final class DailyNotesTaskProvider: TaskProvider {
         try doc.replaceTaskNotes(line: task.source.line, expectedKey: task.contentKey, with: notes)
         await library.save()
     }
+
+    func remove(_ task: TaskItem) async throws -> RemovedTask {
+        let doc = await library.loadedDocument(atRelativePath: task.source.path)
+        let cut = try doc.removeTaskBlock(line: task.source.line, expectedKey: task.contentKey)
+        await library.save()
+        return RemovedTask(task: task, text: cut.text, line: cut.line)
+    }
+
+    func restore(_ removed: RemovedTask) async throws {
+        let doc = await library.loadedDocument(atRelativePath: removed.task.source.path)
+        doc.insertLines(removed.text, at: removed.line)
+        await library.save()
+    }
 }
 
 struct DailyNotesPage: View {

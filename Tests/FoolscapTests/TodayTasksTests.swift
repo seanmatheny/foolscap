@@ -117,4 +117,49 @@ import Foundation
         try await settle("- [x] Ring the bank\n- [x] Buy milk\n")
         #expect(try text() == "- [x] Ring the bank\n- [x] Buy milk\n")
     }
+
+    @Test func removeTakesTheLineAndItsNotesOutAndUndoPutsThemBack() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("foolscap-remove-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let folder = NotesFolder(root: tmp)
+        try folder.ensureLayout()
+        let original = "- [ ] Ring the bank\n- [/] FOO-12 Fix the sync #jira\n  https://x.atlassian.net/browse/FOO-12\n- [ ] Buy milk\n"
+        try original.write(to: folder.tasksFile, atomically: true, encoding: .utf8)
+        let library = try NotebookLibrary(folder: folder, indexPath: TestIndex.path)
+        await library.rescan(full: true)
+        let aggregator = TaskAggregator()
+        aggregator.setProviders([DailyNotesTaskProvider(library: library)])
+        await aggregator.reload()
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        aggregator.undoManager = undo
+
+        func text() throws -> String { try String(contentsOf: folder.tasksFile, encoding: .utf8) }
+        func settle(_ expected: String) async throws {
+            for _ in 0..<100 where try text() != expected { try await Task.sleep(for: .milliseconds(20)) }
+            await aggregator.reload()
+        }
+        let jira = try #require(aggregator.tasks.first { $0.jiraIssueKey == "FOO-12" })
+        #expect(jira.isStandalone)
+        undo.beginUndoGrouping(); aggregator.remove(jira); undo.endUndoGrouping()
+        try await settle("- [ ] Ring the bank\n- [ ] Buy milk\n")
+        #expect(aggregator.tasks.count == 2)
+        #expect(undo.canUndo && undo.undoActionName == "Remove Task")
+
+        undo.undo()
+        try await settle(original)
+        #expect(try text() == original)
+        #expect(aggregator.tasks.count == 3)
+
+        undo.redo()
+        try await settle("- [ ] Ring the bank\n- [ ] Buy milk\n")
+        #expect(try text() == "- [ ] Ring the bank\n- [ ] Buy milk\n")
+
+        // A removed last task comes back at the end.
+        let milk = try #require(aggregator.tasks.first { $0.title == "Buy milk" })
+        undo.beginUndoGrouping(); aggregator.remove(milk); undo.endUndoGrouping()
+        try await settle("- [ ] Ring the bank\n")
+        undo.undo()
+        try await settle("- [ ] Ring the bank\n- [ ] Buy milk\n")
+    }
 }

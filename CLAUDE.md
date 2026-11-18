@@ -311,6 +311,11 @@
   order, then priority, then note order (`TaskPens.laneRank`, `TaskAggregator.tasks(pens:)`,
   `TodayTasks.select(pens:)`). `HighlightMark` multiplies into paper and screens onto a dark
   page (`isDark`).
+- Remove Task (0.25.0) in a row's menu, for tasks in Tasks.md only (`TaskItem.isStandalone`; a
+  daily note's task is edited in the note): `TaskAggregator.remove` → `TaskProvider.remove`
+  cuts the line and its notes (`NoteDocument.removeTaskBlock`) and ⌘Z puts the text back on its
+  line (`restore`/`insertLines`), the undo registered before the write with a box filled after,
+  like the Jira sun. A pulled Jira issue's task goes this way without touching the issue.
 - Task priority is `!`/`!!`/`!!!` at the start of the task text (`TaskPriority`,
   `TaskLineParser.priority`). There is no "no priority" (Sean, 2026-10-20): a task with no
   marker is Low, as is `!`, so new tasks start Low, setting Low strips the marker, and every

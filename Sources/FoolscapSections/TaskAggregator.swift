@@ -149,6 +149,42 @@ public final class TaskAggregator {
 
     public func move(_ task: TaskItem, to status: TaskStatus) { move([task], to: status) }
 
+    /// Take a task out of its note, line, notes and all (the row menu's Remove Task, offered
+    /// for tasks in Tasks.md: a pulled Jira issue's task goes without touching the issue). ⌘Z
+    /// puts the text back on its line; the undo is registered now, so one in flight sees it as
+    /// the redo, and reads what to put back from a box the write fills.
+    public func remove(_ task: TaskItem) {
+        guard !task.isReadOnly, let provider = providers.first(where: { $0.id == task.providerID }) else { return }
+        let removed = RemovedBox()
+        if let undo = undoManager ?? TaskUndo.manager, undo.groupsByEvent || undo.groupingLevel > 0 {
+            undo.registerUndo(withTarget: self) { aggregator in
+                guard let cut = removed.value else { return }
+                aggregator.restore(cut, with: provider)
+            }
+            undo.setActionName("Remove Task")
+        }
+        tasks.removeAll { $0.id == task.id }
+        Task {
+            do { removed.value = try await provider.remove(task) }
+            catch { self.error = "Could not remove task: \(error)"; await reload() }
+        }
+    }
+
+    /// The undo of `remove`: the text goes back on its line, and the redo removes it again.
+    private func restore(_ removed: RemovedTask, with provider: any TaskProvider) {
+        if let undo = undoManager ?? TaskUndo.manager, undo.groupsByEvent || undo.groupingLevel > 0 {
+            undo.registerUndo(withTarget: self) { $0.remove(removed.task) }
+            undo.setActionName("Remove Task")
+        }
+        Task {
+            do { try await provider.restore(removed) }
+            catch { self.error = "Could not put the task back: \(error)" }
+            await reload()
+        }
+    }
+
+    private final class RemovedBox: @unchecked Sendable { var value: RemovedTask? }
+
     /// ⌘Z after a move puts each task back where it was (its id outlives the
     /// mark, so the row is found again), and that move registers the redo.
     private func registerUndo(for moved: [TaskItem], movedTo status: TaskStatus) {

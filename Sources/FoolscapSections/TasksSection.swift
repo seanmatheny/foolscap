@@ -149,7 +149,8 @@ struct TasksPage: View {
                         onUpdate: { section.aggregator.update($0, title: $1, notes: $2) },
                         onAddTag: { section.aggregator.addTag($1, to: $0) },
                         onRemoveTag: { section.aggregator.removeTag($1, from: $0) },
-                        onSetPriority: { section.aggregator.setPriority($1, of: $0) })
+                        onSetPriority: { section.aggregator.setPriority($1, of: $0) },
+                        onRemove: { section.aggregator.remove($0) })
     }
 
     private var header: some View {
@@ -295,6 +296,7 @@ struct TaskSectionView: View {
     let onAddTag: (TaskItem, String) -> Void
     let onRemoveTag: (TaskItem, String) -> Void
     let onSetPriority: (TaskItem, TaskPriority) -> Void
+    let onRemove: (TaskItem) -> Void
     @State private var targeted = false
     private var scale: CGFloat { theme.type.body.size / 15 }
     @AppStorage private var folded: Bool
@@ -306,12 +308,12 @@ struct TaskSectionView: View {
          onMove: @escaping ([TaskItem], TaskStatus) -> Void, onToggle: @escaping (TaskItem) -> Void, onOpen: @escaping (TaskItem) -> Void,
          onRename: @escaping (TaskItem, String) -> Void, onUpdate: @escaping (TaskItem, String, String?) -> Void,
          onAddTag: @escaping (TaskItem, String) -> Void, onRemoveTag: @escaping (TaskItem, String) -> Void,
-         onSetPriority: @escaping (TaskItem, TaskPriority) -> Void) {
+         onSetPriority: @escaping (TaskItem, TaskPriority) -> Void, onRemove: @escaping (TaskItem) -> Void) {
         self.status = status; self.symbol = symbol; self.tasks = tasks; self.allTags = allTags; self.pitch = pitch
         _selection = selection; _selectionAnchor = selectionAnchor; self.selectedTasks = selectedTasks
         self.onMove = onMove; self.onToggle = onToggle; self.onOpen = onOpen
         self.onRename = onRename; self.onUpdate = onUpdate; self.onAddTag = onAddTag; self.onRemoveTag = onRemoveTag
-        self.onSetPriority = onSetPriority
+        self.onSetPriority = onSetPriority; self.onRemove = onRemove
         // The done pile starts folded; the lanes start open.
         _folded = AppStorage(wrappedValue: status == .completed, "fold." + status.rawValue)
     }
@@ -362,7 +364,8 @@ struct TaskSectionView: View {
                                       onSetStatus: { onMove(group, $0) },
                                       onUpdate: { onUpdate(task, $0, $1) }, onAddTag: { onAddTag(task, $0) },
                                       onRemoveTag: { onRemoveTag(task, $0) },
-                                      onSetPriority: { onSetPriority(task, $0) })
+                                      onSetPriority: { onSetPriority(task, $0) },
+                                      onRemove: task.isStandalone ? { onRemove(task) } : nil)
                     // On a phone a long press held still opens the menu; moving the finger
                     // while held turns it into the drag, as in Files and Photos.
                     row.draggable(TaskDrag(tasks: group)) {
@@ -466,6 +469,8 @@ struct TaskRow: View {
     let onSetPriority: (TaskPriority) -> Void
     /// Set for a `#jira` task: a click on its title turns to the issue in the Jira tab.
     var onOpenIssue: (() -> Void)? = nil
+    /// Set for a task in Tasks.md: the menu's Remove Task takes its line out of the file.
+    var onRemove: (() -> Void)? = nil
     /// Keeps the pen's chip showing, in its colour, where no filter strip names the pens
     /// (the daily page's Today panel); the Tasks tab shows it only under the pointer.
     var showsPenTag = false
@@ -747,6 +752,10 @@ struct TaskRow: View {
             }
             if task.source.day != nil { Button("Open in Daily Note") { onOpen() } }
             if let onOpenIssue { Button("Open in Jira Tab") { onOpenIssue() } }
+            if let onRemove {
+                Divider()
+                Button("Remove Task", role: .destructive) { onRemove() }
+            }
     }
 
     /// A move to Completed goes up in a little cloud of smoke (the classic poof) before the lanes change.
