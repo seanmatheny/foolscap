@@ -709,7 +709,14 @@ public final class MarkdownTextView: NSTextView {
     func invalidate(lines: Set<Int>) {
         let map = styler.blockMap
         for i in lines where i < map.lines.count {
-            guard let r = fragmentRect(for: map.lines[i].range) else { continue }
+            var r = fragmentRect(for: map.lines[i].range)
+            if r == nil, i > 0, let above = fragmentRect(for: map.lines[i - 1].range) {
+                // The empty last line of a note ending in a newline has no fragment of its own:
+                // TextKit keeps it inside the paragraph above, so that paragraph's frame holds its
+                // band (an ended list's dot stayed there, 0.24.1), a pitch added to be sure.
+                r = NSRect(x: above.minX, y: above.minY, width: above.width, height: above.height + palette.pitch)
+            }
+            guard let r else { continue }
             setNeedsDisplay(NSRect(x: 0, y: r.minY - 2, width: bounds.width, height: r.height + 4))
         }
     }
