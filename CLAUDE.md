@@ -407,6 +407,13 @@
   unload after each run; drain both pipes off-thread or a long notebook deadlocks.
   The OCR cache is keyed on the page-PNG content hash, not the PDF bytes
   (CGPDFContext embeds dates).
+- Today's tasks onto the Scribe: researched and sampled on 2026-11-22, then put on hold by Sean
+  (no clean way to file or delete the page each day leaves in the Kindle library). Nothing is in
+  the app. `Docs/Scribe-Today-Page-2026-11-22.md` has the routes, what was tried on his Scribe,
+  what is untested and the steps to pick it up; `Tools/scribe-day-page.swift` draws the sample
+  PDF. What held: a PDF sent from the Kindle app's share sheet with "keep original layout" opens
+  and takes the pen ("make layout adjustable" reflows it: never for this); a title with a comma,
+  or the same file sent in both layouts, would not open, so titles carry no comma.
 - Scribe sync pacing (`ScribeSyncEngine.sync`): Amazon stamps `modificationTime`
   before its page renders change, sometimes by over an hour, so a notebook is
   fetched every pass while its images predate the stamp (`awaitingImages`), on the
