@@ -616,8 +616,10 @@
   bookmark), no push, no App Groups, one app id, and the signature lasts 7 days.
   `Tools/ios-refresh.sh`, run every 6 h by the LaunchAgent `make ios-agent-install` loads,
   rebuilds `main` in a clean worktree under `~/Library/Caches/Foolscap/ios-build` and
-  reinstalls over Wi-Fi with `devicectl` once the last install (stamp in Application
-  Support/Foolscap) is 5 days old; it notifies on success and failure and logs to
+  reinstalls over Wi-Fi with `devicectl` once the installed provisioning profile has under 2 days left (its
+  expiry is the stamp in Application Support/Foolscap; Xcode reuses a cached profile while it is valid, so
+  the script deletes cached ones with under 6 days and refuses a build whose profile has less: an install
+  on 2026-11-21 died 87 minutes later); it notifies on success and failure and logs to
   `~/Library/Logs/foolscap-ios-refresh.log`. `make ios` builds signed (team id in the
   gitignored `Mobile/team.xcconfig`, `make ios-team` prints it), `make ios-check` builds
   unsigned (no Apple ID needed), `make ios-install` installs on `IOS_UDID`. Version and
