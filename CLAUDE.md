@@ -41,7 +41,7 @@
 - Resource bundles are copied into `Foolscap.app/Contents/Resources`; look them
   up through `FoolscapUIResources.bundle`, not `Bundle.module` directly.
 - Tab order is fixed by `AppModel.tabRank` in `rewireSections` whatever order the sections were
-  switched on in: Daily Notes, Tasks, Jira, then Highlights, Scribe and plug-ins, Secrets last.
+  switched on in: Daily Notes, Tasks, Jira, Reference, then Highlights, Scribe and plug-ins, Secrets last.
 - Sections plug in through `NotebookSection` (FoolscapCore/Sections.swift);
   tasks through `TaskProvider`. Third-party sections should depend only on
   FoolscapCore (and FoolscapStore for files/index); `FoolscapScribe` is first-party
@@ -61,7 +61,10 @@
 - Launch flags for verification: `--day=YYYY-MM-DD`, `--tab=id` (a section: `daily`, `tasks`, …), `--turn-to=id` (turns to that tab 2.5 s after launch, to watch a curl;
   with `FOOLSCAP_SLOW_OPEN=1`, capture with `screencapture`: the curl is a child window), `--search=q`, `--export`,
   `--prefs` (`--prefs-bottom` also scrolls Settings to its end, `--prefs-scroll=400`
-  to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--jira` (forces the Jira tab on and opens it; `--jira-sample` shows made-up issues without reading the keychain, so a freshly signed debug build raises no token prompt), `--secrets` (the Secrets tab likewise), `--highlights` (forces the Highlights tab on
+  to that many points), `--scribe` (`--scribe=Work/Notebook 3` also opens that notebook), `--jira` (forces the Jira tab on and opens it; `--jira-sample` shows made-up issues without reading the keychain, so a freshly signed debug build raises no token prompt), `--secrets` (the Secrets tab likewise), `--reference` (forces the Reference tab on and opens
+  it on the shelf; `--reference=Title` on that note; `--reference-sample` fills an empty `Reference/` with
+  ten made-up notes, three with covers chosen, for a scratch notebook's screenshots;
+  `--reference-cover=Title` opens that note's cover picker on the shelf), `--highlights` (forces the Highlights tab on
   and opens it; `--highlights=books` on the shelf, which is where the tab opens by default, `--highlights=today` on the day's three, `--highlights=search:words` with a search typed in),
   `--window=WxH` (sizes the main window, to see the index tabs shrink to their icons), `--compact` (previews the phone's layout on the Mac: the compact cover, `\.compactPage`, the phone's
   text column, a 390×844 window unless `--window` says otherwise; the Mac app never sets these otherwise, and the UIKit editor and the phone's Settings tab are not shown), `--flyleaf` (forces the tab on and shows the day's three on the
@@ -782,3 +785,31 @@
   that is never signed in. `RenderedPage` is a `CGImage` plus the scale it was drawn at,
   shown with `Image(decorative:scale:)` on both platforms; "Open PDF" is Mac-only. The phone's
   Settings tab has the toggle; the Scribe pane there is a note. Phase 3 is complete.
+- Reference (`FoolscapReference`, 0.26.0, both apps): a hard toggle **on unless switched off**
+  (`referenceEnabled`, read with `ReferenceSection.isEnabled`, since `bool(forKey:)` reads false when
+  unset; `setReferenceEnabled` in `AppModel` and `PhoneModel`; Settings ▸ Reference, `--prefs-tab=reference`;
+  ⌘R; the seventh tab colour, a teal added to every theme). Notes are `Reference/<Title>.md`, top level
+  only for now; the title is the file name (`FileNames.sanitize`). The tab always opens on the shelf
+  (`didLeaveTab` resets `mode`). Covers: a 3:4 cloth board (`NoteCover`), its cloth (`CoverCloth`, 12) and
+  pattern (`CoverPattern`, 8, drawn in a `Canvas`) derived from the title (`ReferenceCover.derived`:
+  FNV-1a of the lower-cased NFC title through SplitMix's finaliser, `StableHash` in Core; never change
+  it, or every uncustomised cover recolours), the monogram pressed in (`Embossed(base:)`) unless an SF
+  Symbol was chosen (`ReferenceSymbols`, a curated list filtered by what the OS draws), and a paper label
+  with the title. Choices live in one sidecar, `Reference/.foolscap-covers.json`
+  (`ReferenceCovers`, keyed by the name relative to `Reference/`, every field optional, unknown keys kept
+  through `JSONValue`, read-modify-write through `NotebookLibrary.updateReferenceCovers` since both
+  devices write it), never in a note. `NotesFolder.isNotebookDotFile` keeps `.foolscap-` dot files in
+  `notebookFiles` and restores, so backups carry the sidecar (and the appearance file, which they had
+  skipped). A rename in the app (`ReferenceSection.rename` → `NotebookLibrary.moveNote`) moves the
+  entry, or pins the old title's cloth and pattern when there was none; a rename outside the app is
+  recognised when exactly one customised note vanished and one uncustomised note of the same size and
+  mtime appeared (`carryOver`). The section re-reads on `library.folderChanges`, which also yields for
+  watcher events that changed no note (the sidecar). Indexed under `indexesReference`: searched by
+  `ReferenceSearchProvider` (`.under("Reference/")`), left out of Daily search, and their `- [ ]` lines are
+  not indexed as tasks (`SearchIndex.isReferenceFile`, Sean's choice: checklists stay in the note). The
+  note page is the shared `MarkdownEditor` with `NoteLoadStatus`/`NoteChangeBanners` (moved from the daily
+  page into FoolscapEditor). On a compact page the shelf is two covers a row, the order chips and the
+  title filter take a second header row, and the cover picker is a sheet (a `PaperPopover` on the Mac).
+  The shelf's covers are not flattened (`standingOnShelf(flattened: false)`): a `drawingGroup` square
+  showed as a paler box round each cover on textured paper (found 2026-11-23; the Highlights shelf
+  still flattens and likely shows the same).

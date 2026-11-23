@@ -90,11 +90,7 @@ public enum DailyPicks {
     }
 
     /// FNV-1a of the day string: the same day seeds the same draw.
-    static func seed(_ day: String) -> UInt64 {
-        var hash: UInt64 = 0xcbf29ce484222325
-        for byte in day.utf8 { hash ^= UInt64(byte); hash &*= 0x100000001b3 }
-        return hash
-    }
+    static func seed(_ day: String) -> UInt64 { StableHash.fnv1a(day) }
 
     /// Every eligible highlight, best draw first (Efraimidis–Spirakis: each
     /// candidate's key is u^(1/w) for one uniform u).

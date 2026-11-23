@@ -176,7 +176,9 @@ public enum BackupArchive {
                 }
             }
         }
-        try copyTree(from: contents.notebook, to: root) { $0.lastPathComponent.hasPrefix(".") }
+        try copyTree(from: contents.notebook, to: root) {
+            $0.lastPathComponent.hasPrefix(".") && !NotesFolder.isNotebookDotFile($0.lastPathComponent)
+        }
         try notes.ensureLayout()
     }
 

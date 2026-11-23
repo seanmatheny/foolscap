@@ -8,6 +8,7 @@ import FoolscapScribe
 import FoolscapHighlights
 import FoolscapJira
 import FoolscapSecrets
+import FoolscapReference
 
 /// The Mac's app model: the shared wiring (`AppModelCore`) plus the optional
 /// sections, backups, the launch flags and the panels.
@@ -42,6 +43,11 @@ final class AppModel: AppModelCore {
     /// `--secrets` keeps the tab on for this launch whatever Settings says.
     private var secretsForced = false
     private(set) var secretsSection: SecretsSection?
+    /// The Reference tab is a hard toggle too, on unless switched off.
+    private(set) var referenceEnabled = false
+    /// `--reference` keeps the tab on for this launch whatever Settings says.
+    private var referenceForced = false
+    private(set) var referenceSection: ReferenceSection?
 
     init() {
         let defaults = UserDefaults.standard
@@ -70,11 +76,28 @@ final class AppModel: AppModelCore {
             setJiraEnabled(jiraForced || defaults.bool(forKey: "jiraEnabled"))
             secretsForced = CommandLine.arguments.contains("--secrets")
             setSecretsEnabled(secretsForced || defaults.bool(forKey: SecretsSection.enabledKey))
+            referenceForced = CommandLine.arguments.contains { $0 == "--reference" || $0.hasPrefix("--reference=") || $0 == "--reference-sample"
+                || $0.hasPrefix("--reference-cover=") }
+            setReferenceEnabled(referenceForced || ReferenceSection.isEnabled(defaults))
             rewireSections()
         }
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
         if jiraForced { selectedSectionID = JiraSection.sectionID }
         if secretsForced { selectedSectionID = SecretsSection.sectionID }
+        // `--reference` opens the tab on the shelf, `--reference=<Title>` on that note;
+        // `--reference-sample` first fills an empty Reference folder with made-up notes.
+        if referenceForced, let reference = referenceSection {
+            selectedSectionID = ReferenceSection.sectionID
+            let title = CommandLine.arguments.first { $0.hasPrefix("--reference=") }.map { String($0.dropFirst("--reference=".count)) }
+            Task {
+                if CommandLine.arguments.contains("--reference-sample") { await reference.addSampleNotes() }
+                if let title, !title.isEmpty { reference.open(path: "\(NotesFolder.referenceDirectoryName)/\(title).md") }
+                // `--reference-cover=<Title>` opens that note's cover picker on the shelf.
+                if let cover = CommandLine.arguments.first(where: { $0.hasPrefix("--reference-cover=") }) {
+                    reference.pendingCoverPicker = String(cover.dropFirst("--reference-cover=".count))
+                }
+            }
+        }
         // `--highlights` opens the tab; `--highlights=books` on the shelf (the default), `--highlights=today` on the day's three, `--highlights=Highlights/<Title>.md`
         // on a book, `--highlights=search:<words>` with that search typed in.
         if highlightsForced, let highlights = highlightsSection {
@@ -256,10 +279,13 @@ final class AppModel: AppModelCore {
         if !jiraForced, jira != jiraEnabled { setJiraEnabled(jira) }
         let secrets = defaults.bool(forKey: SecretsSection.enabledKey)
         if !secretsForced, secrets != secretsEnabled { setSecretsEnabled(secrets) }
+        let reference = ReferenceSection.isEnabled(defaults)
+        if !referenceForced, reference != referenceEnabled { setReferenceEnabled(reference) }
     }
 
     override func sectionSelectionChanged(from old: String) {
         if old == SecretsSection.sectionID, selectedSectionID != old { secretsSection?.didLeaveTab() }
+        if old == ReferenceSection.sectionID, selectedSectionID != old { referenceSection?.didLeaveTab() }
         if selectedSectionID == SecretsSection.sectionID, selectedSectionID != old { secretsSection?.didEnterTab() }
         // Going somewhere (a tab, the Go menu, a search result) turns the flyleaf away.
         if flyleafPresented { flyleafPresented = false }
@@ -283,6 +309,10 @@ final class AppModel: AppModelCore {
         if secretsEnabled {
             setSecretsEnabled(false)
             setSecretsEnabled(true)
+        }
+        if referenceEnabled {
+            setReferenceEnabled(false)
+            setReferenceEnabled(true)
         }
         tasksSection?.aggregator.scheduleReload()
         if section(id: selectedSectionID) == nil { selectedSectionID = sections.first?.id ?? "" }
@@ -370,6 +400,26 @@ final class AppModel: AppModelCore {
             secretsSection = nil
             sections.removeAll { $0.id == SecretsSection.sectionID }
             if selectedSectionID == SecretsSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
+        }
+        rewireSections()
+    }
+
+    /// Add or remove the Reference section at runtime (`rewireSections` puts it after Jira).
+    func setReferenceEnabled(_ on: Bool) {
+        guard on != referenceEnabled, let library else { return }
+        referenceEnabled = on
+        if on {
+            let reference = ReferenceSection(library: library)
+            sections.append(reference)
+            referenceSection = reference
+            library.indexesReference = true
+            reference.start()
+        } else {
+            referenceSection?.stop()
+            referenceSection = nil
+            sections.removeAll { $0.id == ReferenceSection.sectionID }
+            library.indexesReference = false
+            if selectedSectionID == ReferenceSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
         }
         rewireSections()
     }

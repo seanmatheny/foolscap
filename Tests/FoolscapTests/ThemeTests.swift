@@ -16,7 +16,7 @@ import Foundation
         for theme in flat {
             #expect(theme.cover.textureTile.isEmpty && theme.cover.grainOpacity == 0)
             #expect(theme.page.textureTile.isEmpty && theme.page.textureOpacity == 0)
-            #expect(theme.tabColors.count == 6)
+            #expect(theme.tabColors.count == 7)
             #expect(theme.type.body.design == .sans)
             // The same pitch as the leather themes, so the ruling geometry is shared.
             #expect(theme.linePitch == NotebookTheme.classicBlack.linePitch)

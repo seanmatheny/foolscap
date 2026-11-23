@@ -29,14 +29,38 @@ public struct NotesFolder: Hashable, Sendable {
     public static let secretsDirectoryName = "Secrets"
     public var secretsDirectory: URL { root.appendingPathComponent(NotesFolder.secretsDirectoryName, isDirectory: true) }
 
+    /// Long-running notes the Reference tab shelves: `Reference/<Title>.md`, with the
+    /// covers' sidecar (`ReferenceCovers.fileName`) beside them.
+    public static let referenceDirectoryName = "Reference"
+    public var referenceDirectory: URL { root.appendingPathComponent(NotesFolder.referenceDirectoryName, isDirectory: true) }
+
     /// Every markdown file the index should know about: daily notes plus Tasks.md,
-    /// the Scribe transcripts and the highlight books when those sections are on.
-    public func listIndexableNotes(includingScribe: Bool = false, includingHighlights: Bool = false) -> [(url: URL, day: DayKey?)] {
+    /// the Scribe transcripts, the highlight books and the Reference notes when those
+    /// sections are on.
+    public func listIndexableNotes(includingScribe: Bool = false, includingHighlights: Bool = false,
+                                   includingReference: Bool = false) -> [(url: URL, day: DayKey?)] {
         var out: [(URL, DayKey?)] = listDailyNotes().filter { !$0.isPlaceholder }.map { ($0.url, $0.day) }
         if FileManager.default.fileExists(atPath: tasksFile.path) { out.append((tasksFile, nil)) }
         if includingScribe { out += listScribeNotes().map { ($0, nil) } }
         if includingHighlights { out += listHighlightNotes().map { ($0, nil) } }
+        if includingReference { out += listReferenceNotes().map { ($0, nil) } }
         return out
+    }
+
+    /// Notes at the top of `Reference/`, sorted by name; placeholders and dot files skipped.
+    public func listReferenceNotes() -> [URL] {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: referenceDirectory.path) else { return [] }
+        return names.filter { !$0.hasPrefix(".") && $0.hasSuffix(".md") }.sorted()
+            .map { referenceDirectory.appendingPathComponent($0) }
+            .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+    }
+
+    /// iCloud placeholders in `Reference/` (`.Title.md.icloud`), as the note URLs they stand for:
+    /// the phone lists a note it has not downloaded yet.
+    public func listReferencePlaceholders() -> [URL] {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: referenceDirectory.path) else { return [] }
+        return names.filter { $0.hasPrefix(".") && $0.hasSuffix(".md.icloud") }.sorted()
+            .map { referenceDirectory.appendingPathComponent(String($0.dropFirst().dropLast(".icloud".count))) }
     }
 
     /// Book files at the top of `Highlights/`, sorted by name; placeholders and dot files skipped.
@@ -91,16 +115,22 @@ public struct NotesFolder: Hashable, Sendable {
     }
 
     /// The directories and root-level files that make up a notebook.
-    public static let layoutDirectories = ["Daily", "Attachments", scribeDirectoryName, highlightsDirectoryName, secretsDirectoryName]
+    public static let layoutDirectories = ["Daily", "Attachments", scribeDirectoryName, highlightsDirectoryName, secretsDirectoryName,
+                                           referenceDirectoryName]
+
+    /// Dot files that are notebook data all the same (the appearance file, the Reference
+    /// covers), carried by backups and moves; every other dot file is skipped.
+    public static func isNotebookDotFile(_ name: String) -> Bool { name.hasPrefix(".foolscap-") }
 
     /// Every regular file that belongs to the notebook under `root`, with its
     /// path relative to the root: the layout directories at any depth plus
-    /// root-level files (Tasks.md). Hidden files and iCloud placeholders are skipped.
+    /// root-level files (Tasks.md). Hidden files and iCloud placeholders are skipped, bar
+    /// the `.foolscap-` files (`isNotebookDotFile`).
     public static func notebookFiles(under root: URL) -> [(url: URL, relativePath: String)] {
         let fm = FileManager.default
         var out: [(URL, String)] = []
         guard let top = try? fm.contentsOfDirectory(atPath: root.path) else { return [] }
-        for name in top where !name.hasPrefix(".") {
+        for name in top where !name.hasPrefix(".") || isNotebookDotFile(name) {
             let item = root.appendingPathComponent(name)
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: item.path, isDirectory: &isDirectory) else { continue }
@@ -109,7 +139,7 @@ public struct NotesFolder: Hashable, Sendable {
                 guard layoutDirectories.contains(name), let items = fm.enumerator(atPath: item.path) else { continue }
                 while let rel = items.nextObject() as? String {
                     let leaf = (rel as NSString).lastPathComponent
-                    if leaf.hasPrefix(".") {
+                    if leaf.hasPrefix("."), !isNotebookDotFile(leaf) {
                         if items.fileAttributes?[.type] as? FileAttributeType == .typeDirectory { items.skipDescendants() }
                         continue
                     }

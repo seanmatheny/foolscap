@@ -158,31 +158,8 @@ struct DailyNotesPage: View {
             .padding(.trailing, compact ? PageRuling.textRight : 44)
             .clearOfTabChip()
             if let document {
-                if document.isDownloading {
-                    Text("Downloading from iCloud…")
-                        .font(theme.type.body.face(13)).foregroundStyle(theme.dimInk.color)
-                        .padding(.top, 60).padding(.leading, compact ? PageRuling.textLeft : 64)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else if let error = document.loadError, !document.isLoaded {
-                    // The file is there but could not be read (iCloud still fetching it, a
-                    // permission gone): say so rather than show an empty page in its place,
-                    // which the first keystroke would save over the note.
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("This note could not be read: \(error.localizedDescription)")
-                            .font(theme.type.body.face(13)).foregroundStyle(theme.dimInk.color)
-                        Button("Try Again") { Task { await document.reload() } }
-                            .font(theme.type.body.face(12, weight: .semibold))
-                    }
-                    .padding(.top, 60).padding(.leading, compact ? PageRuling.textLeft : 64).padding(.trailing, 44)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if document.externalChangePending {
-                    ExternalChangeBanner(document: document)
-                        .padding(.top, 44).padding(.trailing, compact ? PageRuling.textRight : 44)
-                } else if !document.conflictVersions.isEmpty {
-                    ConflictBanner(document: document)
-                        .padding(.top, 44).padding(.trailing, compact ? PageRuling.textRight : 44)
-                }
+                NoteLoadStatus(document: document, compact: compact)
+                NoteChangeBanners(document: document, compact: compact)
             }
         }
         .animation(.easeInOut(duration: 0.25), value: section.selectedDay)
@@ -327,65 +304,7 @@ struct CalendarPopover: View {
     }
 }
 
-struct ConflictBanner: View {
-    @Environment(\.notebookTheme) private var theme
-    let document: NoteDocument
-    var body: some View {
-        let count = document.conflictVersions.count
-        NoteBanner(symbol: "arrow.triangle.branch", text: "iCloud has \(count) conflicting cop\(count == 1 ? "y" : "ies") of this note.") {
-            Button("Keep mine") { try? document.resolveConflicts(.keepMine) }
-            Button("Take theirs") { try? document.resolveConflicts(.takeTheirs) }
-            Button("Keep both") { try? document.resolveConflicts(.keepBoth) }
-        }
-    }
-}
-
-struct ExternalChangeBanner: View {
-    let document: NoteDocument
-    var body: some View {
-        NoteBanner(symbol: "exclamationmark.icloud", text: "This note changed on another device.") {
-            Button("Keep mine") { document.keepLocalVersion() }
-            Button("Take theirs") { document.takeExternalVersion() }
-        }
-    }
-}
-
-/// A capsule over the note with a message and its buttons in one row where they
-/// fit (a window), the buttons under the message where they do not (a phone).
-struct NoteBanner<Buttons: View>: View {
-    @Environment(\.notebookTheme) private var theme
-    let symbol: String
-    let text: String
-    @ViewBuilder let buttons: Buttons
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) {
-                Image(systemName: symbol)
-                Text(text)
-                buttons
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Image(systemName: symbol)
-                    Text(text)
-                }
-                HStack(spacing: 8) { buttons }
-            }
-        }
-        .font(theme.type.body.face(12))
-        .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 14).fill(theme.accent.color.opacity(0.18)))
-        .foregroundStyle(theme.ink.color)
-    }
-}
-
 private extension View {
-    @ViewBuilder
-    func ignoresPageInsets(_ on: Bool) -> some View {
-        if on { ignoresSafeArea(.container, edges: .vertical) } else { self }
-    }
-
     /// System controls on the notebook's paper take the paper's light or dark scheme.
     @ViewBuilder
     func paperScheme(_ on: Bool, dark: Bool) -> some View {

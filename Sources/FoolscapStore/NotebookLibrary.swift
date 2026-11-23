@@ -36,6 +36,7 @@ public final class NotebookLibrary {
     private var queuedScan: (id: Int, full: Bool, task: Task<Void, Never>)?
     private var scanID = 0
     private var changeContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private var folderContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     /// Where each folder's index lives: Application Support, or a temporary
     /// file in tests so they leave nothing behind.
@@ -103,10 +104,28 @@ public final class NotebookLibrary {
         }
     }
 
+    /// A stream that yields whenever anything in the folder may have changed, the index
+    /// or not: every `changes` event plus each external change the watcher reports (a
+    /// sidecar the other device wrote changes no note, so `changes` stays quiet for it).
+    public var folderChanges: AsyncStream<Void> {
+        AsyncStream { continuation in
+            let id = UUID()
+            folderContinuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in self?.folderContinuations[id] = nil }
+            }
+        }
+    }
+
     private func notifyChanged() {
         indexVersion += 1
         for c in changeContinuations.values { c.yield() }
+        notifyFolderChanged()
         refreshTags()
+    }
+
+    private func notifyFolderChanged() {
+        for c in folderContinuations.values { c.yield() }
     }
 
     private func refreshTags() {
@@ -154,7 +173,97 @@ public final class NotebookLibrary {
         return d
     }
 
+    /// Any note by relative path, loading in the background if it is new: show it once
+    /// `isLoaded` (or `isDownloading`) is set. A missing file loads as empty text.
+    public func document(atRelativePath rawPath: String) -> NoteDocument {
+        let path = rawPath.precomposedStringWithCanonicalMapping
+        if let d = documents[path] { return d }
+        let d = NoteDocument(path: path, url: folder.url(forRelativePath: path), day: folder.day(forRelativePath: path))
+        documents[path] = d
+        Task { await d.loadIfNeeded(template: "") }
+        return d
+    }
+
     private static func template(for day: DayKey) -> String { "# \(day.longTitle)\n\n" }
+
+    // MARK: Whole notes
+
+    /// Write a new note at `path` (relative). Refuses to replace a file that is there.
+    public func createNote(atRelativePath rawPath: String, text: String) async throws {
+        let path = rawPath.precomposedStringWithCanonicalMapping
+        let url = folder.url(forRelativePath: path), presenter = watcher
+        try await Task.detached(priority: .userInitiated) {
+            guard !FileManager.default.fileExists(atPath: url.path) else { throw CocoaError(.fileWriteFileExists) }
+            try FileIO.write(Data(text.utf8), to: url, presenter: presenter)
+        }.value
+        await rescan()
+    }
+
+    /// Move a note to `newPath` (relative), saving its edits first. Refuses to replace a
+    /// file that is there. The old document is dropped: open the new path afterwards.
+    public func moveNote(from rawOld: String, to rawNew: String) async throws {
+        let old = rawOld.precomposedStringWithCanonicalMapping, new = rawNew.precomposedStringWithCanonicalMapping
+        await save()
+        let from = folder.url(forRelativePath: old), to = folder.url(forRelativePath: new), presenter = watcher
+        try await Task.detached(priority: .userInitiated) {
+            // A rename that only changes case is the same file on a case-insensitive volume.
+            let sameFile = from.path.lowercased() == to.path.lowercased()
+            guard sameFile || !FileManager.default.fileExists(atPath: to.path) else { throw CocoaError(.fileWriteFileExists) }
+            var coordError: NSError?
+            var result: Result<Void, Error> = .success(())
+            let coordinator = NSFileCoordinator(filePresenter: presenter)
+            coordinator.coordinate(writingItemAt: from, options: .forMoving, writingItemAt: to, options: .forReplacing,
+                                   error: &coordError) { a, b in
+                result = Result {
+                    try FileManager.default.createDirectory(at: b.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try FileManager.default.moveItem(at: a, to: b)
+                    coordinator.item(at: a, didMoveTo: b)
+                }
+            }
+            if let coordError { throw coordError }
+            try result.get()
+        }.value
+        documents[old] = nil
+        await rescan()
+    }
+
+    /// Put a note in the Trash (`permanently`: delete it outright, for a file provider
+    /// that has no Trash), saving its edits first so nothing typed is lost with it.
+    public func removeNote(atRelativePath rawPath: String, permanently: Bool = false) async throws {
+        let path = rawPath.precomposedStringWithCanonicalMapping
+        await save()
+        let url = folder.url(forRelativePath: path), presenter = watcher
+        try await Task.detached(priority: .userInitiated) {
+            var coordError: NSError?
+            var result: Result<Void, Error> = .success(())
+            NSFileCoordinator(filePresenter: presenter).coordinate(writingItemAt: url, options: .forDeleting, error: &coordError) { u in
+                result = Result {
+                    if permanently { try FileManager.default.removeItem(at: u) }
+                    else { try FileManager.default.trashItem(at: u, resultingItemURL: nil) }
+                }
+            }
+            if let coordError { throw coordError }
+            try result.get()
+        }.value
+        documents[path] = nil
+        await rescan()
+    }
+
+    /// The Reference covers' sidecar as it is on disk, read off the main actor.
+    public func readReferenceCovers() async -> ReferenceCovers.Document {
+        let folder = self.folder, presenter = watcher
+        return await Task.detached(priority: .utility) { ReferenceCovers.read(folder, presenter: presenter) }.value
+    }
+
+    /// Change the Reference covers' sidecar (read, change, write back) off the main
+    /// actor; our own write is not reported back by the watcher. Returns the result.
+    @discardableResult
+    public func updateReferenceCovers(_ change: @escaping @Sendable (ReferenceCovers.Document) -> ReferenceCovers.Document) async throws -> ReferenceCovers.Document {
+        let folder = self.folder, presenter = watcher
+        return try await Task.detached(priority: .userInitiated) {
+            try ReferenceCovers.update(folder, presenter: presenter, change)
+        }.value
+    }
 
     /// Add a task to the Tasks file and save. With `skipIfPresent`, a task whose
     /// content key already appears in the file is not added again (the Scribe
@@ -226,6 +335,12 @@ public final class NotebookLibrary {
     /// Highlights section switches it on, like `indexesScribe`.
     public var indexesHighlights = false {
         didSet { if oldValue != indexesHighlights { Task { await rescan() } } }
+    }
+
+    /// Whether `rescan` indexes the notes under `Reference/`; the Reference section
+    /// switches it on, like `indexesScribe`.
+    public var indexesReference = false {
+        didSet { if oldValue != indexesReference { Task { await rescan() } } }
     }
 
     /// Drop documents that are saved, loaded and held by nothing but this table, to
@@ -342,6 +457,7 @@ public final class NotebookLibrary {
             doc.setConflicts(check.1.versions)
         }
         await rescan()
+        notifyFolderChanged()
     }
 
     /// Copy the notebook into a new folder, verify, and switch to it. The old
@@ -399,6 +515,7 @@ public final class NotebookLibrary {
         let index = self.index
         let includeScribe = indexesScribe
         let includeHighlights = indexesHighlights
+        let includeReference = indexesReference
         let task = Task.detached(priority: .utility) { () -> Bool in
             var changed = false
             // Swift strings match by canonical equivalence ("Shōgun" with a composed or a
@@ -408,7 +525,8 @@ public final class NotebookLibrary {
             for r in (try? index.allNoteRecords()) ?? [] { known[Data(r.path.utf8)] = r }
             func record(_ path: String) -> SearchIndex.NoteRecord? { known[Data(path.utf8)] }
             var seen = Set<Data>()
-            for entry in folder.listIndexableNotes(includingScribe: includeScribe, includingHighlights: includeHighlights) {
+            for entry in folder.listIndexableNotes(includingScribe: includeScribe, includingHighlights: includeHighlights,
+                                                        includingReference: includeReference) {
                 let path = folder.relativePath(of: entry.url)
                 seen.insert(Data(path.utf8))
                 guard let stat = FileIO.stat(entry.url) else { continue }
@@ -499,3 +617,4 @@ struct ConflictVersions: @unchecked Sendable {
     let versions: [NSFileVersion]
     init(_ versions: [NSFileVersion]) { self.versions = versions }
 }
+

@@ -80,19 +80,8 @@ struct ShelfCover: View {
     let lifted: Bool
 
     var body: some View {
-        let k = width / 96
-        // Cover and shadow flattened into one layer (`drawingGroup`), so scrolling
-        // composites a texture instead of re-blurring two dozen shadows a frame.
-        // Two shadows: a tight one where the book meets the shelf, a soft one it casts.
         CoverThumbnail(url: url, title: title, author: author, width: width)
-            .shadow(color: .black.opacity(0.28), radius: 1.5 * k, x: 0, y: 1 * k)
-            .shadow(color: .black.opacity(0.32), radius: 10 * k, x: 0, y: 7 * k)
-            .padding(20)
-            .drawingGroup()
-            .padding(-20)
-            .scaleEffect(lifted ? 1.03 : 1)
-            .offset(y: lifted ? -2 : 0)
-            .animation(.easeOut(duration: 0.12), value: lifted)
+            .standingOnShelf(width: width, lifted: lifted)
     }
 }
 

@@ -207,7 +207,8 @@ public final class SearchIndex: Sendable {
                            arguments: [path, day?.string, stat.mtime, stat.size, hash, parsed.title])
             try db.execute(sql: "INSERT INTO notes_fts (path, title, body) VALUES (?,?,?)",
                            arguments: [path, parsed.title, body])
-            for t in parsed.tasks {
+            // A Reference note's checklists stay in the note: they are not the Tasks tab's.
+            for t in Self.isReferenceFile(path) ? [] : parsed.tasks {
                 try db.execute(sql: """
                     INSERT INTO tasks (id, path, line, status, title, content_key, indent, day, provider, notes)
                     VALUES (?,?,?,?,?,?,?,?,?,?)
@@ -245,6 +246,11 @@ public final class SearchIndex: Sendable {
                 DELETE FROM highlights; DELETE FROM highlight_books;
                 """)
         }
+    }
+
+    /// A Reference note (`Reference/<Title>.md`), whose tasks are not indexed.
+    public static func isReferenceFile(_ path: String) -> Bool {
+        path.hasPrefix(NotesFolder.referenceDirectoryName + "/") && path.hasSuffix(".md")
     }
 
     // MARK: - Highlights

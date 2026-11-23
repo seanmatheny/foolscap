@@ -24,6 +24,7 @@ public struct PreferencesView: View {
     @AppStorage("highlightsEnabled") private var highlightsEnabled = false
     @AppStorage("jiraEnabled") private var jiraEnabled = false
     @AppStorage("secretsEnabled") private var secretsEnabled = false
+    @AppStorage("referenceEnabled") private var referenceEnabled = true
     @AppStorage("flyleafOnOpen") private var flyleafOnOpen = false
     @AppStorage(BackupManager.intervalKey) private var backupInterval = BackupInterval.off.rawValue
     @AppStorage(BackupManager.keepKey) private var backupKeep = 10
@@ -52,8 +53,9 @@ public struct PreferencesView: View {
             scribeTab.tabItem { Label("Scribe", systemImage: "pencil.and.scribble") }.tag("scribe")
             highlightsTab.tabItem { Label("Highlights", systemImage: "highlighter") }.tag("highlights")
             jiraTab.tabItem { Label("Jira", systemImage: "checkmark.rectangle.stack") }.tag("jira")
+            referenceTab.tabItem { Label("Reference", systemImage: "books.vertical") }.tag("reference")
             secretsTab.tabItem { Label("Secrets", systemImage: "lock") }.tag("secrets")
-            ForEach(sectionPanes.filter { !["scribe", "highlights", "jira", "secrets"].contains($0.id) }) { pane in
+            ForEach(sectionPanes.filter { !["scribe", "highlights", "jira", "secrets", "reference"].contains($0.id) }) { pane in
                 settingsForm(height: 420) { Section(pane.title) { pane.view } }
                     .tabItem { Label(pane.title, systemImage: "puzzlepiece.extension") }.tag(pane.id)
             }
@@ -149,6 +151,17 @@ public struct PreferencesView: View {
                 Text("Adds a Jira tab listing the issues assigned to you. Off, nothing runs: no requests, no tab.")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(sectionPanes.filter { $0.id == "jira" }) { pane in pane.view }
+            }
+        }
+    }
+
+    private var referenceTab: some View {
+        settingsForm(height: 300) {
+            Section("Reference") {
+                Toggle("Show the Reference shelf", isOn: $referenceEnabled)
+                Text("Adds a Reference tab: the notes you keep coming back to, each on a shelf with a cover of its own. Off, the tab is gone and the notes stay in the folder.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(sectionPanes.filter { $0.id == "reference" }) { pane in pane.view }
             }
         }
     }

@@ -243,7 +243,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x2A2622), dimInk: .hex(0x2A2622, alpha: 0.4), accent: .hex(0x9A3B2E),
-        tabColors: [.hex(0xC9A66B), .hex(0x8FA88B), .hex(0xA98BA1), .hex(0x7E9DB8), .hex(0x9FA389), .hex(0xA3A1AE)],
+        tabColors: [.hex(0xC9A66B), .hex(0x8FA88B), .hex(0xA98BA1), .hex(0x7E9DB8), .hex(0x9FA389), .hex(0xA3A1AE), .hex(0x86A9A5)],
         highlighter: highlighterDefaults)
 
     /// Oxblood leather, cream paper.
@@ -258,7 +258,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "SF Mono", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x2E2420), dimInk: .hex(0x2E2420, alpha: 0.4), accent: .hex(0x7A2E31),
-        tabColors: [.hex(0xB08A4A), .hex(0x6F8F6B), .hex(0x8B6F86), .hex(0x5F7F9E), .hex(0x8E8F6E), .hex(0x8E8C97)],
+        tabColors: [.hex(0xB08A4A), .hex(0x6F8F6B), .hex(0x8B6F86), .hex(0x5F7F9E), .hex(0x8E8F6E), .hex(0x8E8C97), .hex(0x5E8D89)],
         highlighter: highlighterDefaults)
 
     /// Kraft card cover, soft white paper.
@@ -273,7 +273,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x26221E), dimInk: .hex(0x26221E, alpha: 0.4), accent: .hex(0x9C4A1A),
-        tabColors: [.hex(0xD9A441), .hex(0x6E9E7A), .hex(0xC96B4E), .hex(0x5B87A8), .hex(0x9DA86B), .hex(0x9A9AA6)],
+        tabColors: [.hex(0xD9A441), .hex(0x6E9E7A), .hex(0xC96B4E), .hex(0x5B87A8), .hex(0x9DA86B), .hex(0x9A9AA6), .hex(0x4E9A94)],
         highlighter: highlighterDefaults)
 
     /// Dark mode: pale leather around true-black (OLED) paper with white ink.
@@ -288,7 +288,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0xF4F1EA), dimInk: .hex(0xF4F1EA, alpha: 0.45), accent: .hex(0xE0B95A),
-        tabColors: [.hex(0xC9B58F), .hex(0x9FB89E), .hex(0xB59FB0), .hex(0x94AEC4), .hex(0xB0B49A), .hex(0xB3B2BE)],
+        tabColors: [.hex(0xC9B58F), .hex(0x9FB89E), .hex(0xB59FB0), .hex(0x94AEC4), .hex(0xB0B49A), .hex(0xB3B2BE), .hex(0x9DC0BC)],
         highlighter: [
             .today:      .hex(0xE0B95A, alpha: 0.28),
             .notStarted: .hex(0x000000, alpha: 0),
@@ -309,7 +309,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x24291F), dimInk: .hex(0x24291F, alpha: 0.42), accent: .hex(0x8A5A1E),
-        tabColors: [.hex(0xC9A85A), .hex(0x7FA07E), .hex(0xB07D6A), .hex(0x6F8FA6), .hex(0x9AA07C), .hex(0x9C9FA8)],
+        tabColors: [.hex(0xC9A85A), .hex(0x7FA07E), .hex(0xB07D6A), .hex(0x6F8FA6), .hex(0x9AA07C), .hex(0x9C9FA8), .hex(0x6A9A97)],
         highlighter: highlighterDefaults)
 
     /// Navy leather, cool white paper, muted tabs.
@@ -324,7 +324,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "SF Mono", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x1F2430), dimInk: .hex(0x1F2430, alpha: 0.42), accent: .hex(0x2F5C8F),
-        tabColors: [.hex(0xB9A57A), .hex(0x8AA58C), .hex(0xA48CA0), .hex(0x6E8DAF), .hex(0x9FA384), .hex(0x9A9CA8)],
+        tabColors: [.hex(0xB9A57A), .hex(0x8AA58C), .hex(0xA48CA0), .hex(0x6E8DAF), .hex(0x9FA384), .hex(0x9A9CA8), .hex(0x7FA8A6)],
         highlighter: highlighterDefaults)
 
     /// Tan full-grain leather with its creases showing, ivory paper.
@@ -339,7 +339,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "Menlo", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x2B2119), dimInk: .hex(0x2B2119, alpha: 0.42), accent: .hex(0xA0522D),
-        tabColors: [.hex(0xD2A24C), .hex(0x8AA37E), .hex(0xC07A5B), .hex(0x6F93B0), .hex(0xA3AC75), .hex(0xA8A4AB)],
+        tabColors: [.hex(0xD2A24C), .hex(0x8AA37E), .hex(0xC07A5B), .hex(0x6F93B0), .hex(0xA3AC75), .hex(0xA8A4AB), .hex(0x6FA39C)],
         highlighter: highlighterDefaults)
 
     /// Charcoal full-grain leather, pale grey paper: dark without being black.
@@ -354,7 +354,7 @@ extension NotebookTheme {
                          mono: FontSpec(family: "SF Mono", size: 13, design: .mono),
                          lineHeightMultiple: 1.35),
         ink: .hex(0x22252A), dimInk: .hex(0x22252A, alpha: 0.42), accent: .hex(0x9C4B3A),
-        tabColors: [.hex(0xBFA46F), .hex(0x8AA391), .hex(0xA995A6), .hex(0x7C97B0), .hex(0x9EA486), .hex(0xA4A6AF)],
+        tabColors: [.hex(0xBFA46F), .hex(0x8AA391), .hex(0xA995A6), .hex(0x7C97B0), .hex(0x9EA486), .hex(0xA4A6AF), .hex(0x86A8A4)],
         highlighter: highlighterDefaults)
 
     // MARK: Flat themes
@@ -385,19 +385,19 @@ extension NotebookTheme {
 
     /// Charcoal with an amber accent.
     public static let graphite = flat(id: "graphite", name: "Graphite", cover: 0x2A2A2D, page: 0x1C1C1E, ink: 0xE8E6E1, accent: 0xF2B33D,
-                                      tabs: [0xE0B65B, 0x8DB893, 0xD09A7A, 0x86AECF, 0xA9B07A, 0xA3A3AC], someday: 0x86AECF, completed: 0x8DB893)
+                                      tabs: [0xE0B65B, 0x8DB893, 0xD09A7A, 0x86AECF, 0xA9B07A, 0xA3A3AC, 0x7FC3BC], someday: 0x86AECF, completed: 0x8DB893)
     /// The Dracula palette: slate page, yellow headings, pastel tabs.
     public static let nocturne = flat(id: "nocturne", name: "Nocturne", cover: 0x1E1F29, page: 0x282A36, ink: 0xF8F8F2, accent: 0xF1FA8C,
-                                      tabs: [0xF1FA8C, 0x50FA7B, 0xFF79C6, 0x8BE9FD, 0xFFB86C, 0xBD93F9], someday: 0x8BE9FD, completed: 0x50FA7B)
+                                      tabs: [0xF1FA8C, 0x50FA7B, 0xFF79C6, 0x8BE9FD, 0xFFB86C, 0xBD93F9, 0xFF6E6E], someday: 0x8BE9FD, completed: 0x50FA7B)
     /// True black with a violet accent.
     public static let obsidian = flat(id: "obsidian", name: "Obsidian", cover: 0x121214, page: 0x000000, ink: 0xEDEDED, accent: 0xA48CFF,
-                                      tabs: [0xC4B5FF, 0x9EDFC0, 0xF3A6C7, 0x9ED1F5, 0xD7D39A, 0xB9B9C2], someday: 0x9ED1F5, completed: 0x9EDFC0)
+                                      tabs: [0xC4B5FF, 0x9EDFC0, 0xF3A6C7, 0x9ED1F5, 0xD7D39A, 0xB9B9C2, 0x9FE0DA], someday: 0x9ED1F5, completed: 0x9EDFC0)
     /// Nord's blue-grey with a frost accent.
     public static let nord = flat(id: "nord", name: "Nord", cover: 0x242933, page: 0x2E3440, ink: 0xECEFF4, accent: 0x88C0D0,
-                                  tabs: [0xEBCB8B, 0xA3BE8C, 0xB48EAD, 0x81A1C1, 0xD08770, 0xD8DEE9], someday: 0x81A1C1, completed: 0xA3BE8C)
+                                  tabs: [0xEBCB8B, 0xA3BE8C, 0xB48EAD, 0x81A1C1, 0xD08770, 0xD8DEE9, 0x8FBCBB], someday: 0x81A1C1, completed: 0xA3BE8C)
     /// The one light flat theme: white page, blue accent.
     public static let daylight = flat(id: "daylight", name: "Daylight", cover: 0xE7E5DF, page: 0xFFFFFF, ink: 0x1E1E1E, inkAlpha: 0.55, accent: 0x3B6FE0,
-                                      tabs: [0xF4D06F, 0xA8D5A2, 0xE9A4A4, 0x9CC4EA, 0xCFD39A, 0xC9C9CF], someday: 0x9CC4EA, completed: 0xA8D5A2,
+                                      tabs: [0xF4D06F, 0xA8D5A2, 0xE9A4A4, 0x9CC4EA, 0xCFD39A, 0xC9C9CF, 0x9DD6CF], someday: 0x9CC4EA, completed: 0xA8D5A2,
                                       ruleAlpha: 0.10, marginRule: .hex(0xE0A2A2, alpha: 0.8), isDark: false)
 
     public static let builtIn: [NotebookTheme] = [.classicBlack, .oxblood, .kraft, .midnight, .forest, .navy, .saddle, .slate,

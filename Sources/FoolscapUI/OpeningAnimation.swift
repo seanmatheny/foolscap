@@ -74,21 +74,32 @@ struct ClosedCoverFace: View {
     }
 }
 
-/// Blind emboss: the shape pressed into the leather, lit from the top-left.
-struct Embossed<Content: View>: View {
+/// Blind emboss: the shape pressed into the leather, lit from the top-left. `base` is
+/// the material pressed into: the theme's cover unless a Reference note's cloth is given.
+public struct Embossed<Content: View>: View {
     @Environment(\.notebookTheme) private var theme
     /// How far the lit and shaded edges spread: less for a smaller stamp.
     var depth: CGFloat = 1
-    @ViewBuilder let content: Content
-    var body: some View {
+    var base: RGBA?
+    let content: Content
+
+    public init(depth: CGFloat = 1, base: RGBA? = nil, @ViewBuilder content: () -> Content) {
+        self.depth = depth
+        self.base = base
+        self.content = content()
+    }
+
+    public var body: some View {
         if theme.flat {
-            // Printed, not pressed: the cover's foreground colour, flat.
-            content.foregroundStyle(theme.cover.stitchColor.color)
+            // Printed, not pressed: the cover's foreground colour, flat, or a pale tint of the cloth.
+            content.foregroundStyle(base.map { $0.mixed(with: .hex(0xFFFFFF), fraction: 0.55).color } ?? theme.cover.stitchColor.color)
         } else {
             ZStack {
-                content.foregroundStyle(Color.white.opacity(theme.isDark ? 0.35 : 0.18)).offset(x: 1.2 * depth, y: 1.2 * depth)
+                // A cloth stamp catches a little more light than the leather cover, so it reads at shelf size.
+                content.foregroundStyle(Color.white.opacity(theme.isDark ? 0.35 : (base == nil ? 0.18 : 0.3)))
+                    .offset(x: 1.2 * depth, y: 1.2 * depth)
                 content.foregroundStyle(Color.black.opacity(0.55)).offset(x: -depth, y: -depth)
-                content.foregroundStyle(theme.cover.baseColor.color).brightness(-0.06)
+                content.foregroundStyle((base ?? theme.cover.baseColor).color).brightness(-0.06)
             }
         }
     }

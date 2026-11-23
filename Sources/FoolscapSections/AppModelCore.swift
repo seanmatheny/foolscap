@@ -157,13 +157,14 @@ open class AppModelCore {
     }
 
     /// Where a tab sits whatever order the sections were switched on in: Daily Notes first,
-    /// Tasks next, Jira after Tasks, Secrets last; everything else (Highlights, Scribe,
-    /// plug-ins) in between in the order it was added.
+    /// Tasks next, Jira after Tasks, Reference after Jira, Secrets last; everything else
+    /// (Highlights, Scribe, plug-ins) in between in the order it was added.
     public static func tabRank(_ id: String) -> Int {
         switch id {
         case "daily": return 0
         case "tasks": return 1
         case TaskItem.jiraSectionID: return 2
+        case "reference": return 3
         case "highlights": return 10
         case "scribe": return 11
         case "secrets": return 100

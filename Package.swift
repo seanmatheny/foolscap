@@ -16,6 +16,7 @@ let package = Package(
         .library(name: "FoolscapHighlights", targets: ["FoolscapHighlights"]),
         .library(name: "FoolscapJira", targets: ["FoolscapJira"]),
         .library(name: "FoolscapSecrets", targets: ["FoolscapSecrets"]),
+        .library(name: "FoolscapReference", targets: ["FoolscapReference"]),
         .executable(name: "Foolscap", targets: ["FoolscapApp"]),
     ],
     dependencies: [
@@ -77,6 +78,12 @@ let package = Package(
             name: "FoolscapSecrets",
             dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI", "FoolscapEditor"]
         ),
+        // Reference section: long-running notes on a shelf of cloth-bound covers, each
+        // derived from its title or chosen (`Reference/.foolscap-covers.json`).
+        .target(
+            name: "FoolscapReference",
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapUI", "FoolscapEditor"]
+        ),
         // The OCR helper, bundled as Contents/MacOS/scribe-ocr. A separate process so
         // Vision's recognition models are unloaded again when a run finishes.
         .executableTarget(
@@ -86,12 +93,12 @@ let package = Package(
         ),
         .executableTarget(
             name: "FoolscapApp",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira", "FoolscapSecrets"],
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira", "FoolscapSecrets", "FoolscapReference"],
             exclude: ["Info.plist"]
         ),
         .testTarget(
             name: "FoolscapTests",
-            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira", "FoolscapSecrets"]
+            dependencies: ["FoolscapCore", "FoolscapStore", "FoolscapEditor", "FoolscapUI", "FoolscapSections", "FoolscapScribe", "FoolscapHighlights", "FoolscapJira", "FoolscapSecrets", "FoolscapReference"]
         ),
     ]
 )

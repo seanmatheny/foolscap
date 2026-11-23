@@ -9,6 +9,7 @@ import FoolscapJira
 import FoolscapSecrets
 import FoolscapHighlights
 import FoolscapScribe
+import FoolscapReference
 
 /// The iPhone app: the shared app model over the notebook folder the Files picker
 /// granted (the app's own Documents until one is chosen), the Daily Notes and
@@ -60,6 +61,9 @@ final class PhoneModel: AppModelCore {
     /// The Scribe tab: reading only on the phone (the Mac syncs and reads the handwriting).
     private(set) var scribeEnabled = false
     private(set) var scribeSection: ScribeSection?
+    /// The Reference tab, on unless switched off, as on the Mac.
+    private(set) var referenceEnabled = false
+    private(set) var referenceSection: ReferenceSection?
 
     init() {
         let bookmarked = BookmarkedFolder.resolve()
@@ -72,6 +76,7 @@ final class PhoneModel: AppModelCore {
         setSecretsEnabled(UserDefaults.standard.bool(forKey: SecretsSection.enabledKey))
         setHighlightsEnabled(UserDefaults.standard.bool(forKey: "highlightsEnabled"))
         setScribeEnabled(UserDefaults.standard.bool(forKey: "scribeEnabled"))
+        setReferenceEnabled(ReferenceSection.isEnabled())
         flyleafPresented = highlightsEnabled && UserDefaults.standard.bool(forKey: "flyleafOnOpen")
         // The Jira page's "Open Settings…" turns to the Settings tab.
         JiraSection.openSettings = { [weak self] in self?.selectedSectionID = RootView.settingsTab.id }
@@ -187,6 +192,26 @@ final class PhoneModel: AppModelCore {
         rewireSections()
     }
 
+    /// Add or remove the Reference section at runtime (`rewireSections` puts it after Jira).
+    func setReferenceEnabled(_ on: Bool) {
+        guard on != referenceEnabled, let library else { return }
+        referenceEnabled = on
+        if on {
+            let reference = ReferenceSection(library: library)
+            sections.append(reference)
+            referenceSection = reference
+            library.indexesReference = true
+            reference.start()
+        } else {
+            referenceSection?.stop()
+            referenceSection = nil
+            sections.removeAll { $0.id == ReferenceSection.sectionID }
+            library.indexesReference = false
+            if selectedSectionID == ReferenceSection.sectionID { selectedSectionID = sections.first?.id ?? "" }
+        }
+        rewireSections()
+    }
+
     override func defaultsChanged() {
         super.defaultsChanged()
         let role: AppearanceRole = followsMac ? .follower : .independent
@@ -199,11 +224,14 @@ final class PhoneModel: AppModelCore {
         if highlights != highlightsEnabled { setHighlightsEnabled(highlights) }
         let scribe = UserDefaults.standard.bool(forKey: "scribeEnabled")
         if scribe != scribeEnabled { setScribeEnabled(scribe) }
+        let reference = ReferenceSection.isEnabled()
+        if reference != referenceEnabled { setReferenceEnabled(reference) }
     }
 
     override func sectionSelectionChanged(from old: String) {
         if old == SecretsSection.sectionID, selectedSectionID != old { secretsSection?.didLeaveTab() }
         if selectedSectionID == SecretsSection.sectionID, selectedSectionID != old { secretsSection?.didEnterTab() }
+        if old == ReferenceSection.sectionID, selectedSectionID != old { referenceSection?.didLeaveTab() }
         // Going somewhere turns the flyleaf away.
         if flyleafPresented { flyleafPresented = false }
     }
@@ -385,6 +413,7 @@ struct PhoneSettingsPage: View {
     @AppStorage("highlightsEnabled") private var highlightsEnabled = false
     @AppStorage("flyleafOnOpen") private var flyleafOnOpen = false
     @AppStorage("scribeEnabled") private var scribeEnabled = false
+    @AppStorage(ReferenceSection.enabledKey) private var referenceEnabled = true
 
     var body: some View {
         Form {
@@ -415,6 +444,12 @@ struct PhoneSettingsPage: View {
                 Text("Adds a Jira tab listing the issues assigned to you. Off, nothing runs: no requests, no tab. The token is this phone's own, kept in its Keychain.")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(model.sectionSettingsPanes.filter { $0.id == JiraSection.sectionID }) { pane in pane.view }
+            }
+            Section("Reference") {
+                Toggle("Show the Reference shelf", isOn: $referenceEnabled)
+                Text("Adds a Reference tab: the notes you keep coming back to, each on a shelf with a cover of its own. Covers chosen on the Mac show here too.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(model.sectionSettingsPanes.filter { $0.id == ReferenceSection.sectionID }) { pane in pane.view }
             }
             Section("Kindle Scribe") {
                 Toggle("Show Kindle Scribe notebooks", isOn: $scribeEnabled)

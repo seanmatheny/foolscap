@@ -12,8 +12,9 @@ final class DailyNotesSearchProvider: SearchProvider {
     let library: NotebookLibrary
     init(library: NotebookLibrary) { self.library = library }
 
-    /// Scribe transcripts and highlight books share the index but belong to their own sections.
-    private let scope = SearchIndex.PathScope.notUnderAny([NotesFolder.scribeDirectoryName + "/", NotesFolder.highlightsDirectoryName + "/"])
+    /// Scribe transcripts, highlight books and Reference notes share the index but belong to their own sections.
+    private let scope = SearchIndex.PathScope.notUnderAny([NotesFolder.scribeDirectoryName + "/", NotesFolder.highlightsDirectoryName + "/",
+                                                           NotesFolder.referenceDirectoryName + "/"])
 
     func search(_ query: String, limit: Int) async throws -> [SearchHit] {
         await library.save()
