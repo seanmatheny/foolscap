@@ -266,14 +266,6 @@ struct FlyleafView: View {
             ScrollView {
                 ZStack(alignment: .top) {
                     Color.clear.frame(minHeight: geo.size.height)
-                    // Printed in the paper's own tone: a wash of ink thin enough for the grain
-                    // to come through, a shade darker on light paper and lighter on dark.
-                    JesterShape()
-                        .fill(theme.ink.color.opacity(0.08))
-                        .frame(width: pitch * 2.75, height: pitch * 2.75)
-                        .padding([.top, .trailing], pitch)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .allowsHitTesting(false)
                     VStack(alignment: .center, spacing: 0) {
                         Spacer().frame(height: pitch * 1.5)
                         TodayView(section: section, items: section.picks, showsBooks: true, centered: true)
@@ -289,8 +281,31 @@ struct FlyleafView: View {
                     .frame(maxWidth: .infinity, alignment: .top)
                 }
             }
+            // Printed in the paper's own tone: a wash of ink thin enough for the grain to come
+            // through, a shade darker on light paper and lighter on dark. It stays in the page's
+            // corner while the day's three scroll: inside the scroll it rode up with them and was
+            // cut off by the page's top edge on a short window (found 2026-11-26).
+            .overlay(alignment: .topTrailing) {
+                JesterShape()
+                    .fill(theme.ink.color.opacity(0.08))
+                    .frame(width: pitch * 2.75, height: pitch * 2.75)
+                    .padding(.top, pitch + scrollInset(geo).top)
+                    .padding(.trailing, pitch + scrollInset(geo).trailing)
+                    .allowsHitTesting(false)
+            }
         }
         .foregroundStyle(theme.ink.color)
         .task { await section.reload() }
+    }
+
+    /// Where the scroll view starts its content: under the phone's status bar, but at the
+    /// page's top on the Mac, whose scroll view does not apply the hidden title bar's inset
+    /// that the geometry reports.
+    private func scrollInset(_ geo: GeometryProxy) -> EdgeInsets {
+        #if os(iOS)
+        geo.safeAreaInsets
+        #else
+        EdgeInsets()
+        #endif
     }
 }
