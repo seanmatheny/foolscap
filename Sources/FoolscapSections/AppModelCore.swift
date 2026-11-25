@@ -14,6 +14,11 @@ open class AppModelCore {
     public var selectedSectionID: String {
         didSet {
             UserDefaults.standard.set(selectedSectionID, forKey: "selectedSection")
+            // Turning to Daily Notes from another tab opens on today, not the day last shown.
+            // A route (search, a task's source) sets the tab first and its day after, so it wins.
+            if selectedSectionID == "daily", oldValue != "daily", let daily = dailyNotes, daily.selectedDay != .today {
+                daily.goToday()
+            }
             sectionSelectionChanged(from: oldValue)
         }
     }

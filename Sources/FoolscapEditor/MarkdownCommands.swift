@@ -995,9 +995,38 @@ extension MarkdownTextView: MarkdownEditing {
 
     /// ⇧↩ and ⌥↩ give a plain newline; Return continues lists, tasks and quotes.
     public override func insertNewline(_ sender: Any?) {
+        defer { revealCaretAfterReturn() }
         let flags = NSApp.currentEvent?.modifierFlags ?? []
         if !flags.contains(.shift), !flags.contains(.option), returnPressed() { return }
         super.insertNewline(sender)
+    }
+
+    /// Return on the note's last line makes a line TextKit 2 has not laid out yet, so the
+    /// scroll NSTextView makes after the newline falls short of it: the new line came into
+    /// view only once something was typed on it. A turn later (never inside the storage's
+    /// edit processing), lay out to the end, let the view grow, and bring the caret's line
+    /// into view with half a line under it.
+    func revealCaretAfterReturn() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tlm = self.textLayoutManager, let cm = tlm.textContentManager else { return }
+            let caret = self.selectedRange()
+            let text = self.string as NSString
+            guard caret.length == 0, caret.location <= text.length,
+                  text.range(of: "\n", range: NSRange(location: caret.location, length: text.length - caret.location)).location == NSNotFound,
+                  let location = cm.location(tlm.documentRange.location, offsetBy: caret.location) else { return }
+            tlm.ensureLayout(for: NSTextRange(location: tlm.documentRange.endLocation))
+            self.updateMinSize()
+            self.sizeToFit()
+            var rect: CGRect?
+            tlm.enumerateTextSegments(in: NSTextRange(location: location), type: .selection, options: [.rangeNotRequired]) { _, frame, _, _ in
+                rect = frame
+                return false
+            }
+            guard let r = rect else { self.scrollRangeToVisible(caret); return }
+            let origin = self.textOrigin
+            self.scrollToVisible(CGRect(x: r.minX + origin.x, y: r.minY + origin.y,
+                                        width: 1, height: max(r.height, self.palette.pitch) + self.palette.pitch / 2))
+        }
     }
 
     /// A typed space after `[]` at a line's start makes a task (`spacePressed`); text typed with

@@ -169,6 +169,19 @@ public final class MarkdownTextView: UITextView {
         scheduleTagListUpdate(open: false)
     }
 
+    /// Return on the note's last line: once the new line is laid out, scroll its caret into
+    /// view (half a line under it too), which the text view's own scroll fell short of.
+    private func revealCaretAfterReturn() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isFirstResponder, let end = self.selectedTextRange?.end else { return }
+            self.layoutIfNeeded()
+            var caret = self.caretRect(for: end)
+            guard !caret.isNull, !caret.isInfinite else { return }
+            caret.size.height += self.palette.pitch / 2
+            self.scrollRectToVisible(caret, animated: false)
+        }
+    }
+
     /// Set while `replace` runs, since the text view consults the delegate for its own
     /// insertions too: those are ours already, and must not be caught again.
     private var replacing = false
@@ -179,6 +192,9 @@ public final class MarkdownTextView: UITextView {
         if replacing { return true }
         let typing = range.length == 0 && range == selectedRange && markedTextRange == nil
         if text == "\n" {
+            // A line made at the note's end is not laid out yet when the text view scrolls
+            // for it: bring it into view a turn later.
+            revealCaretAfterReturn()
             if !accessory.tags.tags.isEmpty, let tag = accessory.tags.selectedTag {
                 acceptTag(tag)
                 return false

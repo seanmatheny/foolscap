@@ -130,8 +130,8 @@ final class AppModel: AppModelCore {
             return nil
         }
         if let day = flagValue("--day").flatMap(DayKey.init) {
-            dailyNotes?.selectedDay = day
             selectedSectionID = "daily"
+            dailyNotes?.selectedDay = day
         }
         if let tab = flagValue("--tab"), sections.contains(where: { $0.id == tab }) {
             selectedSectionID = tab
