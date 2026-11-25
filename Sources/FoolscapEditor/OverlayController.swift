@@ -132,6 +132,10 @@ final class OverlayController {
         }
         for (key, overlay) in overlays where !seen.contains(key) {
             if overlay === selectedOverlay { select(line: nil) }
+            #if canImport(AppKit)
+            // The note changed under a picture being dragged: the drag is off.
+            if key == moveKey { endMove(drop: false) }
+            #endif
             overlay.view.removeFromSuperview()
             overlays[key] = nil
             changed = true
@@ -167,6 +171,9 @@ final class OverlayController {
             iv.onCopy = { [weak self] in self?.copyImage(path: path) ?? false }
             #if canImport(AppKit)
             iv.onShowInFinder = { [weak self] in self?.showInFinder(path: path) }
+            iv.onMoveBegan = { [weak self] in self?.beginMove(key: key) ?? false }
+            iv.onMoveDragged = { [weak self] in self?.trackMove() }
+            iv.onMoveEnded = { [weak self] in self?.endMove(drop: true) }
             #endif
             iv.onSelect = { [weak self] in
                 // The Mac's click takes the focus for ⌘C; a phone's tap must not raise the keyboard.
@@ -478,6 +485,161 @@ final class OverlayController {
         return stale
     }
 
+    // MARK: Moving a picture to another line
+
+    /// Where a dragged picture would land: before line `gap`, and the height on the page (in
+    /// the text view's coordinates) at which that gap lies.
+    struct DropGap: Equatable {
+        var gap: Int
+        var y: CGFloat
+    }
+
+    /// The gap nearest `point` that the picture on line `index` may be dropped into: the one
+    /// above the line under the pointer or the one below it, whichever half the pointer is in,
+    /// moved to the nearest gap that will take a picture (`blockMayLand`) when that one will
+    /// not. Nil where a drop would leave the picture on its own line.
+    func dropGap(at point: CGPoint, moving index: Int) -> DropGap? {
+        let lines = textView.styler.blockMap.lines
+        // The note's empty last line has no layout fragment of its own.
+        let laidOut = lines.count > 1 && lines[lines.count - 1].range.length == 0 ? lines.count - 1 : lines.count
+        guard laidOut > 0, index < lines.count else { return nil }
+        func top(_ i: Int) -> CGFloat? { textView.fragmentRect(for: lines[i].range)?.minY }
+        func height(of gap: Int) -> CGFloat? {
+            if gap < laidOut { return top(gap) }
+            // After the last line of text: under it, and under the picture or card it may carry.
+            let last = lines[laidOut - 1]
+            guard let bottom = textView.lineBottom(for: last.range) else { return nil }
+            let hanging = overlays.values.first { $0.lineIndex == last.index }.map { $0.view.frame.maxY + 6 } ?? 0
+            return max(bottom, hanging)
+        }
+        // The last line whose top is at or above the pointer.
+        var low = 0, high = laidOut - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if let t = top(mid), t <= point.y { low = mid } else { high = mid - 1 }
+        }
+        guard let frame = textView.fragmentRect(for: lines[low].range) else { return nil }
+        let bottom = low + 1 < laidOut ? (top(low + 1) ?? frame.maxY) : frame.maxY
+        var gap = point.y < (frame.minY + bottom) / 2 ? low : low + 1
+        if !textView.blockMayLand(atGap: gap) {
+            var up = gap - 1, down = gap + 1
+            while up >= 0, !textView.blockMayLand(atGap: up) { up -= 1 }
+            while down <= lines.count, !textView.blockMayLand(atGap: down) { down += 1 }
+            let above = up >= 0 ? height(of: up) : nil
+            let below = down <= lines.count ? height(of: textView.settledGap(down)) : nil
+            switch (above, below) {
+            case let (a?, b?): gap = point.y - a <= b - point.y ? up : down
+            case (_?, nil): gap = up
+            case (nil, _?): gap = down
+            default: return nil
+            }
+        }
+        gap = textView.settledGap(gap)
+        guard gap != index, gap != index + 1, let y = height(of: gap) else { return nil }
+        return DropGap(gap: gap, y: y)
+    }
+
+    #if canImport(AppKit)
+    /// The Mac's drag: the picture being moved, where it would land, the bar that marks the
+    /// place, the small copy of the picture that follows the pointer, and the timer that
+    /// scrolls the note while the pointer is held near its top or bottom.
+    private var moveKey: Key?
+    private var moveTarget: DropGap?
+    private var dropIndicator: NSView?
+    private var moveGhost: NSImageView?
+    private var moveScroller: Timer?
+
+    /// A drag on a picture's body has begun. False when the note cannot be edited.
+    private func beginMove(key: Key) -> Bool {
+        guard moveKey == nil, textView.isEditable, let overlay = overlays[key],
+              let iv = overlay.view as? ResizableImageView else { return false }
+        moveKey = key
+        iv.alphaValue = 0.45
+        let bar = NSView()
+        bar.wantsLayer = true
+        bar.layer?.backgroundColor = textView.palette.accent.cgColor
+        bar.layer?.cornerRadius = 1.5
+        bar.isHidden = true
+        textView.addSubview(bar)
+        dropIndicator = bar
+        if let image = iv.imageView.image {
+            let scale = min(1, 150 / max(1, iv.frame.width, iv.frame.height))
+            let ghost = NSImageView(frame: NSRect(x: 0, y: 0, width: (iv.frame.width * scale).rounded(),
+                                                  height: (iv.frame.height * scale).rounded()))
+            ghost.image = image
+            ghost.imageScaling = .scaleProportionallyUpOrDown
+            ghost.wantsLayer = true
+            ghost.layer?.cornerRadius = 4
+            ghost.layer?.masksToBounds = true
+            ghost.alphaValue = 0.85
+            textView.addSubview(ghost)
+            moveGhost = ghost
+        }
+        // In the common modes, so it also fires while the mouse is being tracked.
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scrollWhileMoving() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        moveScroller = timer
+        trackMove()
+        return true
+    }
+
+    /// The pointer moved, or the note scrolled under it: mark the gap the picture would land in.
+    private func trackMove() {
+        guard let key = moveKey, let overlay = overlays[key], let window = textView.window else { return }
+        let point = textView.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        moveTarget = dropGap(at: point, moving: overlay.lineIndex)
+        if let target = moveTarget {
+            // On the rule the line above the gap is written on, where the page has ruling.
+            let palette = textView.palette
+            let y = target.y - (palette.pitch - PageRuling.ruleOffset(palette))
+            dropIndicator?.frame = NSRect(x: textLeft, y: y - 1.5, width: availableWidth(), height: 3)
+        }
+        dropIndicator?.isHidden = moveTarget == nil
+        moveGhost?.setFrameOrigin(NSPoint(x: point.x + 10, y: point.y + 12))
+    }
+
+    /// Held within a few lines of the page's top or bottom (or past it), the pointer scrolls the
+    /// note, faster the further it goes, so a picture can be carried beyond what is in view.
+    private func scrollWhileMoving() {
+        guard moveKey != nil, let window = textView.window, let scroll = textView.enclosingScrollView,
+              let document = scroll.documentView else { return }
+        let clip = scroll.contentView
+        let visible = clip.bounds
+        let y = clip.convert(window.mouseLocationOutsideOfEventStream, from: nil).y
+        let edge: CGFloat = 40
+        var step: CGFloat = 0
+        if y < visible.minY + edge { step = y - (visible.minY + edge) }
+        else if y > visible.maxY - edge { step = y - (visible.maxY - edge) }
+        guard step != 0 else { return }
+        step = max(-14, min(14, step * 0.25))
+        let to = max(0, min(max(0, document.frame.height - visible.height), visible.origin.y + step))
+        guard abs(to - visible.origin.y) > 0.01 else { return }
+        clip.scroll(to: NSPoint(x: visible.origin.x, y: to))
+        scroll.reflectScrolledClipView(clip)
+        trackMove()
+    }
+
+    /// The button came up (`drop`), or the picture went away mid-drag: clear the drag's marks
+    /// and, on a drop into another gap, move the line there.
+    private func endMove(drop: Bool) {
+        guard let key = moveKey else { return }
+        let target = moveTarget
+        moveKey = nil
+        moveTarget = nil
+        moveScroller?.invalidate()
+        moveScroller = nil
+        dropIndicator?.removeFromSuperview()
+        dropIndicator = nil
+        moveGhost?.removeFromSuperview()
+        moveGhost = nil
+        guard let overlay = overlays[key] else { return }
+        overlay.view.alphaValue = 1
+        if drop, let target { textView.moveLine(overlay.lineIndex, toGap: target.gap) }
+    }
+    #endif
+
     /// Write the chosen width back into the image line as `![alt|width](path)`.
     private func commitWidth(_ width: CGFloat, key: Key) {
         guard let overlay = overlays[key], overlay.lineIndex < textView.styler.blockMap.lines.count else { return }
@@ -620,7 +782,7 @@ final class LinkCardView: NSView, SelectableOverlayView {
 /// An image with hover badges: a resize grip (bottom-right, drag to scale), a
 /// copy badge and a path badge (top-right; the tooltip shows the file, a click
 /// reveals the markdown). A click selects the picture for ⌘C; a right click
-/// offers the same in a menu.
+/// offers the same in a menu; a drag anywhere else on it carries it to another line.
 final class ResizableImageView: NSView, SelectableOverlayView {
     let imageView = NSImageView()
     let path: String
@@ -630,6 +792,16 @@ final class ResizableImageView: NSView, SelectableOverlayView {
     var onCopy: (() -> Bool)?
     var onShowInFinder: (() -> Void)?
     var onSelect: (() -> Void)?
+    /// A drag on the picture's body moves it to another line: `onMoveBegan` once the pointer
+    /// has gone a few points from the press (false refuses the drag), `onMoveDragged` as it
+    /// travels, `onMoveEnded` when the button comes up.
+    var onMoveBegan: (() -> Bool)?
+    var onMoveDragged: (() -> Void)?
+    var onMoveEnded: (() -> Void)?
+    /// Where the button went down on the picture's body (window coordinates), until it comes
+    /// up or the drag is refused.
+    private var pressPoint: NSPoint?
+    private var isMoving = false
     private var dragStart: (point: NSPoint, width: CGFloat)?
     private var trackingArea: NSTrackingArea?
     private let resizeBadge = BadgeView(symbol: "arrow.up.left.and.arrow.down.right")
@@ -734,14 +906,28 @@ final class ResizableImageView: NSView, SelectableOverlayView {
         let p = convert(event.locationInWindow, from: nil)
         guard handleRect.contains(p) else {
             // A click on the picture selects it (for ⌘C); a second click, like the
-            // text's own, just keeps it selected.
+            // text's own, just keeps it selected. A drag from here moves it.
             onSelect?()
+            pressPoint = event.locationInWindow
             return
         }
         dragStart = (convert(event.locationInWindow, to: nil), frame.width)
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let press = pressPoint {
+            let now = event.locationInWindow
+            if !isMoving, hypot(now.x - press.x, now.y - press.y) > 4 {
+                if onMoveBegan?() == true {
+                    isMoving = true
+                    NSCursor.closedHand.push()
+                } else {
+                    pressPoint = nil
+                }
+            }
+            if isMoving { onMoveDragged?() }
+            return
+        }
         guard let start = dragStart, let image = imageView.image else { return }
         let now = convert(event.locationInWindow, to: nil)
         let width = max(80, start.width + (now.x - start.point.x))
@@ -750,6 +936,16 @@ final class ResizableImageView: NSView, SelectableOverlayView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if isMoving {
+            // Nothing after the call: a move takes this view off the page and puts a new one
+            // on the picture's new line.
+            isMoving = false
+            pressPoint = nil
+            NSCursor.pop()
+            onMoveEnded?()
+            return
+        }
+        pressPoint = nil
         guard dragStart != nil else { super.mouseUp(with: event); return }
         dragStart = nil
         onResize?(frame.width)

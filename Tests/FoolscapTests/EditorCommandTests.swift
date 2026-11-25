@@ -366,3 +366,92 @@ private func makeView(_ text: String, caret: Int? = nil) -> (MarkdownTextView, N
         #expect(!view.overlays.copyImage(path: "../Attachments/2026-09-30/missing.png"))
     }
 }
+
+@Suite @MainActor struct PictureMoveTests {
+    // Lines: 0 "# Day", 1 "one", 2 the picture, 3 "two", 4 the empty last line.
+    static let note = "# Day\none\n![p](a.png)\ntwo\n"
+
+    @Test func aPictureMovesUpAndStaysSelected() {
+        let (view, doc) = makeView(Self.note)
+        #expect(view.moveLine(2, toGap: 1))
+        #expect(doc.text == "# Day\n![p](a.png)\none\ntwo\n")
+        #expect(view.selectedRange() == NSRange(location: 17, length: 0))
+        #expect(view.blockUnderCaret?.index == 1)
+    }
+
+    @Test func aPictureMovesDownAndKeepsALineAfterIt() {
+        let (view, doc) = makeView(Self.note)
+        #expect(view.moveLine(2, toGap: 4))
+        #expect(doc.text == "# Day\none\ntwo\n![p](a.png)\n")
+        #expect(view.blockUnderCaret?.index == 3)
+        // Dropped under the empty last line, it goes above it all the same.
+        let (v2, d2) = makeView(Self.note)
+        #expect(v2.moveLine(2, toGap: 5))
+        #expect(d2.text == "# Day\none\ntwo\n![p](a.png)\n")
+        // A note with no last newline gets one after the picture.
+        let (v3, d3) = makeView("one\n![p](a.png)\ntwo")
+        #expect(v3.moveLine(1, toGap: 3))
+        #expect(d3.text == "one\ntwo\n![p](a.png)\n")
+        // The note's last line moves up without leaving a newline behind.
+        let (v4, d4) = makeView("one\ntwo\n![p](a.png)")
+        #expect(v4.moveLine(2, toGap: 1))
+        #expect(d4.text == "one\n![p](a.png)\ntwo")
+    }
+
+    @Test func aDropWhereItStandsOrAboveTheHeadingMovesNothing() {
+        let (view, doc) = makeView(Self.note)
+        #expect(!view.moveLine(2, toGap: 2))
+        #expect(!view.moveLine(2, toGap: 3))
+        #expect(!view.moveLine(2, toGap: 0))
+        #expect(doc.text == Self.note)
+        // A note that opens with plain text takes a picture as its first line.
+        let (v2, d2) = makeView("one\n![p](a.png)\n")
+        #expect(v2.moveLine(1, toGap: 0))
+        #expect(d2.text == "![p](a.png)\none\n")
+    }
+
+    @Test func aPictureDoesNotLandInsideACodeBlock() {
+        // Lines: 0 the picture, 1 the opening fence, 2 code, 3 the closing fence, 4 "end", 5 empty.
+        let (view, doc) = makeView("![p](a.png)\n```\ncode\n```\nend\n")
+        #expect(view.blockMayLand(atGap: 1))
+        #expect(!view.blockMayLand(atGap: 2))
+        #expect(!view.blockMayLand(atGap: 3))
+        #expect(view.blockMayLand(atGap: 4))
+        #expect(!view.moveLine(0, toGap: 3))
+        #expect(view.moveLine(0, toGap: 4))
+        #expect(doc.text == "```\ncode\n```\n![p](a.png)\nend\n")
+    }
+
+    // Lines: 0 "# Day", 1 the picture, 2 "## A", 3 "a1", 4 blank, 5 "## B", 6 "b1", 7 empty.
+    static let sections = "# Day\n![p](a.png)\n## A\na1\n\n## B\nb1\n"
+
+    @Test func aPictureCarriedPastAFoldedSectionLeavesItShut() {
+        let (view, doc) = makeView(Self.sections)
+        view.styler.setFolded(true, heading: 2)
+        #expect(view.styler.hiddenLines == [3])
+        #expect(!view.blockMayLand(atGap: 3))
+        #expect(view.moveLine(1, toGap: 7))
+        #expect(doc.text == "# Day\n## A\na1\n\n## B\nb1\n![p](a.png)\n")
+        #expect(view.styler.isFolded(heading: 1))
+        #expect(view.styler.hiddenLines == [2])
+    }
+
+    @Test func aPictureDroppedUnderAFoldedSectionOpensIt() {
+        let (view, doc) = makeView(Self.sections)
+        view.styler.setFolded(true, heading: 2)
+        #expect(view.moveLine(1, toGap: 4))
+        #expect(doc.text == "# Day\n## A\na1\n![p](a.png)\n\n## B\nb1\n")
+        #expect(view.styler.hiddenLines.isEmpty)
+    }
+
+    @Test func theMoveUndoesInOneStep() {
+        let (view, doc) = makeView(Self.note)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
+        window.contentView = view
+        view.allowsUndo = true
+        #expect(view.moveLine(2, toGap: 4))
+        #expect(doc.text == "# Day\none\ntwo\n![p](a.png)\n")
+        view.undoManager?.undo()
+        #expect(doc.text == Self.note)
+    }
+}

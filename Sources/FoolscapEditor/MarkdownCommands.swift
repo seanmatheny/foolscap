@@ -855,6 +855,64 @@ extension MarkdownEditing {
         return true
     }
 
+    // MARK: Moving a picture to another line
+
+    /// Whether a picture may be dropped into gap `gap` (before line `gap`; `lines.count` is
+    /// after the last line): not above the note's opening heading (a daily note's date, which
+    /// the Today panel hangs under), not inside a code block, where it would turn into code,
+    /// and not among a folded section's hidden lines.
+    func blockMayLand(atGap gap: Int) -> Bool {
+        let lines = styler.blockMap.lines
+        guard gap >= 0, gap <= lines.count else { return false }
+        if gap == 0, let first = lines.first, case .heading = first.kind { return false }
+        if gap > 0 {
+            switch lines[gap - 1].kind { case .fenceOpen, .fenceInside: return false; default: break }
+        }
+        if gap < lines.count, styler.isHidden(line: gap) { return false }
+        return true
+    }
+
+    /// The gap after the note's empty last line is the one before it: a block always keeps a
+    /// line after it, for its paragraph to reserve the picture's room in.
+    func settledGap(_ gap: Int) -> Int {
+        let lines = styler.blockMap.lines
+        if gap == lines.count, lines.count > 1, lines[gap - 1].range.length == 0 { return gap - 1 }
+        return gap
+    }
+
+    /// Move line `index` (a picture's, dragged) to sit before line `gap`, as one undo step; the
+    /// caret lands at its end, so the picture stays selected. The line is taken out and written
+    /// back in, two edits, so that the folded sections it passes on the way stay shut and one it
+    /// lands in opens (`MarkdownStyler.openFolds`). False when it would not move.
+    @discardableResult
+    func moveLine(_ index: Int, toGap gap: Int) -> Bool {
+        let lines = styler.blockMap.lines
+        let gap = settledGap(gap)
+        guard index < lines.count, gap != index, gap != index + 1, blockMayLand(atGap: gap) else { return false }
+        let line = lines[index]
+        let length = markdownText.length
+        var removal = line.range
+        if removal.location + removal.length < length {
+            removal.length += 1
+        } else if removal.location > 0 {
+            removal = NSRange(location: removal.location - 1, length: removal.length + 1)
+        }
+        // Where it goes, in the text as it is once the line is out. Moved to the note's end it
+        // takes a newline before it and leaves a line after it, as `insertMarkdown` does.
+        var at = gap < lines.count ? lines[gap].range.location : length
+        if at > removal.location { at -= removal.length }
+        let insert = gap < lines.count ? line.text + "\n" : "\n" + line.text + "\n"
+        var moved = false
+        grouped {
+            guard replace(removal, with: "") else { return }
+            moved = replace(NSRange(location: at, length: 0), with: insert)
+        }
+        guard moved else { return false }
+        let start = at + (gap < lines.count ? 0 : 1)
+        markdownSelection = NSRange(location: start + line.range.length, length: 0)
+        return true
+    }
+
     /// Insert text at the selection; `ownLine` puts it on a line of its own. With a picture or
     /// card selected (the caret at its end), the text goes on a new line under it either way.
     func insertMarkdown(_ text: String, ownLine: Bool) {

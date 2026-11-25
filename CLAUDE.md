@@ -158,6 +158,19 @@
   (`deleteCollapsedNeighbour`/`removeLine`, undoable): ⌫ at the start of the line under it,
   ⌦ at the end of the line above it (the phone's `shouldChange` catches both). Before
   2026-10-26 the ⌫ only joined the lines.
+- Moving a picture (0.27.0, the Mac only): a drag on a picture's body (anywhere but the resize
+  grip, after 4 pt of travel) carries it to another line. `ResizableImageView` reports the drag
+  (`onMoveBegan`/`onMoveDragged`/`onMoveEnded`) and `OverlayController` tracks it (`beginMove`,
+  `trackMove`, `endMove`): the picture dims, a small copy follows the pointer, an accent bar marks
+  the gap it would land in, and a 60 Hz timer scrolls the note while the pointer is within 40 pt
+  of the page's top or bottom. `dropGap(at:moving:)` (shared) reads the gap off the lines' tops;
+  `MarkdownEditing.moveLine(_:toGap:)` (shared, `PictureMoveTests`) takes the line out and writes
+  it back as two grouped edits, one undo step: a single replacement over the span would open
+  every folded section in between (`openFolds`), whereas this way only a section the picture
+  lands in opens. `blockMayLand(atGap:)`: not above the note's opening heading, not inside a
+  fence, not among a fold's hidden lines. Only the picture's line moves; the blank lines round
+  it stay where they were. Link cards are not dragged (their clicks are the link view's), and
+  the phone has no gesture for it. Synthetic drags are ignored, so only Sean can try the gesture.
 - `NSTextView.maxSize` must be set to greatestFiniteMagnitude or the view never
   grows past the clip view and scrolling silently stops.
 - Rotated SwiftUI labels keep their unrotated layout size: collapse them with
@@ -662,7 +675,7 @@
   (36/16 against the Mac's 58/36). Pictures and link cards (since 0.13.0): `OverlayController`,
   `AttachmentImporter` and `LinkPreviewCache` are shared; the views it places are each toolkit's
   own (`OverlayViews+iOS.swift`: a tap selects a picture, a long press offers Copy Image / Show
-  Markdown, a card's long press Copy Link / Show Markdown; no drag-resize on the phone, the
+  Markdown, a card's long press Copy Link / Show Markdown; no drag-resize and no drag to another line on the phone, the
   markdown's `|width` is honoured). Paste takes a picture off the pasteboard (`canPerformAction`
   says so for images), a web address links the selection or takes a line of its own, and the
   keyboard bar's photo button runs `PHPickerViewController` from the window's top view
