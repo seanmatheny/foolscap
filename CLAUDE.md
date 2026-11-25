@@ -71,7 +71,7 @@
   opening page),
   `--type=text` (posts key events into the focused text after 2s, e.g. to show tag
   completion; `\n` is Return, `{up}` `{down}` `{left}` `{right}` `{tab}` `{esc}` name
-  keys), `--quick-task` (opens the quick-task panel; `window-shot.sh … all`
+  keys, `{fold}`/`{unfold}` are ⌥⌘←/→ on the caret's section, `{wait}` pauses a second), `--quick-task` (opens the quick-task panel; `window-shot.sh … all`
   captures it), `--backup=file.zip` and `--restore=file.zip` (no confirmation).
   Always use the `flag=value` form with `open Foolscap.app --args …`: a bare
   value argument (a date, a path, any word) makes AppKit treat the launch as
@@ -578,6 +578,23 @@
   under a point per hundred lines). Fold state lives in the `foldedSections` default keyed on
   note path + heading text (`FoldMemory`), never in the file. The caret skips hidden runs like
   collapsed image lines (`skipsCaret`); overlays and code/quote decorations skip hidden lines.
+  A fold moves every line under it at once: `onFoldsChanged(firstLine)` makes the text views lay
+  out from that heading to the end with `ensureLayout` then `layoutViewport()`, now and again a
+  turn later (`foldsLaidOut`). Without it, folding a section of link cards with the note scrolled
+  left the text undrawn and the cards piled at stale places until the pointer moved (found
+  2026-11-24; reproduce with 46 `{up}`s, `{wait}{fold}` and a burst of `screencapture -l`).
+  What a fold hides (0.26.1, Sean's wishes of 2026-11-24): `foldEnd`, the section without the
+  blank lines that close it, so the gaps between folded sections stay on the page and can be
+  added to or taken away; `sectionEnd` (the structure) also stops at a bare `#`/`##` on a plain
+  line (`bareHeadingLevel`), so a heading being typed after a folded section stands beside it.
+  Return at a folded heading's end (anywhere but its start) opens an empty line under it, in
+  the file after the section's text. Text written into a hidden line opens the fold hiding it
+  (`openFolds(burying:)`: characters inside the line, or a ⌫ that joins text onto it; a newline
+  after it does not; inside the storage's edit processing, so the relayout waits a turn). Until
+  then a fold hid its blank lines too, the line Return opened was hidden, typing on it went
+  unseen, and ⌫ on the gap or plain text there folded into the section above.
+  Verification launches write their folds into the real `foldedSections` default (the argument
+  domain only overrides reads): remove the scratch note's entry afterwards.
 - After `super.draw` TextKit 2 leaves the context clipped to the text container, so anything
   drawn in the margin (the fold chevrons) must be drawn before it; list bullets (a `•` drawn as
   text over the clear `-`) go after. Bullets and chevrons are ours, so lines whose reveal state

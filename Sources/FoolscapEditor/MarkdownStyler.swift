@@ -72,8 +72,12 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     /// are worked out again after every scan, so edits above a fold keep it.
     var foldedHeadings: Set<String> = []
     private(set) var hiddenLines: Set<Int> = []
-    /// Called when the set of folded headings changes, to remember it.
-    var onFoldsChanged: (() -> Void)?
+    /// Called when the set of folded headings changes, to remember it and to lay the note out
+    /// again from the given line (the first heading whose section opened or closed): TextKit 2
+    /// relays only the restyled paragraphs, and with the note scrolled the viewport went on
+    /// drawing the old places, the text gone and the cards piled up, until something else
+    /// asked for a layout. `isProcessingEdit` says when the layout must wait a turn.
+    var onFoldsChanged: ((Int) -> Void)?
     /// A hidden line takes this much height, so a folded section reads as gone
     /// while the ruling below it drifts by under a point per hundred lines.
     static let hiddenLineHeight: CGFloat = 0.01
@@ -89,14 +93,36 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         var i = index + 1
         while i < map.lines.count {
             if case .heading(let l) = map.lines[i].kind, l <= level { break }
+            if case .plain = map.lines[i].kind, let l = bareHeadingLevel(map.lines[i].text), l <= level { break }
             i += 1
         }
         return i
     }
 
+    /// One past the last line a fold of the heading at `index` hides: its section without the
+    /// blank lines that close it, so the gaps between folded sections stay on the page and can be
+    /// added to or taken away (Sean, 2026-11-24). `index + 1` when there is nothing to fold.
+    func foldEnd(afterHeading index: Int) -> Int { Self.foldEnd(afterHeading: index, in: blockMap) }
+
+    static func foldEnd(afterHeading index: Int, in map: BlockMap) -> Int {
+        var end = sectionEnd(afterHeading: index, in: map)
+        while end > index + 1, map.lines[end - 1].text.allSatisfy({ $0 == " " || $0 == "\t" }) { end -= 1 }
+        return end
+    }
+
+    /// The level of a heading still waiting for its title (`#`, `## `), which the block map reads
+    /// as plain text: it ends a section all the same, so a heading being typed after a folded
+    /// section stands beside it, in view, rather than inside it.
+    static func bareHeadingLevel(_ text: String) -> Int? {
+        let hashes = text.prefix { $0 == "#" }.count
+        guard (1...6).contains(hashes) else { return nil }
+        guard text.dropFirst(hashes).allSatisfy({ $0 == " " || $0 == "\t" }) else { return nil }
+        return hashes
+    }
+
     func isFolded(heading index: Int) -> Bool {
         guard index < blockMap.lines.count, case .heading = blockMap.lines[index].kind else { return false }
-        return foldedHeadings.contains(Self.foldKey(blockMap.lines[index])) && sectionEnd(afterHeading: index) > index + 1
+        return foldedHeadings.contains(Self.foldKey(blockMap.lines[index])) && foldEnd(afterHeading: index) > index + 1
     }
 
     func isHidden(line index: Int) -> Bool { hiddenLines.contains(index) }
@@ -115,7 +141,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         if !foldedHeadings.isEmpty {
             for line in blockMap.lines {
                 guard case .heading = line.kind, foldedHeadings.contains(Self.foldKey(line)) else { continue }
-                for i in (line.index + 1)..<Self.sectionEnd(afterHeading: line.index, in: blockMap) { hidden.insert(i) }
+                for i in (line.index + 1)..<Self.foldEnd(afterHeading: line.index, in: blockMap) { hidden.insert(i) }
             }
         }
         hiddenLines = hidden
@@ -126,7 +152,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         guard index < blockMap.lines.count, case .heading = blockMap.lines[index].kind else { return }
         let key = Self.foldKey(blockMap.lines[index])
         if folded {
-            guard sectionEnd(afterHeading: index) > index + 1 else { return }
+            guard foldEnd(afterHeading: index) > index + 1 else { return }
             foldedHeadings.insert(key)
         } else {
             foldedHeadings.remove(key)
@@ -137,7 +163,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     func setAllFolded(_ folded: Bool) {
         if folded {
             for line in blockMap.lines {
-                guard case .heading = line.kind, Self.sectionEnd(afterHeading: line.index, in: blockMap) > line.index + 1 else { continue }
+                guard case .heading = line.kind, Self.foldEnd(afterHeading: line.index, in: blockMap) > line.index + 1 else { continue }
                 foldedHeadings.insert(Self.foldKey(line))
             }
         } else {
@@ -149,7 +175,7 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
     /// Open whatever hides `line`, so it can be shown (a search result, a task's line).
     func unfold(toReveal line: Int) {
         guard hiddenLines.contains(line) else { return }
-        for h in 0..<line where isFolded(heading: h) && sectionEnd(afterHeading: h) > line {
+        for h in 0..<line where isFolded(heading: h) && foldEnd(afterHeading: h) > line {
             foldedHeadings.remove(Self.foldKey(blockMap.lines[h]))
         }
         applyFoldChange()
@@ -159,9 +185,10 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
         let before = hiddenLines
         recomputeHidden()
         var changed = before.symmetricDifference(hiddenLines)
+        let first = max(0, (changed.min() ?? 1) - 1)
         for line in blockMap.lines { if case .heading = line.kind { changed.insert(line.index) } }
         restyle(lines: Array(changed))
-        onFoldsChanged?()
+        onFoldsChanged?(first)
     }
 
     init(palette: EditorPalette) {
@@ -362,15 +389,48 @@ final class MarkdownStyler: NSObject, NSTextStorageDelegate {
             // Folded sections move with the text above them: their lines are re-hidden after every edit.
             let hiddenBefore = hiddenLines
             recomputeHidden()
+            // Text written into a folded section opens it: Return at the end of a folded heading
+            // puts the new line inside the section, and typing there went on unseen.
+            let opened = openFolds(burying: editedRange, in: newMap)
             let restyle: NSRange
-            if fenceNow != previousFenceLines || touchesFence || hiddenLines != hiddenBefore {
-                restyle = NSRange(location: paragraphRange.location, length: text.length - paragraphRange.location)
+            if fenceNow != previousFenceLines || touchesFence || hiddenLines != hiddenBefore || opened != nil {
+                let from = min(paragraphRange.location, opened ?? paragraphRange.location)
+                restyle = NSRange(location: from, length: text.length - from)
             } else {
                 restyle = paragraphRange
             }
             previousFenceLines = fenceNow
             style(range: restyle, map: newMap)
         }
+    }
+
+    /// Open every fold hiding a line the edit wrote characters into (a paste, text typed on the
+    /// line under a folded section, which is the section's own, a line joined onto the section's
+    /// last one by ⌫). A newline after a hidden line writes nothing into it, so Return at a folded
+    /// heading's end, whose line goes after the section's text, opens nothing, and nor does ⌫ on an
+    /// empty line under a folded section. Returns where the first opened heading starts, from
+    /// which on the lines must be restyled, or nil when no fold was opened.
+    private func openFolds(burying edited: NSRange, in map: BlockMap) -> Int? {
+        guard !hiddenLines.isEmpty, let firstLine = map.line(at: edited.location) else { return nil }
+        let lastLine = map.line(at: edited.location + edited.length)?.index ?? firstLine.index
+        let written = (firstLine.index...max(firstLine.index, lastLine)).first { i in
+            guard hiddenLines.contains(i) else { return false }
+            let r = map.lines[i].range
+            if edited.length > 0 { return NSIntersectionRange(r, edited).length > 0 }
+            // A deletion: text now follows the join on this line.
+            return edited.location >= r.location && edited.location < r.location + r.length
+        }
+        guard let top = written else { return nil }
+        var opened: [Int] = []
+        for h in 0..<top where isFolded(heading: h) && foldEnd(afterHeading: h) > top { opened.append(h) }
+        guard let first = opened.first else { return nil }
+        for h in opened {
+            foldedHeadings.remove(Self.foldKey(map.lines[h]))
+            editedLines.insert(h)
+        }
+        recomputeHidden()
+        onFoldsChanged?(first)
+        return map.lines[first].range.location
     }
 
     private func fenceLineCount(_ map: BlockMap) -> Int {

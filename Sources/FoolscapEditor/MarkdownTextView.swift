@@ -133,7 +133,7 @@ public final class MarkdownTextView: NSTextView {
         // Sections folded on an earlier visit stay folded; toggles are remembered by
         // the note's path and the heading's text (never written into the file).
         if features.contains(.foldMemory) { styler.foldedHeadings = FoldMemory.folded(for: document.path) }
-        styler.onFoldsChanged = { [weak self] in
+        styler.onFoldsChanged = { [weak self] firstLine in
             guard let self else { return }
             if self.features.contains(.foldMemory) {
                 let present = Set(self.styler.blockMap.lines.compactMap { line -> String? in
@@ -143,6 +143,7 @@ public final class MarkdownTextView: NSTextView {
                 FoldMemory.save(self.styler.foldedHeadings.intersection(present), for: self.document.path)
             }
             self.needsDisplay = true
+            self.foldsLaidOut(fromLine: firstLine)
         }
         styler.attach(to: document.textStorage)
         if features.contains(.attachments) { registerForDraggedTypes(registeredDraggedTypes + [.fileURL, .png, .tiff]) }
@@ -471,11 +472,33 @@ public final class MarkdownTextView: NSTextView {
     /// line after it; TextKit 2 relays the edited paragraph alone and the viewport keeps drawing
     /// the rest at their old places, so lay out again from there to the end. Never from inside
     /// the storage's edit processing: see `overlaysChanged`.
-    private func relayout(fromLine first: Int) {
+    /// A section opened or closed: every line under it moved at once. Lay out from its heading
+    /// now (or, inside an edit, once it is through) and again a turn later, once the view has
+    /// taken its new height and the scroll position has settled.
+    private func foldsLaidOut(fromLine first: Int) {
+        let again = { [weak self] in
+            guard let self else { return }
+            self.relayout(fromLine: min(first, max(0, self.styler.blockMap.lines.count - 1)), ensuring: true)
+            self.foldsSettled()
+        }
+        if !styler.isProcessingEdit { again() }
+        DispatchQueue.main.async(execute: again)
+    }
+
+    private func foldsSettled() {
+        updateMinSize()
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    /// `ensuring` lays out every line from there to the end first, rather than leaving the lines
+    /// past the viewport to TextKit's estimates (a fold moves all of them at once).
+    private func relayout(fromLine first: Int, ensuring: Bool = false) {
         guard let lm = textLayoutManager, first < styler.blockMap.lines.count,
               let from = lm.location(lm.documentRange.location, offsetBy: styler.blockMap.lines[first].range.location),
               let range = NSTextRange(location: from, end: lm.documentRange.endLocation) else { return }
         lm.invalidateLayout(for: range)
+        if ensuring { lm.ensureLayout(for: range) }
         lm.textViewportLayoutController.layoutViewport()
     }
 

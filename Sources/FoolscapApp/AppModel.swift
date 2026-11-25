@@ -219,17 +219,20 @@ final class AppModel: AppModelCore {
         // Each character is a key-down event, 0.15 s apart, so the completion list
         // sees keys as it would from the keyboard.
         if let raw = flagValue("--type") {
-            // Named keys: {up} {down} {left} {right} {tab} {esc} {paste} (⌘V); \n is Return.
-            let named: [String: (String, UInt16)] = [
-                "up": ("\u{F700}", 126), "down": ("\u{F701}", 125), "left": ("\u{F702}", 123), "right": ("\u{F703}", 124),
-                "tab": ("\t", 48), "esc": ("\u{1B}", 53), "paste": ("v", 9)]
-            var keys: [(chars: String, code: UInt16)] = []
+            // Named keys: {up} {down} {left} {right} {tab} {esc} {paste} (⌘V) {fold} (⌥⌘←, Fold
+            // Section) {unfold} (⌥⌘→) {wait} (a second's pause); \n is Return.
+            let named: [String: (chars: String, code: UInt16, flags: NSEvent.ModifierFlags)] = [
+                "up": ("\u{F700}", 126, []), "down": ("\u{F701}", 125, []), "left": ("\u{F702}", 123, []),
+                "right": ("\u{F703}", 124, []), "tab": ("\t", 48, []), "esc": ("\u{1B}", 53, []), "paste": ("v", 9, .command),
+                "fold": ("\u{F702}", 123, [.command, .option]), "unfold": ("\u{F703}", 124, [.command, .option]),
+                "wait": ("", 0, [])]
+            var keys: [(chars: String, code: UInt16, flags: NSEvent.ModifierFlags)] = []
             var rest = Substring(raw.replacingOccurrences(of: "\\n", with: "\n"))
             while let ch = rest.first {
                 if ch == "{", let close = rest.firstIndex(of: "}"), let key = named[String(rest[rest.index(after: rest.startIndex)..<close])] {
                     keys.append(key); rest = rest[rest.index(after: close)...]; continue
                 }
-                keys.append(ch == "\n" ? ("\r", 36) : (String(ch), ch == " " ? 49 : 0))
+                keys.append(ch == "\n" ? ("\r", 36, []) : (String(ch), ch == " " ? 49 : 0, []))
                 rest = rest.dropFirst()
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -249,9 +252,11 @@ final class AppModel: AppModelCore {
                 Thread.detachNewThread {
                     for key in keys {
                         Thread.sleep(forTimeInterval: 0.15)
-                        var flags: NSEvent.ModifierFlags = key.chars.unicodeScalars.first.map { (0xF700...0xF8FF).contains($0.value) } == true
-                            ? [.function, .numericPad] : []
-                        if key.chars == "v" && key.code == 9 { flags = .command }
+                        if key.chars.isEmpty { Thread.sleep(forTimeInterval: 1); continue }
+                        var flags = key.flags
+                        if key.chars.unicodeScalars.first.map({ (0xF700...0xF8FF).contains($0.value) }) == true {
+                            flags.formUnion([.function, .numericPad])
+                        }
                         guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
                                                            timestamp: ProcessInfo.processInfo.systemUptime,
                                                            windowNumber: windowNumber, context: nil,

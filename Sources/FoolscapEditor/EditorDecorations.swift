@@ -355,7 +355,7 @@ struct EditorDecorations {
         while i < lines.count, lines[i].range.location <= span.last {
             defer { i += 1 }
             let line = lines[i]
-            guard case .heading = line.kind, !styler.isHidden(line: i), styler.sectionEnd(afterHeading: i) > i + 1 else { continue }
+            guard case .heading = line.kind, !styler.isHidden(line: i), styler.foldEnd(afterHeading: i) > i + 1 else { continue }
             let folded = styler.isFolded(heading: i)
             guard let frame = geometry.fragmentRect(for: line.range) else { continue }
             let active = geometry.hoverHeading == i || styler.isRevealed(line: i)
@@ -372,7 +372,7 @@ struct EditorDecorations {
             ctx.strokePath()
             ctx.restoreGState()
             guard folded, let storage else { continue }
-            let hidden = styler.sectionEnd(afterHeading: i) - i - 1
+            let hidden = styler.foldEnd(afterHeading: i) - i - 1
             let label = NSAttributedString(string: hidden == 1 ? "1 line" : "\(hidden) lines", attributes: [
                 .font: PlatformFont.systemFont(ofSize: 10.5, weight: .medium), .foregroundColor: palette.dimInk])
             let textWidth = storage.attributedSubstring(from: line.range).size().width

@@ -249,11 +249,16 @@ extension MarkdownEditing {
     func returnPressed() -> Bool {
         let caret = markdownSelection
         guard caret.length == 0, let line = styler.blockMap.line(at: caret.location) else { return false }
-        // Return on a folded heading opens a line below the folded section, not inside it.
-        if case .heading = line.kind, styler.isFolded(heading: line.index) {
-            let lastHidden = styler.blockMap.lines[styler.sectionEnd(afterHeading: line.index) - 1]
+        // Return at the end of a folded heading opens an empty line under it on the page, which
+        // in the file is after the section's text: a fold leaves the blank lines that close a
+        // section in view (`foldEnd`), so the line shows, takes a `## ` heading of its own (a bare
+        // `##` already ends the section, `MarkdownStyler.bareHeadingLevel`) or stays a gap. Text
+        // typed there is the section's and opens the fold. Until 0.26.1 the new line was hidden.
+        // (At the heading's start Return is a plain newline: a line above it.)
+        if case .heading = line.kind, styler.isFolded(heading: line.index), caret.location > line.range.location {
+            let lastHidden = styler.blockMap.lines[styler.foldEnd(afterHeading: line.index) - 1]
             let target = lastHidden.range.location + lastHidden.range.length
-            replace(NSRange(location: target, length: 0), with: "\n")
+            guard replace(NSRange(location: target, length: 0), with: "\n") else { return true }
             markdownSelection = NSRange(location: target + 1, length: 0)
             return true
         }

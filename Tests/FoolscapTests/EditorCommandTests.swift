@@ -203,12 +203,13 @@ private func makeView(_ text: String, caret: Int? = nil) -> (MarkdownTextView, N
         let open = tlm.usageBoundsForTextContainer.height
         view.styler.setFolded(true, heading: 2)
         #expect(view.styler.isFolded(heading: 2))
-        #expect(view.styler.hiddenLines == [3, 4, 5])
+        // The blank line closing the section stays on the page (0.26.1).
+        #expect(view.styler.hiddenLines == [3, 4])
         tlm.ensureLayout(for: tlm.documentRange)
         let folded = tlm.usageBoundsForTextContainer.height
         let pitch = view.palette.pitch
-        // Three lines gone: the page is three ruled lines shorter, give or take a hair.
-        #expect(abs((open - folded) - 3 * pitch) < 1, "open \(open) folded \(folded) pitch \(pitch)")
+        // Two lines gone: the page is two ruled lines shorter, give or take a hair.
+        #expect(abs((open - folded) - 2 * pitch) < 1, "open \(open) folded \(folded) pitch \(pitch)")
         view.styler.setFolded(false, heading: 2)
         #expect(view.styler.hiddenLines.isEmpty)
     }
@@ -219,7 +220,7 @@ private func makeView(_ text: String, caret: Int? = nil) -> (MarkdownTextView, N
         let lines = view.styler.blockMap.lines
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.setSelectedRange(NSRange(location: lines[4].range.location + 1, length: 0))   // into "- b", moving forward
-        #expect(view.selectedRange().location == lines[6].range.location)                 // start of "## Afternoon"
+        #expect(view.selectedRange().location == lines[5].range.location)                 // the blank line after it
         view.setSelectedRange(NSRange(location: lines[7].range.location, length: 0))
         view.setSelectedRange(NSRange(location: lines[3].range.location, length: 0))       // moving backward
         #expect(view.selectedRange().location == lines[2].range.location + lines[2].range.length)   // end of "## Morning"
@@ -232,20 +233,101 @@ private func makeView(_ text: String, caret: Int? = nil) -> (MarkdownTextView, N
         view.setSelectedRange(NSRange(location: 5, length: 0))
         view.insertText("\nnew", replacementRange: NSRange(location: 5, length: 0))
         #expect(doc.text.hasPrefix("# Day\nnew\n"))
-        #expect(view.styler.hiddenLines == [4, 5, 6])
+        #expect(view.styler.hiddenLines == [4, 5])
         view.styler.unfold(toReveal: 5)
         #expect(view.styler.hiddenLines.isEmpty)
         #expect(!view.styler.isFolded(heading: 3))
     }
 
-    @Test func returnOnAFoldedHeadingWritesBelowTheSection() {
+    /// Folds `## Morning` in `note`, puts the caret at the heading's end and presses Return.
+    private func returnOnFoldedMorning() -> (MarkdownTextView, NoteDocument) {
         let (view, doc) = makeView(Self.note)
         view.styler.setFolded(true, heading: 2)
         let heading = view.styler.blockMap.lines[2].range
         view.setSelectedRange(NSRange(location: heading.location + heading.length, length: 0))
         view.insertNewline(nil)
+        return (view, doc)
+    }
+
+    private func type(_ text: String, into view: MarkdownTextView) {
+        for ch in text { view.insertText(String(ch), replacementRange: view.selectedRange()) }
+    }
+
+    @Test func returnOnAFoldedHeadingOpensAVisibleLineAfterTheSection() {
+        let (view, doc) = returnOnFoldedMorning()
         #expect(doc.text.contains("- b\n\n\n## Afternoon"))
         #expect(view.styler.isFolded(heading: 2))
+        #expect(view.styler.hiddenLines == [3, 4])
+        let caretLine = view.styler.blockMap.line(at: view.selectedRange().location)
+        #expect(caretLine?.index == 5 && caretLine?.text == "")
+    }
+
+    @Test func aHeadingTypedAfterAFoldedSectionStandsBesideIt() {
+        let (view, doc) = returnOnFoldedMorning()
+        // Every keystroke, `#` and `##` included, leaves the fold shut and the line in view.
+        for ch in "## Evening" {
+            view.insertText(String(ch), replacementRange: view.selectedRange())
+            #expect(view.styler.isFolded(heading: 2))
+            #expect(view.styler.hiddenLines == [3, 4])
+        }
+        #expect(doc.text.contains("- b\n## Evening\n\n## Afternoon"))
+        #expect(MarkdownStyler.sectionEnd(afterHeading: 2, in: view.styler.blockMap) == 5)
+    }
+
+    @Test func textTypedAfterAFoldedSectionIsItsOwnAndOpensIt() {
+        let (view, doc) = returnOnFoldedMorning()
+        type("c", into: view)
+        #expect(doc.text.contains("- b\nc\n\n## Afternoon"))
+        #expect(!view.styler.isFolded(heading: 2))
+        #expect(view.styler.hiddenLines.isEmpty)
+    }
+
+    @Test func backspacingTheGapUnderAFoldedSectionLeavesItShut() {
+        let (view, doc) = returnOnFoldedMorning()
+        view.deleteBackward(nil)
+        #expect(doc.text == Self.note)
+        #expect(view.styler.isFolded(heading: 2))
+        #expect(view.styler.hiddenLines == [3, 4])
+    }
+
+    @Test func returnOnAFoldedLastSectionOpensALineAfterIt() {
+        let (view, doc) = makeView("# Day\n\n## Inbox\n\nOne\nTwo")
+        view.styler.setFolded(true, heading: 2)
+        let heading = view.styler.blockMap.lines[2].range
+        view.setSelectedRange(NSRange(location: heading.location + heading.length, length: 0))
+        view.insertNewline(nil)
+        type("## Later", into: view)
+        #expect(doc.text.hasSuffix("Two\n## Later"))
+        #expect(view.styler.isFolded(heading: 2))
+        #expect(view.styler.hiddenLines == [3, 4, 5])
+    }
+
+    @Test func blankLinesBetweenFoldedSectionsStayInView() {
+        let (view, _) = makeView("## A\none\n\n\n## B\ntwo\n")
+        view.styler.setAllFolded(true)
+        #expect(view.styler.hiddenLines == [1, 5])
+    }
+
+    @Test func textWrittenIntoAFoldedSectionOpensIt() {
+        let (view, doc) = makeView("# Day\n\n## Inbox\n\nOne\nTwo\n")
+        view.styler.setFolded(true, heading: 2)
+        // The empty last line shows under the fold; text written on it is the section's.
+        let end = (doc.text as NSString).length
+        _ = view.replace(NSRange(location: end, length: 0), with: "hello")
+        #expect(doc.text.hasSuffix("Two\nhello"))
+        #expect(view.styler.hiddenLines.isEmpty)
+        #expect(!view.styler.isFolded(heading: 2))
+    }
+
+    @Test func aBareHeadingEndsASection() {
+        #expect(MarkdownStyler.bareHeadingLevel("## ") == 2)
+        #expect(MarkdownStyler.bareHeadingLevel("##") == 2)
+        #expect(MarkdownStyler.bareHeadingLevel("# \t") == 1)
+        #expect(MarkdownStyler.bareHeadingLevel("#tag") == nil)
+        #expect(MarkdownStyler.bareHeadingLevel("####### ") == nil)
+        // In a code block a `#` is code, not a heading.
+        let map = BlockMap.scan("## A\n```\n#\n```\ntext\n")
+        #expect(MarkdownStyler.sectionEnd(afterHeading: 0, in: map) == map.lines.count)
     }
 
     @Test func foldStateIsRememberedPerNote() {

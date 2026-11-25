@@ -35,7 +35,7 @@ extension MarkdownTextView {
         guard zone.contains(point.x) else { return nil }
         let index = characterIndexForInsertion(at: NSPoint(x: EditorMetrics.leftInset + 2, y: point.y))
         guard let line = styler.blockMap.line(at: index), case .heading = line.kind,
-              styler.sectionEnd(afterHeading: line.index) > line.index + 1,
+              styler.foldEnd(afterHeading: line.index) > line.index + 1,
               let rect = fragmentRect(for: line.range), rect.minY <= point.y, point.y < rect.minY + palette.pitch else { return nil }
         return line.index
     }
@@ -71,7 +71,7 @@ extension MarkdownTextView {
     }
 
     @objc func foldSection(_ sender: Any?) {
-        guard let h = headingForCaret(), styler.sectionEnd(afterHeading: h) > h + 1 else { NSSound.beep(); return }
+        guard let h = headingForCaret(), styler.foldEnd(afterHeading: h) > h + 1 else { NSSound.beep(); return }
         setFold(true, heading: h)
         needsDisplay = true
     }
@@ -117,7 +117,7 @@ extension MarkdownTextView {
         if point.x < bounds.width - EditorMetrics.rightInset {
             let index = characterIndexForInsertion(at: NSPoint(x: EditorMetrics.leftInset + 2, y: point.y))
             if let line = styler.blockMap.line(at: index), case .heading = line.kind, !styler.isHidden(line: line.index),
-               styler.sectionEnd(afterHeading: line.index) > line.index + 1,
+               styler.foldEnd(afterHeading: line.index) > line.index + 1,
                let rect = fragmentRect(for: line.range), rect.minY <= point.y, point.y < rect.minY + palette.pitch {
                 hovered = line.index
             }
